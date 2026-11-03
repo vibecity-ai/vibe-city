@@ -92,18 +92,6 @@ test('model catalog lists Hermes providers and models; legacy allowedModelIds ar
   assert.ok(!('allowedModelIds' in inv));
 });
 
-test('board default workdir is passed to Hermes server-side and never exposed by the API', async () => {
-  const t = provApp();
-  const dir = tempDir();
-  const d = await t.create('Eng', { workspace: dir });
-  const res = await t.provision(d.id);
-  assert.equal(t.hermes.boards.get(d.hermesBoardSlug)!.defaultWorkdir, dir);
-  assert.ok(!res.body.includes(dir));
-  for (const url of [`/api/departments/${d.id}`, `/api/departments/${d.id}/provisioning`, `/api/departments/${d.id}/effective-inventory`, `/api/departments/${d.id}/profiles`]) {
-    assert.ok(!(await t.app.inject(url)).body.includes(dir), url);
-  }
-});
-
 // ---- idempotency / partial failure -------------------------------------------
 
 test('provisioning is idempotent: a second run creates nothing new', async () => {
@@ -244,7 +232,7 @@ test('inventory that Hermes does not reflect -> error, never ready', async () =>
 test('archived board in Hermes blocks provisioning with a clear, non-retryable error', async () => {
   const t = provApp();
   const d = await t.create('Eng');
-  t.hermes.boards.set(d.hermesBoardSlug, { slug: d.hermesBoardSlug, name: 'x', archived: true, defaultWorkdir: null });
+  t.hermes.boards.set(d.hermesBoardSlug, { slug: d.hermesBoardSlug, name: 'x', archived: true });
   const st = (await t.provision(d.id)).json();
   assert.equal(st.error.code, 'board_archived');
   assert.equal(st.error.retryable, false);
@@ -466,7 +454,7 @@ test('effective inventory: honest statuses before and after provisioning', async
   assert.equal(conc.status, 'unsupported');
   assert.equal(conc.requested, 5);
   assert.equal(conc.effective, 2, 'reports the host-wide cap, not the requested value');
-  assert.equal(eff.departmentWide.find((e: any) => e.capability === 'workspace.isolation').status, 'unsupported');
+  assert.equal(eff.departmentWide.find((e: any) => e.capability === 'files.isolation').status, 'unsupported');
 });
 
 test('no response ever contains credentials or Hermes internals', async () => {
@@ -586,7 +574,7 @@ test('reconcile never modifies an associated profile whose consent is missing', 
 
 // ---- safeguard: only tested restrictions are presented as guarantees ---------------------
 
-test('guarantee is true only for enforced capabilities; workspace isolation and delegation depth never are', async () => {
+test('guarantee is true only for enforced capabilities; file isolation and delegation depth never are', async () => {
   const t = provApp();
   t.hermes.concurrencyCap = 1;
   const d = await t.create('Eng', { inventory: { allowedToolsets: ['file', 'terminal'], allowedMcpTools: ['x:y'], model: { provider: 'near-ai', id: 'm-1' }, limits: { maxConcurrentWorkers: 1 } } });
@@ -595,7 +583,7 @@ test('guarantee is true only for enforced capabilities; workspace isolation and 
   const all = [...eff.chief.entries, ...eff.worker.entries, ...eff.departmentWide];
   for (const e of all) assert.equal(e.guarantee, e.status === 'enforced', `${e.capability}: guarantee must equal (status === enforced)`);
   assert.ok(all.some((e: any) => e.guarantee), 'tested toolset restrictions are guarantees');
-  for (const cap of ['workspace.isolation', 'limits.maxDelegationDepth']) {
+  for (const cap of ['files.isolation', 'limits.maxDelegationDepth']) {
     const e = eff.departmentWide.find((x: any) => x.capability === cap);
     assert.deepEqual([e.status, e.guarantee], ['unsupported', false], cap);
   }

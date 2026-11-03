@@ -368,7 +368,7 @@ export async function createDepartment(input: DepartmentCreate, provisionNow: bo
   await provisionDepartment(v.id);
 }
 
-/** PATCH name/purpose/workspace. On failure nothing local changes (the last good state stays). */
+/** PATCH name/purpose. On failure nothing local changes (the last good state stays). */
 export async function saveDepartmentSettings(id: string, patch: DepartmentUpdate): Promise<ApiError | null> {
   const before = raw.depts.find((d) => d.id === id)?.state;
   const { value, error } = await attempt(`settings:${id}`, () => api.updateDepartment(id, patch));

@@ -8,7 +8,7 @@
 packages/shared      zod schemas + types shared by backend and (later) web
 apps/backend         Fastify API, SQLite (node:sqlite), Hermes adapter
   src/db             migrations + openDb
-  src/domain         company/department services, workspace validation
+  src/domain         company/department services
   src/hermes         ports.ts (HermesRuntime interface + error classes), realRuntime.ts (dashboard REST + `hermes` CLI),
                      kanbanClient.ts (Kanban REST)
   src/testing        FakeHermes (in-memory, fault injection) used only by tests
@@ -30,8 +30,8 @@ Schema changes are append-only entries in `MIGRATIONS` (`PRAGMA user_version`); 
 - **Department state** = provisioning state, written only by the provisioning service: `unconfigured | provisioning | ready | error | disconnected` (see below). Setting profile refs or editing the PATCH body never makes a department ready.
 - **Board slug** = `vc-<department uuid>` (immutable; valid under Hermes' slug rule). Never derived from the name.
 - **Delete = archive.** Row, inventory and Hermes refs are kept; nothing in Hermes is touched. Names of archived departments can be reused; slugs and floor numbers can not.
-- **Inventory** is department-level only: skills, MCP tools (`server:tool`), models, toolsets, shared context refs, limits. Agent-level permissions will be derived (department ∩ role ∩ task), not stored.
-- **Workspace**: the host path is stored server-side and never returned; the API exposes `{configured, label, isolation}`. `isolation` is always `unverified`: Hermes' local backend does not confine file access (see compat doc), so a configured workspace is advisory.
+- **Inventory** is department-level only: skills, MCP tools (`server:tool`), models, toolsets, shared context refs (API only; no UI), limits. Agent-level permissions will be derived (department ∩ role ∩ task), not stored.
+- **No workspace**: departments have no configured directory. Boards are created without a `default_workdir`, so Hermes gives every task its own scratch folder (`kanban/workspaces/<board>/<task>`); output reaches the user as task attachments. Files are not isolated per department: an agent with file tools can reach anything the Hermes process can.
 - **Concurrency**: `limits.maxConcurrentWorkers` is a *requested* limit. Hermes has only a host-wide per-profile cap (read at gateway start), so it is not guaranteed per department.
 - **Validation**: all request bodies and responses go through the shared zod schemas; unknown fields are rejected (400). Error messages never echo host paths.
 
@@ -41,9 +41,9 @@ Schema changes are append-only entries in `MIGRATIONS` (`PRAGMA user_version`); 
 |---|---|
 | `GET /api/company` | company, Executive Office, ordered `floors` |
 | `GET /api/departments[?includeArchived=true]` | ordered by floor |
-| `POST /api/departments` | `{name, purpose?, workspace?, inventory?}` -> 201; 409 on duplicate active name |
+| `POST /api/departments` | `{name, purpose?, inventory?}` -> 201; 409 on duplicate active name |
 | `GET /api/departments/:id` | archived ones included |
-| `PATCH /api/departments/:id` | `name, purpose, workspace, chiefProfileRef, workerProfileRef`; 409 if archived |
+| `PATCH /api/departments/:id` | `name, purpose, chiefProfileRef, workerProfileRef`; 409 if archived |
 | `DELETE /api/departments/:id` | archive; returns `hermesResourcesRetained` |
 | `GET/PATCH /api/departments/:id/inventory` | PATCH merges; `limits` merged field by field. Editing a provisioned department's inventory sets it back to `unconfigured` until re-provisioned |
 | `POST /api/departments/:id/provision` | idempotent; runs synchronously; 409 if already in progress |
@@ -71,7 +71,7 @@ Provisioning applies department restrictions (toolsets, skills, model default, a
 Every capability entry has `status` and `guarantee`. `guarantee` is true **only** for `enforced`. The Department Inventory UI must follow these rules:
 
 1. Show `enforced` (a restriction that was applied, read back from Hermes, and tested to hold at runtime) separately from `configured` ("set in Hermes, behavior not tested"), `unverified`, and `unsupported`. Use different wording, not just different colors, and never a lock/shield style for anything with `guarantee: false`.
-2. **Workspace isolation** and **worker delegation depth** are never guarantees. Verified: an agent with file tools can write outside its workspace; workers keep the Kanban tools and can create tasks. Label them as advisory ("configured path, not a sandbox", "instructed, not enforced"). Do not describe a workspace as "isolated" or "secured", and do not offer "depth limit" as a safety setting.
+2. **File isolation** and **worker delegation depth** are never guarantees. Verified: an agent with file tools can write outside its task folder; workers keep the Kanban tools and can create tasks. Label them as advisory ("instructed, not enforced"). Do not describe a department's files as "isolated" or "secured", and do not offer "depth limit" as a safety setting.
 3. Enforceable controls to offer prominently: disabling toolsets (notably terminal, file, web, browser, code_execution). Even these are tested restrictions on one Hermes version, not a hard sandbox; show the tested-on version where space allows.
 4. The requested worker limit is a request unless it equals the host-wide Hermes cap; show the host-wide value next to it.
 5. Render the entry `detail` text; it states the limitation in plain words. Do not summarize "everything is secured" from an overall state of `ready`: `ready` means resources exist and match the inventory, not that every inventory item is enforced.
@@ -118,7 +118,7 @@ Policy is `Department ∩ Role` (task-level narrowing is Milestone 3), applied p
 - **Instructions**: department purpose, role rules and shared-context *references* go into a delimited block in the profile's `SOUL.md`; everything else in the file is preserved.
 - **MCP tools**: not applied (no MCP server available to verify against); reported `unverified`.
 
-The effective-inventory endpoint labels each capability: `enforced` (applied, read back, and behavior tested against real Hermes: terminal/file/web/browser/code_execution), `configured` (read back, behavior untested), `unverified`, or `unsupported` (workspace isolation, model restriction, delegation depth for workers, per-department concurrency). Concurrency: Hermes has one host-wide per-profile cap; a requested limit is reported `configured` only if it equals that cap, otherwise `unsupported`.
+The effective-inventory endpoint labels each capability: `enforced` (applied, read back, and behavior tested against real Hermes: terminal/file/web/browser/code_execution), `configured` (read back, behavior untested), `unverified`, or `unsupported` (file isolation, model restriction, delegation depth for workers, per-department concurrency). Concurrency: Hermes has one host-wide per-profile cap; a requested limit is reported `configured` only if it equals that cap, otherwise `unsupported`.
 
 ### Run references
 
@@ -204,7 +204,7 @@ The vibeytown prototype was copied in once (it is no longer synced from that rep
 - `data/live.ts` is the only data source: REST + `/api/live` (events are refetch hints), derives the view model, writes the Zustand store, and diffs consecutive snapshots into one-shot animation cues. Failed refreshes keep the last data and set `stale`. The browser never talks to Hermes.
 - `data/derive.ts` (pure, tested) maps DTOs to floors. There are no persistent workers: **a desk exists only for a real worker-role Kanban task** of a live quest, status from the task (`running`, `done` -> completed, blocked+failure -> failed, everything else -> idle), up to 6 desks, kept stable per task. The chief is `running` only while its own task runs; "planning finished" is idle, never completed.
 - Department state: unconfigured/provisioning -> unconfigured, error -> attention, disconnected or Hermes down -> offline, otherwise failed task -> attention, running -> active, else idle.
-- Types come from `@vibe-city/shared` (zod-validated in `src/api.ts`). The inventory UI follows the guarantee rules above: enforced, configured, unverified and unsupported are separate groups with their `detail` text; workspace and delegation depth are labelled advisory.
+- Types come from `@vibe-city/shared` (zod-validated in `src/api.ts`). The inventory UI follows the guarantee rules above: enforced, configured, unverified and unsupported are separate groups with their `detail` text; delegation depth is labelled advisory.
 - The department setup panel provisions (managed profiles by default; existing profiles require the explicit consent checkbox, sent as `confirmModifyProfiles`).
 - `apps/web/tsconfig.json` turns off `noUncheckedIndexedAccess` because the imported renderer indexes arrays freely.
 
@@ -212,7 +212,7 @@ The vibeytown prototype was copied in once (it is no longer synced from that rep
 
 The city at `/` is the complete product surface (the original `#board` view has been removed).
 
-- **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, workspace set/clear with advisory copy, the provisioning/profile inspector, archive); inventory sheet (the floor's agents, worker desks = `maxConcurrentWorkers`, task runtime, workspace, MCP tools; the capability report is API-only); **agent view** (click a person on the floor: model, skills, toolsets, recent Hermes sessions, latest activity, shared context; edits change the department inventory shared by both roles); the **company quest board** (top bar and Executive Office; the player's only board, combining every department's quests, see `data/company.ts`; department panels link to it with a department filter); quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
+- **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, the provisioning/profile inspector, archive); inventory sheet (the floor's agents, worker desks = `maxConcurrentWorkers`, task runtime, MCP tools; the capability report is API-only); **agent view** (click a person on the floor: model, skills, toolsets, recent Hermes sessions, latest activity; edits change the department inventory shared by both roles); the **company quest board** (top bar and Executive Office; the player's only board, combining every department's quests, see `data/company.ts`; department panels link to it with a department filter); quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
 - **Copy and rules** live in `data/views.ts` (pure, tested): what a status means in words, which provisioning action is allowed (retry only for a retryable error or `disconnected`), the settings PATCH diff, archive consequences, cancellation wording (a 202 `requested` is never shown as cancelled).
 - **Consistency** (`data/live.ts`, `data/sched.ts`): every fetch takes a ticket from a last-request-wins gate per key (department quests, local data, info, quest detail, cancellation), so an older response never overwrites newer state. Live events are coalesced per department (400 ms after the last event, at most 2 s after the first). Mutations refresh only the affected department (`GET /api/departments/:id` + its data); create and archive refresh everything because floor order changes. Archiving closes the floor's socket, pending refresh and cancellation polls. A cancellation status never regresses from `confirmed`.
 - **Cancellation polling**: after a `requested` answer the UI polls `GET .../cancellation` (1, 2, 4, 8, then 10 s; 2 min budget) until confirmed, the quest view closes, Hermes/the backend is unreachable, or the budget runs out. Live events refresh the same status in between.

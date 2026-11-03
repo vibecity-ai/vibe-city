@@ -169,11 +169,11 @@ export function buildDepartmentWideReport(inv: Inventory, globalCap: number | nu
   const entries: Draft[] = [
     concurrencyEntry(inv.limits.maxConcurrentWorkers, globalCap),
     {
-      capability: 'workspace.isolation',
-      requested: 'configured workspace',
+      capability: 'files.isolation',
+      requested: 'department-scoped files',
       effective: null,
       status: 'unsupported',
-      detail: 'Verified: on the local backend an agent with file tools can write outside its workspace. Workspace paths are advisory. Disabling the file/terminal toolsets is the enforceable control.',
+      detail: 'Verified: on the local backend an agent with file tools can read and write anywhere the Hermes process can, including other departments\' task folders. Disabling the file/terminal toolsets is the enforceable control.',
     },
     {
       capability: 'limits.maxDelegationDepth',

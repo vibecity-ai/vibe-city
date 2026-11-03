@@ -22,7 +22,6 @@ export interface BoardInfo {
   slug: string;
   name: string;
   archived: boolean;
-  defaultWorkdir: string | null;
 }
 
 export interface SkillInfo {
@@ -65,7 +64,7 @@ export interface HermesRuntime {
   createProfile(name: string, opts: { description: string }): Promise<void>;
 
   listBoards(): Promise<BoardInfo[]>;
-  createBoard(slug: string, name: string, opts: { defaultWorkdir?: string }): Promise<void>;
+  createBoard(slug: string, name: string): Promise<void>;
 
   /** Map of toolset name -> enabled, for every toolset Hermes lists (built-in and plugin). */
   getToolsets(profile: string): Promise<Record<string, boolean>>;

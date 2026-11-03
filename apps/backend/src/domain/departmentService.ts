@@ -5,11 +5,9 @@ import {
   type DepartmentCreate, type DepartmentUpdate, type DepartmentView, type Inventory, type InventoryPatch,
 } from '@vibe-city/shared';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
-import { validateWorkspacePath, workspaceLabel } from './workspace.ts';
 
 interface Row {
   id: string; company_id: string; name: string; purpose: string; floor_order: number;
-  workspace_path: string | null; workspace_isolation: 'unverified' | 'verified';
   chief_profile_ref: string | null; worker_profile_ref: string | null;
   hermes_board_ref: string | null; board_sync_state: 'not_provisioned' | 'synced' | 'error';
   archived_at: string | null; created_at: string; updated_at: string;
@@ -35,12 +33,6 @@ export function toView(r: Row, floorPosition: number | null): DepartmentView {
     floorPosition: r.archived_at ? null : floorPosition,
     // Set only by the provisioning service after every Hermes resource has been verified.
     state: r.provisioning_state,
-    // Host path is deliberately not exposed; only an opaque label and the (unverified) isolation status.
-    workspace: {
-      configured: r.workspace_path !== null,
-      label: r.workspace_path ? workspaceLabel(r.workspace_path) : null,
-      isolation: r.workspace_isolation,
-    },
     chiefProfileRef: r.chief_profile_ref,
     workerProfileRef: r.worker_profile_ref,
     hermesBoardSlug: boardSlugForDepartment(r.id),
@@ -141,7 +133,6 @@ export class DepartmentService {
   }
 
   create(input: DepartmentCreate): DepartmentView {
-    const workspace = input.workspace ? validateWorkspacePath(input.workspace) : null;
     const inventory = mergeInventory(InventorySchema.parse({}), input.inventory ?? {});
     return this.tx(() => {
       this.assertUniqueName(input.name);
@@ -150,9 +141,9 @@ export class DepartmentService {
       // floor_order is monotonic and never reused or renumbered, so existing floors stay stable.
       const next = (this.db.prepare('SELECT COALESCE(MAX(floor_order), 0) + 1 AS n FROM department').get() as { n: number }).n;
       this.db.prepare(
-        `INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, workspace_path, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, this.companyId, input.name, nameKey(input.name), input.purpose, next, workspace, now, now);
+        `INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(id, this.companyId, input.name, nameKey(input.name), input.purpose, next, now, now);
       this.db.prepare('INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, ?, ?)')
         .run(id, JSON.stringify(inventory), now);
       return this.get(id);
@@ -164,10 +155,6 @@ export class DepartmentService {
       const cur = this.row(id);
       if (cur.archived_at) throw new ConflictError('department is archived');
       if (patch.name !== undefined) this.assertUniqueName(patch.name, id);
-      const workspace = patch.workspace === undefined ? cur.workspace_path
-        : patch.workspace === null || patch.workspace === '' ? null : validateWorkspacePath(patch.workspace);
-      // A changed path invalidates any earlier isolation claim.
-      const isolation = workspace === cur.workspace_path ? cur.workspace_isolation : 'unverified';
       const chief = patch.chiefProfileRef === undefined ? cur.chief_profile_ref : patch.chiefProfileRef;
       const worker = patch.workerProfileRef === undefined ? cur.worker_profile_ref : patch.workerProfileRef;
       this.assertProfileRefs(id, chief, worker);
@@ -182,13 +169,12 @@ export class DepartmentService {
       }
       const name = patch.name ?? cur.name;
       this.db.prepare(
-        `UPDATE department SET name = ?, name_key = ?, purpose = ?, workspace_path = ?, workspace_isolation = ?,
+        `UPDATE department SET name = ?, name_key = ?, purpose = ?,
            chief_profile_ref = ?, worker_profile_ref = ?, updated_at = ? WHERE id = ?`,
-      ).run(name, nameKey(name), patch.purpose ?? cur.purpose, workspace, isolation, chief, worker, new Date().toISOString(), id);
+      ).run(name, nameKey(name), patch.purpose ?? cur.purpose, chief, worker, new Date().toISOString(), id);
       this.db.prepare('UPDATE department SET confirmed_profile_refs_json = ? WHERE id = ?').run(JSON.stringify(confirmed), id);
       // Anything Hermes-side that was applied from the old values is no longer trustworthy: require re-provisioning.
-      const contextChanged = (patch.purpose !== undefined && patch.purpose !== cur.purpose) || (patch.name !== undefined && patch.name !== cur.name)
-        || workspace !== cur.workspace_path;
+      const contextChanged = (patch.purpose !== undefined && patch.purpose !== cur.purpose) || (patch.name !== undefined && patch.name !== cur.name);
       const confirmationChanged = JSON.stringify(confirmed) !== cur.confirmed_profile_refs_json;
       if (refsChanged) this.resetProvisioning(id, true);
       else if (confirmationChanged && cur.provisioning_state === 'error') this.resetProvisioning(id, false);

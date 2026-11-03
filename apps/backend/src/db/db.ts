@@ -68,6 +68,9 @@ export const MIGRATIONS: readonly string[] = [
      last_event_id INTEGER NOT NULL,
      updated_at TEXT NOT NULL
    );`,
+  // v5: departments no longer have a workspace path; Hermes gives every task its own folder.
+  `ALTER TABLE department DROP COLUMN workspace_path;
+   ALTER TABLE department DROP COLUMN workspace_isolation;`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

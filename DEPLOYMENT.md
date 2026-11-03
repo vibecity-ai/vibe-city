@@ -72,7 +72,7 @@ About 97% of the image (roughly 4.6 GB) is the Hermes base: bundled Chromium, ff
 
 ## Isolation: what Docker does and does not change
 
-Agents run with Hermes' local terminal backend *inside this container*. That confines them to the container and the data volume (the host is out of reach), which is a real improvement. It does **not** make workspace scoping per department: any agent with file tools can still reach other departments' files in the same volume. The UI therefore keeps labelling workspaces as advisory. A real per-department sandbox would need Hermes' docker terminal backend (Docker-in-Docker or a mounted socket), which is a separate decision with its own security cost.
+Agents run with Hermes' local terminal backend *inside this container*. That confines them to the container and the data volume (the host is out of reach), which is a real improvement. It does **not** scope files per department: any agent with file tools can still reach other departments' task folders in the same volume. A real per-department sandbox would need Hermes' docker terminal backend (Docker-in-Docker or a mounted socket), which is a separate decision with its own security cost.
 
 ## Known risks (verify on first run)
 

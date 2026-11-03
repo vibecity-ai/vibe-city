@@ -55,7 +55,6 @@ test('creates departments with arbitrary names, UUIDs, defaults', async () => {
   assert.equal(json.boardSyncState, 'not_provisioned');
   assert.equal(json.hermesBoardRef, null);
   assert.equal(json.chiefProfileRef, null);
-  assert.equal(json.workspace.isolation, 'unverified');
   const got = (await app.inject(`/api/departments/${json.id}`)).json();
   assert.deepEqual(got, json);
 });
@@ -105,20 +104,10 @@ test('invalid JSON body is a 4xx, not a crash', async () => {
   assert.equal(res.statusCode, 400);
 });
 
-test('workspace validation: relative, traversal, missing, file; and no path echoed back', async () => {
+test('workspace is no longer accepted', async () => {
   const { app } = memApp();
-  const dir = tempDir();
-  for (const workspace of ['relative/dir', `${dir}/../etc`, join(dir, 'missing')]) {
-    const { res } = await createDept(app, { name: `w-${workspace.length}`, workspace });
-    assert.equal(res.statusCode, 400, workspace);
-    assert.ok(!res.body.includes(dir), 'error must not echo host path');
-  }
-  const { res, json } = await createDept(app, { name: 'ok', workspace: dir });
-  assert.equal(res.statusCode, 201);
-  assert.equal(json.workspace.configured, true);
-  assert.equal(json.workspace.isolation, 'unverified');
-  assert.ok(!res.body.includes(dir), 'host path must not be exposed');
-  assert.ok(!(await app.inject('/api/departments')).body.includes(dir));
+  const { res } = await createDept(app, { name: 'ws', workspace: '/tmp' });
+  assert.equal(res.statusCode, 400);
 });
 
 test('chief/worker profile refs are validated', async () => {
@@ -257,12 +246,11 @@ test('deleting a department without Hermes bindings reports nothing retained', a
 
 test('all organizational data survives a backend restart', async () => {
   const path = join(tempDir(), 'vc.sqlite');
-  const ws = tempDir();
 
   let db = openDb(path);
   let app = buildApp(db);
   const company = (await app.inject('/api/company')).json();
-  const a = (await createDept(app, { name: 'Engineering', purpose: 'build', workspace: ws, inventory: { allowedToolsets: ['file', 'terminal'], limits: { maxConcurrentWorkers: 4 } } })).json;
+  const a = (await createDept(app, { name: 'Engineering', purpose: 'build', inventory: { allowedToolsets: ['file', 'terminal'], limits: { maxConcurrentWorkers: 4 } } })).json;
   const b = (await createDept(app, { name: 'Research', purpose: 'read' })).json;
   await app.inject({ method: 'PATCH', url: `/api/departments/${b.id}`, payload: { chiefProfileRef: 'research-chief', workerProfileRef: 'research-worker' } });
   const c = (await createDept(app, { name: 'Gone' })).json;

@@ -8,7 +8,7 @@ import {
 } from '../hermes/ports.ts';
 import { ConflictError } from './errors.ts';
 import { scrub } from './scrub.ts';
-import type { DepartmentRow, DepartmentService } from './departmentService.ts';
+import type { DepartmentService } from './departmentService.ts';
 import { buildBlock, hasBlock, upsertBlock, type Role } from './instructions.ts';
 import {
   ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, buildDepartmentWideReport, buildRoleReport, desiredToolsetMap, diffObserved, effectiveToolsets, hasWorkers,
@@ -304,7 +304,7 @@ export class ProvisioningService {
       let board = (await this.hermes.listBoards()).find((b) => b.slug === slug);
       if (board?.archived) throw new StepError('board', 'board_archived', 'The department board exists in Hermes but is archived.', { retryable: false });
       if (!board) {
-        await this.hermes.createBoard(slug, row.name, { defaultWorkdir: this.workdirFor(row) });
+        await this.hermes.createBoard(slug, row.name);
         board = (await this.hermes.listBoards()).find((b) => b.slug === slug);
         if (!board) throw new StepError('board', 'board_not_found_after_create', 'Hermes did not report the board after creating it.', { retryable: true });
       }
@@ -348,11 +348,6 @@ export class ProvisioningService {
       }
       this.depts.patchRow(id, { inventory_applied_hash: inventoryHash(inv), inventory_applied_at: now(), observed_config_json: JSON.stringify(observed) });
     });
-  }
-
-  private workdirFor(row: DepartmentRow): string | undefined {
-    // The stored path stays server-side; Hermes uses it as the board's default workdir (advisory, not isolation).
-    return row.workspace_path ?? undefined;
   }
 
   // ---- inventory application ----------------------------------------------------

@@ -109,15 +109,13 @@ export class RealHermesRuntime implements HermesRuntime {
   }
 
   async listBoards(): Promise<BoardInfo[]> {
-    const j = await this.http<{ boards: { slug: string; name: string; archived: boolean; default_workdir: string | null }[] }>(
+    const j = await this.http<{ boards: { slug: string; name: string; archived: boolean }[] }>(
       'GET', '/api/plugins/kanban/boards?include_archived=true');
-    return j.boards.map((b) => ({ slug: b.slug, name: b.name, archived: !!b.archived, defaultWorkdir: b.default_workdir ?? null }));
+    return j.boards.map((b) => ({ slug: b.slug, name: b.name, archived: !!b.archived }));
   }
 
-  async createBoard(slug: string, name: string, opts: { defaultWorkdir?: string }): Promise<void> {
-    await this.http('POST', '/api/plugins/kanban/boards', {
-      body: { slug, name, ...(opts.defaultWorkdir ? { default_workdir: opts.defaultWorkdir } : {}) },
-    });
+  async createBoard(slug: string, name: string): Promise<void> {
+    await this.http('POST', '/api/plugins/kanban/boards', { body: { slug, name } });
   }
 
   // ---- hermes CLI ---------------------------------------------------------------

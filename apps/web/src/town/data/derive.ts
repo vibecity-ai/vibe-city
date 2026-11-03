@@ -125,7 +125,7 @@ export function deriveDept(i: DeriveInput): Derived {
 
   const dept: Dept = {
     id: v.id, name: v.name, purpose: v.purpose, state, provisioning: v.state, chief, workers,
-    maxWorkers: i.maxWorkers, theme: themeFor(v.floorOrder), workspace: v.workspace, chiefProfileRef: v.chiefProfileRef, workerProfileRef: v.workerProfileRef, attention, view: v,
+    maxWorkers: i.maxWorkers, theme: themeFor(v.floorOrder), chiefProfileRef: v.chiefProfileRef, workerProfileRef: v.workerProfileRef, attention, view: v,
   };
   return { dept, slots };
 }

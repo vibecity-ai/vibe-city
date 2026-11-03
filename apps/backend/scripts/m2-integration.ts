@@ -118,7 +118,7 @@ try {
     const { body } = await j('GET', `/api/departments/${dept.id}/effective-inventory`);
     const tool = body.worker.entries.find((e: any) => e.capability === 'toolsets.behavior-tested');
     assert(tool.status === 'enforced' && JSON.stringify(tool.effective) === JSON.stringify(['file']), JSON.stringify(tool));
-    assert(body.departmentWide.find((e: any) => e.capability === 'workspace.isolation').status === 'unsupported', 'isolation overclaimed');
+    assert(body.departmentWide.find((e: any) => e.capability === 'files.isolation').status === 'unsupported', 'isolation overclaimed');
     const conc = body.departmentWide.find((e: any) => e.capability === 'limits.maxConcurrentWorkers');
     return `concurrency: ${conc.status} (host cap ${conc.effective})`;
   });
