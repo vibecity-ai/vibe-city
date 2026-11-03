@@ -8,15 +8,15 @@ import {
   InventoryPatchSchema, InventorySchema,
 } from '@vibe-city/shared';
 import {
-  EffectiveInventorySchema, HealthViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
+  AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
 } from '@vibe-city/shared';
 import type { HermesRuntime } from './hermes/ports.ts';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './hermes/ports.ts';
 import { Readable } from 'node:stream';
 import websocket from '@fastify/websocket';
 import {
-  ActivityEventSchema, CancellationStatusSchema, LiveMessageSchema, QuestCreateSchema, QuestCreatedSchema, QuestDetailSchema,
-  QuestResultsSchema, QuestSummarySchema, TaskNodeSchema,
+  CancellationStatusSchema, DepartmentArchivedSchema, DepartmentListSchema, LiveMessageSchema, QuestActivitySchema, QuestCreateSchema,
+  QuestCreatedSchema, QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
 } from '@vibe-city/shared';
 import { z } from 'zod';
 import type { KanbanApi } from './hermes/kanbanApi.ts';
@@ -103,7 +103,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
 
   app.get('/api/departments', async (req) => {
     const q = req.query as { includeArchived?: string };
-    return { departments: departments.list({ includeArchived: q.includeArchived === 'true' }).map((d) => parse(DepartmentViewSchema, d)) };
+    return parse(DepartmentListSchema, { departments: departments.list({ includeArchived: q.includeArchived === 'true' }) });
   });
 
   app.post('/api/departments', async (req, reply) => {
@@ -117,8 +117,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     parse(DepartmentViewSchema, departments.update(idOf(req.params), parse(DepartmentUpdateSchema, req.body))));
 
   app.delete('/api/departments/:id', async (req) => {
-    const out = departments.archive(idOf(req.params));
-    return { department: parse(DepartmentViewSchema, out.department), hermesResourcesRetained: out.hermesResourcesRetained };
+    return parse(DepartmentArchivedSchema, departments.archive(idOf(req.params)));
   });
 
   app.get('/api/departments/:id/inventory', async (req) =>
@@ -131,9 +130,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
 
   app.get('/api/runtime/health', async () => parse(HealthViewSchema, await provisioning.health()));
 
-  app.post('/api/runtime/reconcile', async () => ({
-    departments: (await provisioning.reconcileAll()).map((s) => parse(ProvisioningStatusSchema, s)),
-  }));
+  app.get('/api/runtime/defaults', async () => parse(HermesDefaultsViewSchema, await provisioning.hermesDefaults()));
+
+  app.get('/api/runtime/models', async () => parse(HermesModelsViewSchema, await provisioning.hermesModels()));
+
+  app.post('/api/runtime/reconcile', async () => parse(ReconcileResultSchema, { departments: await provisioning.reconcileAll() }));
 
   app.post('/api/departments/:id/provision', async (req) => {
     const id = idOf(req.params);
@@ -155,6 +156,13 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(ProfilesViewSchema, await provisioning.profiles(id));
   });
 
+  app.get('/api/departments/:id/agents/:role', async (req) => {
+    const id = idOf(req.params);
+    const role = (req.params as { role?: string }).role;
+    if (role !== 'chief' && role !== 'worker') throw new NotFoundError('agent not found');
+    return parse(AgentViewSchema, await provisioning.agent(id, role));
+  });
+
   app.get('/api/departments/:id/effective-inventory', async (req) => {
     const id = idOf(req.params);
     return parse(EffectiveInventorySchema, provisioning.effectiveInventory(id));
@@ -165,8 +173,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const questParams = (params: unknown) => ({ dept: idOf(params), quest: (params as { questId: string }).questId });
 
   app.get('/api/departments/:id/quests', async (req) => {
-    const quests = await quests_.list(idOf(req.params));
-    return { quests: quests.map((q) => parse(QuestSummarySchema, q)) };
+    return parse(QuestListSchema, { quests: await quests_.list(idOf(req.params)) });
   });
 
   app.post('/api/departments/:id/quests', async (req, reply) => {
@@ -182,13 +189,13 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.get('/api/departments/:id/quests/:questId/tasks', async (req) => {
     const { dept, quest } = questParams(req.params);
     const d = await quests_.detail(dept, quest);
-    return { questId: quest, tasks: d.tasks.map((t) => parse(TaskNodeSchema, t)), violations: d.violations, truncated: d.truncated };
+    return parse(QuestTasksSchema, { questId: quest, tasks: d.tasks, violations: d.violations, truncated: d.truncated });
   });
 
   app.get('/api/departments/:id/quests/:questId/activity', async (req) => {
     const { dept, quest } = questParams(req.params);
     const limit = parse(z.coerce.number().int().min(1).max(1000).default(200), (req.query as { limit?: string }).limit);
-    return { questId: quest, events: (await quests_.activity(dept, quest, limit)).map((e) => parse(ActivityEventSchema, e)) };
+    return parse(QuestActivitySchema, { questId: quest, events: await quests_.activity(dept, quest, limit) });
   });
 
   app.get('/api/departments/:id/quests/:questId/results', async (req) => {
@@ -256,8 +263,10 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   if (extra.webDist) {
     app.register(fastifyStatic, { root: resolve(extra.webDist), wildcard: false });
     app.setNotFoundHandler((req, reply) => {
-      // Client-side routes fall back to the app shell; unknown API paths stay a JSON 404.
-      if (req.method === 'GET' && !req.url.startsWith('/api/')) return reply.sendFile('index.html');
+      // Client-side routes fall back to the app shell; unknown API paths and missing files (e.g. a stale hashed
+      // chunk after a rebuild) stay a 404, so a browser never receives HTML in place of a script.
+      const path = req.url.split('?')[0]!;
+      if (req.method === 'GET' && !path.startsWith('/api/') && !/\.[a-z0-9]+$/i.test(path)) return reply.sendFile('index.html');
       return reply.code(404).send({ error: 'not_found', message: 'Not found' });
     });
   }

@@ -38,18 +38,6 @@ export function planningNote(q: Pick<QuestDetail, 'flags' | 'status'>): string |
   return null;
 }
 
-export type ConnectionBanner = { tone: 'warn' | 'bad'; text: string } | null;
-
-export function connectionBanner(link: boolean, hermes: 'connected' | 'reconnecting' | 'dashboard_offline' | 'gateway_unavailable' | null): ConnectionBanner {
-  if (!link) return { tone: 'bad', text: 'Live updates are disconnected from the Vibe City backend. Data may be out of date.' };
-  switch (hermes) {
-    case 'dashboard_offline': return { tone: 'bad', text: 'The Hermes dashboard is offline. Showing the last data received; it may be out of date.' };
-    case 'gateway_unavailable': return { tone: 'warn', text: 'The Hermes gateway is not running: queued work will not start until it is.' };
-    case 'reconnecting': return { tone: 'warn', text: 'Reconnecting to Hermes…' };
-    default: return null;
-  }
-}
-
 export interface TreeRow { node: TaskNode; depth: number }
 
 /** Flattens the task graph depth-first for display. A task with several parents appears once (under its first parent). */

@@ -56,6 +56,16 @@ function mergeInventory(base: Inventory, patch: InventoryPatch): Inventory {
   return InventorySchema.parse({ ...base, ...patch, limits: { ...base.limits, ...patch.limits } });
 }
 
+/**
+ * Stored inventories from before the single-model choice had `allowedModelIds` (a list without providers).
+ * A model id alone cannot be set safely, so the old list is dropped and the profile keeps its own model.
+ */
+function migrateInventory(raw: Record<string, unknown>): Record<string, unknown> {
+  if (!('allowedModelIds' in raw)) return raw;
+  const { allowedModelIds: _dropped, ...rest } = raw;
+  return rest;
+}
+
 export class DepartmentService {
   private db: DatabaseSync;
   private companyId: string;
@@ -231,7 +241,7 @@ export class DepartmentService {
   getInventory(id: string): Inventory {
     this.row(id);
     const r = this.db.prepare('SELECT inventory_json FROM department_inventory WHERE department_id = ?').get(id) as unknown as { inventory_json: string };
-    return InventorySchema.parse(JSON.parse(r.inventory_json));
+    return InventorySchema.parse(migrateInventory(JSON.parse(r.inventory_json)));
   }
 
   patchInventory(id: string, patch: InventoryPatch): Inventory {

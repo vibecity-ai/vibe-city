@@ -50,13 +50,21 @@ export function StageOverlay({ city }: { city: City | null }) {
   }, [city]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !useStore.getState().ui.modal) { const s = useStore.getState(); if (s.ui.panel === 'quest') s.openPanel('board'); else if (s.ui.panel === 'board' || s.ui.panel === 'inventory') s.openPanel('dept'); else if (s.ui.view === 'floor') s.closeFloor(); } };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || useStore.getState().ui.modal) return;
+      const s = useStore.getState();
+      const floorOpen = s.ui.view === 'floor' && !!s.ui.floorId;
+      if (s.ui.panel === 'quest') s.openPanel(s.ui.questFrom === 'dept' && floorOpen ? 'dept' : 'board');
+      else if (s.ui.panel === 'board') s.openPanel(floorOpen ? 'dept' : 'exec');
+      else if (s.ui.panel === 'inventory' || s.ui.panel === 'settings' || s.ui.panel === 'agent') s.openPanel('dept');
+      else if (s.ui.view === 'floor') s.closeFloor();
+    };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, []);
 
   const set = (id: string) => (el: HTMLElement | null) => { if (el) refs.current.set(id, el); else refs.current.delete(id); };
   const openDept = ui.view === 'floor' ? depts.find((d) => d.id === ui.floorId) : null;
-  const wide = ui.panel === 'dept' || ui.panel === 'exec';
+  const wide = ui.panel === 'dept' || ui.panel === 'exec' || ui.panel === 'agent';
 
   return (
     <div className="overlay">
@@ -81,7 +89,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       {openDept && (
         <div className="tags">
           {[...(openDept.chief ? [{ id: 'chief', label: openDept.chief.name, k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: w.id, k: w.status as StatusKey }))].map((t) => (
-            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} onClick={() => ui$({ agent: t.id, panel: 'dept', deptTab: 'overview' })}>
+            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} onClick={() => ui$({ agent: t.id, panel: 'agent' })}>
               <Glyph k={t.k} />{t.label}
             </button>
           ))}

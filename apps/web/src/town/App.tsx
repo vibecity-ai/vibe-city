@@ -3,7 +3,7 @@ import { useStore } from './store';
 import { City } from './world/City';
 import { startLive } from './data/live';
 import { StageOverlay } from './ui/Stage';
-import { TopBar, ExecPanel, DeptPanel, InventorySheet, QuestBoard, QuestDetail, CreateDeptModal } from './ui/Panels';
+import { TopBar, ExecPanel, DeptPanel, SettingsSheet, InventorySheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -25,7 +25,7 @@ export default function App() {
   // phones: after navigating, bring the part that changed into view (the office, or the sheet)
   useEffect(() => {
     if (!matchMedia('(max-width: 900px) and (min-height: 521px)').matches) return;
-    const sheet = panel === 'inventory' || panel === 'board' || panel === 'quest';
+    const sheet = panel === 'inventory' || panel === 'settings' || panel === 'board' || panel === 'quest';
     const id = window.setTimeout(() => {
       if (sheet) { const el = document.querySelector('.panel') as HTMLElement | null; if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 56 }); }
       else window.scrollTo({ top: 0 });
@@ -33,7 +33,15 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [view, floorId, panel]);
 
-  const mode = panel === 'inventory' ? 'inv' : panel === 'board' ? 'board' : panel === 'quest' ? 'quest' : 'side';
+  // keyboard/screen-reader users land on the new panel's heading after navigating (not on first load)
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) { first.current = false; return; }
+    const id = window.setTimeout(() => document.querySelector<HTMLElement>('.panel h1[tabindex="-1"]')?.focus({ preventScroll: true }), 40);
+    return () => window.clearTimeout(id);
+  }, [panel, floorId]);
+
+  const mode = panel === 'inventory' || panel === 'settings' ? 'inv' : panel === 'board' ? 'board' : panel === 'quest' ? 'quest' : 'side';
   return (
     <div className="app">
       <TopBar />
@@ -45,12 +53,15 @@ export default function App() {
         <aside className="panel" key={panel === 'dept' || panel === 'exec' ? panel + (floorId ?? '') : panel}>
           {panel === 'exec' && <ExecPanel />}
           {panel === 'dept' && <DeptPanel />}
+          {panel === 'settings' && <SettingsSheet />}
           {panel === 'inventory' && <InventorySheet />}
           {panel === 'board' && <QuestBoard />}
           {panel === 'quest' && <QuestDetail />}
+          {panel === 'agent' && <AgentPanel />}
         </aside>
       </main>
       <CreateDeptModal />
+      <ArchiveModal />
     </div>
   );
 }

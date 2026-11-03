@@ -6,12 +6,16 @@ const idList = (what: string) =>
   z.array(z.string().trim().min(1, `${what} entries must be non-empty`).max(200)).max(200)
     .transform((a) => [...new Set(a)]);
 
-/** Toolset names Hermes exposes via `hermes tools` (verified list in HERMES_COMPATIBILITY.md). */
+/** Built-in toolset names Hermes 0.22 lists in `hermes tools list` (verified against Hermes 0.22.5/0.22.6). */
 export const TOOLSETS = [
-  'web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'image_gen',
-  'skills', 'todo', 'kanban', 'memory', 'session_search', 'delegation', 'cronjob', 'computer_use',
+  'web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'video', 'image_gen', 'video_gen', 'x_search',
+  'tts', 'stt', 'skills', 'todo', 'kanban', 'memory', 'context_engine', 'session_search', 'connections', 'clarify',
+  'delegation', 'cronjob', 'computer_use',
 ] as const;
 export const ToolsetSchema = z.enum(TOOLSETS);
+export type Toolset = z.infer<typeof ToolsetSchema>;
+/** Never given to a department agent: sub-agents and cron jobs run outside the department board, where Vibe City cannot see them. */
+export const AGENT_EXCLUDED_TOOLSETS = ['delegation', 'cronjob'] as const;
 
 export const MAX_WORKERS_CEILING = 10;
 
@@ -20,7 +24,12 @@ export const MAX_WORKERS_CEILING = 10;
 const skillIds = idList('skill');
 /** MCP tools in Hermes' `server:tool` notation, or a bare server id for the whole server. */
 const mcpTools = idList('MCP tool');
-const modelIds = idList('model');
+/** One model as Hermes names it: the provider slug plus the model id within that provider. */
+export const ModelChoiceSchema = z.object({
+  provider: z.string().trim().min(1).max(100),
+  id: z.string().trim().min(1).max(200),
+}).strict();
+export type ModelChoice = z.infer<typeof ModelChoiceSchema>;
 /** Toolset-level permissions. Verified enforceable in Hermes for `terminal`, `file`, `web`, `browser`, `code_execution`. */
 const toolsets = z.array(ToolsetSchema).max(TOOLSETS.length).transform((a) => [...new Set(a)]);
 const contextRefs = idList('shared context ref');
@@ -28,16 +37,20 @@ const contextRefs = idList('shared context ref');
 export const InventorySchema = z.object({
   allowedSkillIds: skillIds.default([]),
   allowedMcpTools: mcpTools.default([]),
-  allowedModelIds: modelIds.default([]),
+  /** The agents' default model, chosen from Hermes' list. Null = keep the profile's own default. */
+  model: ModelChoiceSchema.nullable().default(null),
   allowedToolsets: toolsets.default([]),
   sharedContextRefs: contextRefs.default([]),
   limits: z.object({
-    /** REQUESTED limit. Hermes only has a host-wide per-profile cap, so this is not guaranteed per department. */
-    maxConcurrentWorkers: z.number().int().min(1).max(MAX_WORKERS_CEILING).default(1),
+    /**
+     * 0 = no worker profile: the chief does the work itself. Above 0 a worker profile is provisioned; the number is a
+     * REQUESTED limit (Hermes only has a host-wide per-profile cap, so it is not guaranteed per department).
+     */
+    maxConcurrentWorkers: z.number().int().min(0).max(MAX_WORKERS_CEILING).default(0),
     /** Per-task runtime cap passed to Hermes as max_runtime_seconds when tasks are created. */
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable().default(null),
     maxDelegationDepth: z.literal(1).default(1),
-  }).default({ maxConcurrentWorkers: 1, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
+  }).default({ maxConcurrentWorkers: 0, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
 }).strict();
 export type Inventory = z.infer<typeof InventorySchema>;
 
@@ -45,11 +58,11 @@ export type Inventory = z.infer<typeof InventorySchema>;
 export const InventoryPatchSchema = z.object({
   allowedSkillIds: skillIds.optional(),
   allowedMcpTools: mcpTools.optional(),
-  allowedModelIds: modelIds.optional(),
+  model: ModelChoiceSchema.nullable().optional(),
   allowedToolsets: toolsets.optional(),
   sharedContextRefs: contextRefs.optional(),
   limits: z.object({
-    maxConcurrentWorkers: z.number().int().min(1).max(MAX_WORKERS_CEILING),
+    maxConcurrentWorkers: z.number().int().min(0).max(MAX_WORKERS_CEILING),
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable(),
     maxDelegationDepth: z.literal(1),
   }).partial().strict().optional(),
@@ -61,7 +74,7 @@ export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
 /**
  * Input: an absolute host path (accepted only server-side, never echoed back).
  * Output: opaque summary. `isolation` is always 'unverified' until a verified sandbox exists
- * (workspace paths are advisory with Hermes' local backend; see HERMES_COMPATIBILITY.md).
+ * (workspace paths are advisory with Hermes' local backend: an agent with file tools can write outside them).
  */
 export const WorkspaceInputSchema = z.string().trim().max(1024).nullable();
 export const WorkspaceViewSchema = z.object({
@@ -218,7 +231,8 @@ export const EffectiveInventorySchema = z.object({
   observedAt: z.string().nullable(),
   inSync: z.boolean(),
   chief: RoleConfigSchema,
-  worker: RoleConfigSchema,
+  /** Null when the department has no workers (maxConcurrentWorkers 0). */
+  worker: RoleConfigSchema.nullable(),
   /** Department-wide gaps that are not per-role (concurrency, workspace isolation, ...). */
   departmentWide: z.array(CapabilityEntrySchema),
 }).strict();
@@ -237,6 +251,35 @@ export const HealthViewSchema = z.object({
 }).strict();
 export type HealthView = z.infer<typeof HealthViewSchema>;
 
+/**
+ * What Hermes' `default` profile has enabled, read live. The create-department form starts from it; nothing is
+ * copied until the department is created with an inventory.
+ */
+export const HermesDefaultsViewSchema = z.object({
+  checkedAt: z.string(),
+  profile: z.literal('default'),
+  model: z.string().nullable(),
+  /** Every toolset Hermes lists. `manageable` = Vibe City can grant it (known and not excluded for agents). */
+  toolsets: z.array(z.object({ name: z.string(), enabled: z.boolean(), manageable: z.boolean() }).strict()),
+  /** Every installed skill, with whether the default profile has it enabled. */
+  skills: z.array(z.object({ name: z.string(), enabled: z.boolean() }).strict()),
+}).strict();
+export type HermesDefaultsView = z.infer<typeof HermesDefaultsViewSchema>;
+
+/** Models Hermes can use right now: its authenticated providers and their model lists (Hermes' own model picker data). */
+export const HermesModelsViewSchema = z.object({
+  checkedAt: z.string(),
+  /** What the `default` profile uses. */
+  current: z.object({ provider: z.string().nullable(), model: z.string().nullable() }).strict(),
+  providers: z.array(z.object({
+    slug: z.string(),
+    name: z.string(),
+    current: z.boolean(),
+    models: z.array(z.string()),
+  }).strict()),
+}).strict();
+export type HermesModelsView = z.infer<typeof HermesModelsViewSchema>;
+
 export const ProfilesViewSchema = z.object({
   departmentId: z.string(),
   /** Live Hermes data; null when Hermes could not be reached (the stored refs are still returned). */
@@ -245,6 +288,49 @@ export const ProfilesViewSchema = z.object({
   worker: z.object({ ref: z.string().nullable(), exists: z.boolean().nullable(), model: z.string().nullable(), description: z.string().nullable() }).strict(),
 }).strict();
 export type ProfilesView = z.infer<typeof ProfilesViewSchema>;
+
+export const AGENT_ROLES = ['chief', 'worker'] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
+/** One Hermes session of a profile, reduced to safe fields (no cwd, prompt preview, origin, billing endpoints). */
+export const AgentSessionSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  /** Where the session came from in Hermes, e.g. `kanban`, `cli`, `cron`. */
+  source: z.string().nullable(),
+  model: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  lastActiveAt: z.string().nullable(),
+  /** Hermes' own "active" flag: not ended and recently active. */
+  active: z.boolean(),
+  messageCount: z.number().int().nullable(),
+  toolCallCount: z.number().int().nullable(),
+  endReason: z.string().nullable(),
+}).strict();
+export type AgentSession = z.infer<typeof AgentSessionSchema>;
+
+/**
+ * The agent view: one Hermes profile of a department (the chief, or the shared worker profile).
+ * Skills, toolsets and model come from the last read-back during provisioning/reconcile (`observedAt`); sessions are
+ * read live and are null when Hermes could not be reached. Skills and models are department-wide allowances.
+ */
+export const AgentViewSchema = z.object({
+  departmentId: z.string(),
+  role: z.enum(AGENT_ROLES),
+  profileRef: z.string().nullable(),
+  observedAt: z.string().nullable(),
+  model: z.string().nullable(),
+  /** The profile's model provider as Hermes reports it. */
+  provider: z.string().nullable(),
+  /** Every skill installed in the profile, with whether Hermes reports it enabled. */
+  skills: z.array(z.object({ name: z.string(), enabled: z.boolean(), essential: z.boolean() }).strict()),
+  /** Every toolset Hermes lists for the profile, with whether it is enabled there. */
+  toolsets: z.array(z.object({ name: z.string(), enabled: z.boolean() }).strict()),
+  sessions: z.array(AgentSessionSchema).nullable(),
+  sessionsError: z.string().nullable(),
+}).strict();
+export type AgentView = z.infer<typeof AgentViewSchema>;
 
 export const profileNamesForDepartment = (id: string) => {
   const short = id.replace(/-/g, '').slice(0, 12);
@@ -423,6 +509,34 @@ export const QuestCreatedSchema = z.object({
   warnings: z.array(z.string()),
 }).strict();
 export type QuestCreated = z.infer<typeof QuestCreatedSchema>;
+
+// ---- response envelopes -----------------------------------------------------
+// Every list/wrapper response has a strict schema so the backend and the browser validate the same shape.
+
+export const DepartmentListSchema = z.object({ departments: z.array(DepartmentViewSchema) }).strict();
+export type DepartmentList = z.infer<typeof DepartmentListSchema>;
+
+/** DELETE /api/departments/:id. Archiving never deletes anything in Hermes. */
+export const DepartmentArchivedSchema = z.object({
+  department: DepartmentViewSchema,
+  /** true when the department had a board or profile refs: those Hermes resources still exist and were not touched. */
+  hermesResourcesRetained: z.boolean(),
+}).strict();
+export type DepartmentArchived = z.infer<typeof DepartmentArchivedSchema>;
+
+export const ReconcileResultSchema = z.object({ departments: z.array(ProvisioningStatusSchema) }).strict();
+export const QuestListSchema = z.object({ quests: z.array(QuestSummarySchema) }).strict();
+
+export const QuestTasksSchema = z.object({
+  questId: z.string(),
+  tasks: z.array(TaskNodeSchema),
+  violations: z.array(z.string()),
+  truncated: z.boolean(),
+}).strict();
+export type QuestTasks = z.infer<typeof QuestTasksSchema>;
+
+export const QuestActivitySchema = z.object({ questId: z.string(), events: z.array(ActivityEventSchema) }).strict();
+export type QuestActivity = z.infer<typeof QuestActivitySchema>;
 
 // ---- live events relayed to the frontend ------------------------------------
 

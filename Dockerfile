@@ -7,8 +7,9 @@
 # They share one network namespace, one PID namespace and one HERMES_HOME volume (/opt/data). That matters:
 # the backend drives the `hermes` CLI (profile creation/config) and reads the same Kanban data the gateway uses.
 #
-# The base is the upstream Hermes image, so Hermes itself is unmodified.
-ARG HERMES_IMAGE=nousresearch/hermes-agent:latest
+# The base is the upstream Hermes image, so Hermes itself is unmodified. Pinned by digest (Hermes 0.22.6, the image this
+# was tested against) so builds are reproducible and caches stay valid; bump it deliberately.
+ARG HERMES_IMAGE=nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d
 ARG NODE_IMAGE=node:26-trixie-slim
 
 FROM ${NODE_IMAGE} AS node
@@ -34,14 +35,12 @@ COPY apps/backend/package.json apps/backend/
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev -w @vibe-city/backend
 
-# ---- runtime: Hermes image + Node + Vibe City ----
+# ---- runtime: Hermes image + Vibe City ----
 FROM ${HERMES_IMAGE} AS runtime
 USER root
-# Same Debian generation as the Hermes base; libstdc++ is the only shared library node needs beyond libc.
-RUN apt-get -o Acquire::Retries=3 update \
- && apt-get -o Acquire::Retries=3 install -y --no-install-recommends libstdc++6 \
- && rm -rf /var/lib/apt/lists/*
-COPY --from=node /usr/local/bin/node /usr/local/bin/node
+# Hermes bundles Node 26 (/usr/local/bin/node -> /opt/hermes/tools/node-*); reuse it instead of adding a second copy
+# (~150 MB). Fails the build if Hermes stops shipping it or ships another major (the backend needs Node 26).
+RUN node --version | grep -q '^v26\.'
 
 WORKDIR /opt/vibe-city
 COPY --from=deps /src/node_modules node_modules
@@ -53,6 +52,8 @@ COPY --from=web /src/apps/web/dist apps/web/dist
 
 # s6 service: declared next to Hermes' own (dashboard, main-hermes) and enabled in the "user" bundle.
 COPY --chmod=0755 docker/s6-rc.d/vibe-city/run /etc/s6-overlay/s6-rc.d/vibe-city/run
+# NEAR AI Cloud as the default provider when NEAR_AI_API_KEY is set (runs after Hermes' own cont-init scripts).
+COPY --chmod=0755 docker/cont-init.d/03-vibe-city-near /etc/cont-init.d/03-vibe-city-near
 RUN echo longrun > /etc/s6-overlay/s6-rc.d/vibe-city/type \
  && mkdir -p /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d \
  && touch /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d/base /etc/s6-overlay/s6-rc.d/user/contents.d/vibe-city

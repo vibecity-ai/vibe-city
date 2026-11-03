@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import type { QuestStatus } from '@vibe-city/shared';
 import type { AgentStatus, DeptState } from '../data/types';
 
@@ -84,6 +84,74 @@ export function Portrait({ shirt, chief, size = 40, ghost }: { shirt: string; ch
   );
 }
 
-export function Btn({ kind = 'tertiary', children, onClick, disabled, title, type }: { kind?: 'primary' | 'secondary' | 'tertiary' | 'destructive' | 'warn'; children: ReactNode; onClick?: () => void; disabled?: boolean; title?: string; type?: 'button' | 'submit' }) {
-  return <button type={type ?? 'button'} className={`btn ${kind}`} onClick={onClick} disabled={disabled} title={title}>{children}</button>;
+export function Btn({ kind = 'tertiary', children, onClick, disabled, title, type, busy }: { kind?: 'primary' | 'secondary' | 'tertiary' | 'destructive' | 'warn'; children: ReactNode; onClick?: () => void; disabled?: boolean; title?: string; type?: 'button' | 'submit'; busy?: boolean }) {
+  return <button type={type ?? 'button'} className={`btn ${kind}`} onClick={onClick} disabled={disabled} title={title} aria-busy={busy || undefined}>{children}</button>;
+}
+
+/* ---- accessibility helpers ---- */
+
+/** Tablist with arrow-key/Home/End navigation and roving tabindex. */
+export function Tabs<T extends string>({ value, options, onChange, label, idBase }: { value: T; options: readonly { key: T; label: ReactNode }[]; onChange: (v: T) => void; label: string; idBase?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const onKey = (e: React.KeyboardEvent) => {
+    const i = options.findIndex((o) => o.key === value);
+    const n = e.key === 'ArrowRight' ? i + 1 : e.key === 'ArrowLeft' ? i - 1 : e.key === 'Home' ? 0 : e.key === 'End' ? options.length - 1 : null;
+    if (n === null) return;
+    e.preventDefault();
+    const next = options[(n + options.length) % options.length]!;
+    onChange(next.key);
+    requestAnimationFrame(() => ref.current?.querySelector<HTMLButtonElement>(`[data-k="${next.key}"]`)?.focus());
+  };
+  return (
+    <div className="tabs" role="tablist" aria-label={label} ref={ref} onKeyDown={onKey}>
+      {options.map((o) => (
+        <button key={o.key} type="button" role="tab" data-k={o.key} id={idBase ? `${idBase}-tab-${o.key}` : undefined} aria-controls={idBase ? `${idBase}-panel` : undefined}
+          aria-selected={value === o.key} tabIndex={value === o.key ? 0 : -1} className={value === o.key ? 'on' : ''} onClick={() => onChange(o.key)}>{o.label}</button>
+      ))}
+    </div>
+  );
+}
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+/** Modal dialog behaviour: focus the first field, trap Tab inside, close on Escape, restore focus on close. */
+export function useDialog(ref: RefObject<HTMLElement | null>, open: boolean, onClose: () => void) {
+  const close = useRef(onClose);
+  close.current = onClose;
+  useEffect(() => {
+    if (!open || !ref.current) return;
+    const el = ref.current;
+    const prev = document.activeElement as HTMLElement | null;
+    (el.querySelector<HTMLElement>('[autofocus], input, textarea') ?? el.querySelector<HTMLElement>(FOCUSABLE))?.focus();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close.current(); return; } // the stage's Escape (leave floor) must not also fire
+      if (e.key !== 'Tab') return;
+      const f = [...el.querySelectorAll<HTMLElement>(FOCUSABLE)];
+      if (!f.length) return;
+      const first = f[0]!, last = f[f.length - 1]!;
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('keydown', onKey); if (prev?.isConnected) prev.focus(); };
+  }, [open, ref]);
+}
+
+/** Label + control + hint + error, wired with aria-describedby / aria-invalid. */
+export function Field({ label, hint, error, children }: { label: string; hint?: ReactNode; error?: string | null; children: (p: { id: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean }) => ReactNode }) {
+  const id = useId();
+  const desc = [hint ? `${id}-h` : '', error ? `${id}-e` : ''].filter(Boolean).join(' ') || undefined;
+  return (
+    <div className="field">
+      <label className="lbl" htmlFor={id}>{label}</label>
+      {children({ id, 'aria-describedby': desc, 'aria-invalid': error ? true : undefined })}
+      {hint && <small id={`${id}-h`} className="muted">{hint}</small>}
+      {error && <small id={`${id}-e`} className="field-err" role="alert"><Glyph k="failed" />{error}</small>}
+    </div>
+  );
+}
+
+/** Definition list of label/value rows (inspectors). */
+export function KV({ rows }: { rows: [ReactNode, ReactNode][] }) {
+  return <dl className="kv">{rows.map(([k, v], i) => <div key={i}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>;
 }

@@ -1,8 +1,6 @@
-# Vibe City: Architecture (as of Milestone 3)
+# Vibe City: Architecture (through Milestone 3 and the city UI merge)
 
-Normative product spec: `VIBE_CITY_SPEC.md`. Hermes facts and limits: `HERMES_COMPATIBILITY.md`.
-
-> This document records implementation architecture through Milestone 3. Where it differs from the current product contract or integrated city implementation, `VIBE_CITY_SPEC.md` governs.
+> This document records implementation architecture through Milestone 3 and the city UI merge.
 
 ## Layout
 
@@ -16,8 +14,7 @@ apps/backend         Fastify API, SQLite (node:sqlite), Hermes adapter
   src/testing        FakeHermes (in-memory, fault injection) used only by tests
   src/app.ts         routes + validation + error mapping
   scripts/           Phase 0 integration scripts (need live Hermes; NOT in `npm test`)
-apps/web             React + Vite. src/town = the city (imported from the vibeytown prototype, Canvas 2D, Zustand);
-                     src/board = the original Quest Board, reachable at #board
+apps/web             React + Vite. src/town = the city (imported from the vibeytown prototype, Canvas 2D, Zustand)
 ```
 
 ## Data ownership (Milestone 1)
@@ -115,9 +112,9 @@ Reconcile (background + `POST /api/runtime/reconcile`) only touches `ready`/`dis
 
 Policy is `Department ∩ Role` (task-level narrowing is Milestone 3), applied per profile and read back from Hermes:
 
-- **Toolsets**: every toolset Hermes lists is set explicitly (enabled iff effective). `kanban` is always on (required for task reporting). Chief = department allowance limited to coordination toolsets (`todo, memory, skills, session_search`); worker = allowance minus `delegation, cronjob`.
+- **Toolsets**: every toolset Hermes lists is set explicitly (enabled iff effective). `kanban` is always on (required for task reporting). Chief and worker both get the department allowance minus `delegation, cronjob` (sub-agents and cron jobs would run outside the department board). Workers are optional: `limits.maxConcurrentWorkers` defaults to 0, and then no worker profile is provisioned and the chief is instructed to do the work itself. The create-department form pre-fills toolsets, skills and model from Hermes' `default` profile (`GET /api/runtime/defaults`); the values are copied into the department inventory once, at creation.
 - **Skills**: installed skills not in `allowedSkillIds` are disabled (`skills.disabled`).
-- **Models**: if `allowedModelIds` is non-empty the profile default is set to an allowed model (kept if already allowed); empty = leave the profile alone.
+- **Models**: the inventory holds one `model: { provider, id }` (or null = leave the profile alone), chosen from Hermes' model picker data (`GET /api/runtime/models`, proxied from the dashboard's `GET /api/model/options`: authenticated providers only). Provisioning sets the pair through the dashboard's `POST /api/model/set?profile=` (scope `main`), which validates it against the provider; drift is checked on the model id. Inventories stored with the older `allowedModelIds` list are migrated on read by dropping the list (a bare id has no provider).
 - **Instructions**: department purpose, role rules and shared-context *references* go into a delimited block in the profile's `SOUL.md`; everything else in the file is preserved.
 - **MCP tools**: not applied (no MCP server available to verify against); reported `unverified`.
 
@@ -210,3 +207,15 @@ The vibeytown prototype was copied in once (it is no longer synced from that rep
 - Types come from `@vibe-city/shared` (zod-validated in `src/api.ts`). The inventory UI follows the guarantee rules above: enforced, configured, unverified and unsupported are separate groups with their `detail` text; workspace and delegation depth are labelled advisory.
 - The department setup panel provisions (managed profiles by default; existing profiles require the explicit consent checkbox, sent as `confirmModifyProfiles`).
 - `apps/web/tsconfig.json` turns off `noUncheckedIndexedAccess` because the imported renderer indexes arrays freely.
+
+### UI merge (every backend route usable from the city)
+
+The city at `/` is the complete product surface (the original `#board` view has been removed).
+
+- **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, workspace set/clear with advisory copy, the provisioning/profile inspector, archive); inventory sheet (the floor's agents, worker desks = `maxConcurrentWorkers`, task runtime, workspace, MCP tools; the capability report is API-only); **agent view** (click a person on the floor: model, skills, toolsets, recent Hermes sessions, latest activity, shared context; edits change the department inventory shared by both roles); the **company quest board** (top bar and Executive Office; the player's only board, combining every department's quests, see `data/company.ts`; department panels link to it with a department filter); quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
+- **Copy and rules** live in `data/views.ts` (pure, tested): what a status means in words, which provisioning action is allowed (retry only for a retryable error or `disconnected`), the settings PATCH diff, archive consequences, cancellation wording (a 202 `requested` is never shown as cancelled).
+- **Consistency** (`data/live.ts`, `data/sched.ts`): every fetch takes a ticket from a last-request-wins gate per key (department quests, local data, info, quest detail, cancellation), so an older response never overwrites newer state. Live events are coalesced per department (400 ms after the last event, at most 2 s after the first). Mutations refresh only the affected department (`GET /api/departments/:id` + its data); create and archive refresh everything because floor order changes. Archiving closes the floor's socket, pending refresh and cancellation polls. A cancellation status never regresses from `confirmed`.
+- **Cancellation polling**: after a `requested` answer the UI polls `GET .../cancellation` (1, 2, 4, 8, then 10 s; 2 min budget) until confirmed, the quest view closes, Hermes/the backend is unreachable, or the budget runs out. Live events refresh the same status in between.
+- **API client** (`src/api.ts`): every response, including list envelopes and the archive response (`DepartmentArchivedSchema`, `QuestTasksSchema`, ... in `packages/shared`), is parsed with a strict schema; the backend parses its responses with the same schemas. Error messages come only from the documented `message`/`issues` fields; non-JSON error bodies are never shown.
+- **Accessibility**: tabs with arrow/Home/End keys, modal dialogs trap focus, close on Escape (without also leaving the floor) and restore focus; after navigation focus moves to the new panel's heading; connection, provisioning, cancellation and errors are announced through `aria-live`/`role=alert`; status always has a glyph and a word as well as a color.
+- **Static serving**: unknown non-API paths fall back to the app shell only when they have no file extension; a missing `*.js`/`*.css` is a 404. (`@fastify/static` with `wildcard: false` registers the files present at startup, so a running backend does not see a later rebuild's new hashed chunks; restart it after rebuilding.)

@@ -78,14 +78,14 @@ export class RunTracker {
   async observe(departmentId: string, kanban: KanbanClient, questTaskId: string): Promise<{ recorded: RunReference[]; violations: string[] }> {
     const dept = this.depts.getRow(departmentId);
     const board = dept.hermes_board_ref;
-    if (!board || !dept.chief_profile_ref || !dept.worker_profile_ref) throw new Error('department is not provisioned');
+    if (!board || !dept.chief_profile_ref) throw new Error('department is not provisioned');
     const violations: string[] = [];
     const quest = await kanban.getTask(board, questTaskId);
     const tasks: { id: string; parent: string | null; detail: typeof quest }[] = [{ id: questTaskId, parent: null, detail: quest }];
     for (const childId of quest.links.children) tasks.push({ id: childId, parent: questTaskId, detail: await kanban.getTask(board, childId) });
     for (const t of tasks) {
       for (const run of t.detail.runs) {
-        const role = run.profile === dept.chief_profile_ref ? 'chief' : run.profile === dept.worker_profile_ref ? 'worker' : null;
+        const role = run.profile === dept.chief_profile_ref ? 'chief' : dept.worker_profile_ref && run.profile === dept.worker_profile_ref ? 'worker' : null;
         if (!role) {
           violations.push(`run ${run.id} of task ${t.id} used profile "${run.profile}", which is not this department's chief or worker`);
           continue;

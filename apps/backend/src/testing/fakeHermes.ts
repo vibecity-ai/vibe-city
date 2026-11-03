@@ -1,15 +1,21 @@
+import type { ModelChoice } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type HermesRuntime, type ProfileInfo, type SkillInfo,
+  type BoardInfo, type HermesHealth, type HermesRuntime, type ModelCatalog, type ProfileInfo, type SessionInfo, type SkillInfo,
 } from '../hermes/ports.ts';
 
 type Method = keyof HermesRuntime;
 
 interface FakeProfile {
-  description: string; model: string; toolsets: Record<string, boolean>; skills: Record<string, boolean>; soul: string;
+  description: string; model: string; provider: string; toolsets: Record<string, boolean>; skills: Record<string, boolean>; soul: string;
 }
 
 export const FAKE_TOOLSETS = ['web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'skills', 'todo', 'kanban', 'memory', 'delegation', 'cronjob', 'tts'];
+/** What the fake reports as Hermes' model picker: two authenticated providers. */
+export const FAKE_MODELS: ModelCatalog['providers'] = [
+  { slug: 'near-ai', name: 'NEAR AI Cloud', current: true, models: ['base-model', 'm-1', 'model-a', 'model-b'] },
+  { slug: 'anthropic', name: 'Anthropic', current: false, models: ['claude-x'] },
+];
 export const FAKE_SKILLS = ['hermes-agent', 'pdf', 'arxiv', 'github', 'omarchy'];
 const FAKE_ESSENTIAL = ['hermes-agent']; // mirrors Hermes: essential skills cannot be disabled
 
@@ -22,6 +28,8 @@ export class FakeHermes implements HermesRuntime {
   profiles = new Map<string, FakeProfile>();
   boards = new Map<string, BoardInfo>();
   calls: string[] = [];
+  /** Sessions per profile, newest first (already reduced to SessionInfo, as the real adapter does). */
+  sessions = new Map<string, SessionInfo[]>();
   private faults: { method: Method; err: Error; times: number }[] = [];
 
   constructor() {
@@ -30,7 +38,7 @@ export class FakeHermes implements HermesRuntime {
 
   private freshProfile(description: string): FakeProfile {
     return {
-      description, model: 'base-model',
+      description, model: 'base-model', provider: 'near-ai',
       toolsets: Object.fromEntries(FAKE_TOOLSETS.map((t) => [t, true])),
       skills: Object.fromEntries(FAKE_SKILLS.map((s) => [s, true])),
       soul: '# Soul\nBe helpful.\n',
@@ -115,12 +123,26 @@ export class FakeHermes implements HermesRuntime {
 
   async getModel(profile: string) {
     this.enter('getModel', [profile]);
-    return this.profile(profile).model;
+    const p = this.profile(profile);
+    return { id: p.model, provider: p.provider };
   }
 
-  async setModel(profile: string, model: string) {
+  /** Mirrors Hermes: the pair must exist in the picker catalog. */
+  async setModel(profile: string, choice: ModelChoice) {
     this.enter('setModel', [profile]);
-    this.profile(profile).model = model;
+    if (!FAKE_MODELS.some((x) => x.slug === choice.provider && x.models.includes(choice.id))) {
+      throw new HermesRejectedError(`Hermes 400: model ${choice.id} is not available from ${choice.provider}`);
+    }
+    const p = this.profile(profile);
+    p.model = choice.id;
+    p.provider = choice.provider;
+    return { ...choice };
+  }
+
+  async listModels(): Promise<ModelCatalog> {
+    this.enter('listModels');
+    const d = this.profile('default');
+    return { current: { provider: d.provider, model: d.model }, providers: FAKE_MODELS.map((x) => ({ ...x, models: [...x.models] })) };
   }
 
   async readInstructions(profile: string) {
@@ -131,6 +153,12 @@ export class FakeHermes implements HermesRuntime {
   async writeInstructions(profile: string, text: string) {
     this.enter('writeInstructions', [profile]);
     this.profile(profile).soul = text;
+  }
+
+  async listSessions(profile: string, limit: number) {
+    this.enter('listSessions', [profile]);
+    this.profile(profile);
+    return (this.sessions.get(profile) ?? []).slice(0, limit);
   }
 
   async getConcurrencyCap() {

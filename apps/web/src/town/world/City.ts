@@ -524,11 +524,11 @@ export class City {
     cv.addEventListener('click', (e) => {
       if (this.drag?.moved) return;
       const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
-      if (!h) { if (s.ui.view === 'floor') s.ui$({ agent: null }); return; }
+      if (!h) { if (s.ui.view === 'floor') s.ui$({ agent: null, ...(s.ui.panel === 'agent' && { panel: 'dept' as const }) }); return; }
       if (h.kind === 'floor') { if (s.ui.view === 'floor' && s.ui.floorId === h.id) return; s.openFloor(h.id); this.fit(); }
       else if (h.kind === 'ph') { s.closeFloor(); }
       else if (h.kind === 'ghost') s.ui$({ modal: 'create' });
-      else if (h.kind === 'agent') s.ui$({ agent: h.id, deptTab: 'overview', panel: 'dept' });
+      else if (h.kind === 'agent') s.ui$({ agent: h.id, panel: 'agent' });
     });
   }
 }

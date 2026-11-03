@@ -11,7 +11,7 @@ services:
     build:
       context: .
       args:
-        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d}
     image: ${VIBE_CITY_IMAGE:-vibe-city:local}
     restart: unless-stopped
     command: ["gateway", "run"]
@@ -22,6 +22,11 @@ services:
       HERMES_GID: ${HERMES_GID:-10000}
       HERMES_DASHBOARD_SESSION_TOKEN: ${HERMES_DASHBOARD_SESSION_TOKEN:?set HERMES_DASHBOARD_SESSION_TOKEN in .env (openssl rand -hex 24)}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:4100,http://localhost:4100}
+      # NEAR AI Cloud (OpenAI-compatible) is the default model provider when the key is set; see DEPLOYMENT.md.
+      NEAR_AI_API_KEY: ${NEAR_AI_API_KEY:-}
+      NEAR_AI_BASE_URL: ${NEAR_AI_BASE_URL:-https://cloud-api.near.ai/v1}
+      NEAR_AI_MODEL: ${NEAR_AI_MODEL:-deepseek/deepseek-v4.1-flash}
+      NEAR_AI_REASONING_EFFORT: ${NEAR_AI_REASONING_EFFORT:-high}
     env_file:
       - path: .env.hermes
         required: false

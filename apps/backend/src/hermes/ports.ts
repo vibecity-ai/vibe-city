@@ -1,4 +1,4 @@
-import type { HealthView } from '@vibe-city/shared';
+import type { HealthView, ModelChoice } from '@vibe-city/shared';
 
 /** Hermes could not be reached or answered with a server-side/transient failure. Retry later. */
 export class HermesUnavailableError extends Error {}
@@ -30,6 +30,26 @@ export interface SkillInfo {
   enabled: boolean;
 }
 
+/** A Hermes session row reduced to the fields Vibe City may relay (times are epoch seconds). */
+export interface SessionInfo {
+  id: string;
+  title: string | null;
+  source: string | null;
+  model: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  lastActive: number | null;
+  active: boolean;
+  messageCount: number | null;
+  toolCallCount: number | null;
+  endReason: string | null;
+}
+
+export interface ModelCatalog {
+  current: { provider: string | null; model: string | null };
+  providers: { slug: string; name: string; current: boolean; models: string[] }[];
+}
+
 export type HermesHealth = HealthView['hermes'];
 
 /**
@@ -54,11 +74,18 @@ export interface HermesRuntime {
   listSkills(profile: string): Promise<SkillInfo[]>;
   setDisabledSkills(profile: string, names: string[]): Promise<void>;
 
-  getModel(profile: string): Promise<string | null>;
-  setModel(profile: string, model: string): Promise<void>;
+  /** The profile's main model and its provider, as written in its config (null when unset). */
+  getModel(profile: string): Promise<{ id: string | null; provider: string | null }>;
+  /** Sets the profile's main model and provider together; returns the pair Hermes normalized and wrote. */
+  setModel(profile: string, choice: ModelChoice): Promise<ModelChoice>;
+  /** Hermes' model picker data: authenticated providers and their model ids, plus what `default` uses. */
+  listModels(): Promise<ModelCatalog>;
 
   readInstructions(profile: string): Promise<string | null>;
   writeInstructions(profile: string, text: string): Promise<void>;
+
+  /** Most recent sessions of one profile (dashboard `GET /api/sessions?profile=`), newest activity first. */
+  listSessions(profile: string, limit: number): Promise<SessionInfo[]>;
 
   /** Host-wide `kanban.max_in_progress_per_profile`, or null when unset/unlimited. */
   getConcurrencyCap(): Promise<number | null>;
