@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { InventorySchema, TOOLSETS, type Inventory } from '@vibe-city/shared';
 import {
-  buildDepartmentWideReport, buildRoleReport, diffObserved, effectiveToolsets, inventoryHash, preferredModel,
+  buildDepartmentWideReport, buildRoleReport, diffObserved, effectiveToolsets, inventoryHash, modelToApply,
   type ObservedRole,
 } from './inventoryPolicy.ts';
 import { buildBlock, upsertBlock } from './instructions.ts';
@@ -36,18 +36,26 @@ test('inventory hash is stable, order-insensitive for keys, and sensitive to nes
   assert.notEqual(inventoryHash(inv()), inventoryHash(inv({ allowedToolsets: ['file'] })));
 });
 
-test('preferredModel: no preference leaves the profile alone; current allowed model is kept', () => {
-  assert.equal(preferredModel(inv(), 'x'), null);
-  assert.equal(preferredModel(inv({ allowedModelIds: ['m1', 'm2'] }), 'm2'), 'm2');
-  assert.equal(preferredModel(inv({ allowedModelIds: ['m1', 'm2'] }), 'other'), 'm1');
+test('modelToApply: no choice leaves the profile alone; an unchanged pair is not rewritten', () => {
+  const m = { provider: 'near-ai', id: 'm1' };
+  assert.equal(modelToApply(inv(), { id: 'x', provider: 'p' }), null);
+  assert.equal(modelToApply(inv({ model: m }), { id: 'm1', provider: 'near-ai' }), null);
+  assert.deepEqual(modelToApply(inv({ model: m }), { id: 'm1', provider: 'anthropic' }), m, 'same id, other provider');
+  assert.deepEqual(modelToApply(inv({ model: m }), { id: 'other', provider: 'near-ai' }), m);
+});
+
+test('the model is one provider + id pair, not a list', () => {
+  assert.throws(() => inv({ model: { id: 'm1' } }));
+  assert.throws(() => inv({ allowedModelIds: ['m1'] }));
+  assert.equal(inv().model, null);
 });
 
 const observed = (o: Partial<ObservedRole> = {}): ObservedRole => ({
-  profile: 'p', toolsets: { kanban: true, terminal: false, file: false }, enabledSkills: ['hermes-agent'], installedSkills: ['pdf', 'hermes-agent'], model: 'm', instructionsPresent: true, ...o,
+  profile: 'p', toolsets: { kanban: true, terminal: false, file: false }, enabledSkills: ['hermes-agent'], installedSkills: ['pdf', 'hermes-agent'], model: 'm', provider: 'near-ai', instructionsPresent: true, ...o,
 });
 
 test('diffObserved flags extra toolsets, skills, model and missing instructions', () => {
-  const i = inv({ allowedModelIds: ['m'] });
+  const i = inv({ model: { provider: 'near-ai', id: 'm' } });
   assert.deepEqual(diffObserved('worker', i, observed()), []);
   assert.equal(diffObserved('worker', i, observed({ toolsets: { kanban: true, terminal: true, file: false } })).length, 1);
   assert.equal(diffObserved('worker', i, observed({ enabledSkills: ['hermes-agent', 'pdf'] })).length, 1);
@@ -68,7 +76,7 @@ test('report never claims enforcement without an in-sync observation', () => {
 });
 
 test('known gaps are always reported as unsupported/unverified, never enforced', () => {
-  const entries = buildRoleReport('chief', inv({ allowedMcpTools: ['gh:issue'], allowedModelIds: ['m'] }), observed());
+  const entries = buildRoleReport('chief', inv({ allowedMcpTools: ['gh:issue'], model: { provider: 'near-ai', id: 'm' } }), observed());
   assert.equal(entries.find((e) => e.capability === 'mcp.tools')!.status, 'unverified');
   assert.equal(entries.find((e) => e.capability === 'models.restriction')!.status, 'unsupported');
   const wide = buildDepartmentWideReport(inv({ limits: { maxConcurrentWorkers: 5 } }), 2);

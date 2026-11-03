@@ -387,6 +387,8 @@ select.input { cursor: pointer; }
 .chk small { margin-left: auto; font-size: 11px; }
 .chk.off { cursor: not-allowed; opacity: .55; }
 .modal .row .input { flex: 1; }
+.model-pick { margin-top: 0; align-items: center; }
+.model-pick .input { flex: 1; min-width: 0; }
 .preview { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 2px dashed var(--amber); margin-top: 12px; background: rgba(255,181,71,.05); }
 .preview span { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .preview b { font: 400 20px var(--f-px); }

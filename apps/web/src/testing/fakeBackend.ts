@@ -45,7 +45,7 @@ export const provStatus = (o: Partial<ProvisioningStatus> = {}): ProvisioningSta
 });
 
 export const inventory = () => ({
-  allowedSkillIds: [], allowedMcpTools: [], allowedModelIds: [], allowedToolsets: ['file'], sharedContextRefs: [],
+  allowedSkillIds: [], allowedMcpTools: [], model: null, allowedToolsets: ['file'], sharedContextRefs: [],
   limits: { maxConcurrentWorkers: 1, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
 });
 

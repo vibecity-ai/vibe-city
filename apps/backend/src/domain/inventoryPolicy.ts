@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AGENT_EXCLUDED_TOOLSETS, type CapabilityEntry, type Inventory } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, type CapabilityEntry, type Inventory, type ModelChoice } from '@vibe-city/shared';
 
 type Draft = Omit<CapabilityEntry, 'guarantee'>;
 /** A guarantee exists only where behavior was tested (status 'enforced'); everything else is explicitly not one. */
@@ -39,10 +39,10 @@ export const effectiveSkills = (inv: Inventory, installed: string[]) =>
 export const skillsToDisable = (inv: Inventory, installed: string[]) =>
   installed.filter((s) => !inv.allowedSkillIds.includes(s) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
 
-/** The model to make the profile default to; null when the department states no preference. */
-export const preferredModel = (inv: Inventory, current: string | null): string | null => {
-  if (!inv.allowedModelIds.length) return null;
-  return current && inv.allowedModelIds.includes(current) ? current : inv.allowedModelIds[0]!;
+/** The model to set on the profile; null when the department keeps the profile's own default. Unchanged pairs are not rewritten. */
+export const modelToApply = (inv: Inventory, current: { id: string | null; provider: string | null }): ModelChoice | null => {
+  if (!inv.model) return null;
+  return current.id === inv.model.id && current.provider === inv.model.provider ? null : inv.model;
 };
 
 function stableStringify(v: unknown): string {
@@ -65,6 +65,7 @@ export interface ObservedRole {
   enabledSkills: string[];
   installedSkills: string[];
   model: string | null;
+  provider: string | null;
   instructionsPresent: boolean;
 }
 
@@ -84,7 +85,7 @@ export function diffObserved(role: Role, inv: Inventory, o: ObservedRole): strin
   const wantSkills = effectiveSkills(inv, o.installedSkills);
   const have = [...o.enabledSkills].sort();
   if (JSON.stringify(wantSkills) !== JSON.stringify(have)) diffs.push('enabled skills differ from the inventory');
-  if (inv.allowedModelIds.length && (!o.model || !inv.allowedModelIds.includes(o.model))) diffs.push('default model is outside the allowed models');
+  if (inv.model && o.model !== inv.model.id) diffs.push(`default model is ${o.model ?? 'unset'}, expected ${inv.model.id}`);
   if (!o.instructionsPresent) diffs.push('department instructions block is missing');
   return diffs;
 }
@@ -138,19 +139,19 @@ export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | nu
   const modelOk = o !== null && !diffs!.some((d) => d.includes('model'));
   entries.push({
     capability: 'models.default',
-    requested: inv.allowedModelIds,
-    effective: o?.model ?? null,
-    status: inv.allowedModelIds.length === 0 ? 'unverified' : modelOk ? 'configured' : 'unverified',
-    detail: inv.allowedModelIds.length === 0
-      ? 'No allowed models listed: the profile keeps its own default model (not changed).'
-      : 'The profile default model is set to an allowed model and read back. Whether the provider accepts it is not checked.',
+    requested: inv.model,
+    effective: o ? { provider: o.provider, id: o.model } : null,
+    status: !inv.model ? 'unverified' : modelOk ? 'configured' : 'unverified',
+    detail: !inv.model
+      ? 'No model chosen: the profile keeps its own default model (not changed).'
+      : 'Set through Hermes\' own model assignment, which checks the model against the provider\'s list, and read back.',
   });
   entries.push({
     capability: 'models.restriction',
-    requested: inv.allowedModelIds,
+    requested: inv.model,
     effective: null,
     status: 'unsupported',
-    detail: 'Hermes has no setting that prevents an agent or task from selecting a different model (tasks accept model overrides), so the allowlist is not enforced.',
+    detail: 'Hermes has no setting that prevents an agent or task from selecting a different model (tasks accept model overrides), so the chosen model is a default, not a restriction.',
   });
 
   const instrOk = o !== null && o.instructionsPresent;

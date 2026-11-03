@@ -191,7 +191,7 @@ test('inventory defaults, partial patch merge, and persistence of limits', async
   const url = `/api/departments/${d.id}/inventory`;
   const inv0 = (await app.inject(url)).json();
   assert.deepEqual(inv0, {
-    allowedSkillIds: [], allowedMcpTools: [], allowedModelIds: [], allowedToolsets: [], sharedContextRefs: [],
+    allowedSkillIds: [], allowedMcpTools: [], model: null, allowedToolsets: [], sharedContextRefs: [],
     limits: { maxConcurrentWorkers: 0, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
   });
   const p1 = await app.inject({ method: 'PATCH', url, payload: {
@@ -199,7 +199,8 @@ test('inventory defaults, partial patch merge, and persistence of limits', async
     limits: { maxConcurrentWorkers: 3 },
   } });
   assert.equal(p1.statusCode, 200);
-  const p2 = (await app.inject({ method: 'PATCH', url, payload: { limits: { maxTaskRuntimeSeconds: 600 }, allowedModelIds: ['m1'] } })).json();
+  const p2 = (await app.inject({ method: 'PATCH', url, payload: { limits: { maxTaskRuntimeSeconds: 600 }, model: { provider: 'near-ai', id: 'm1' } } })).json();
+  assert.deepEqual(p2.model, { provider: 'near-ai', id: 'm1' });
   assert.deepEqual(p2.allowedSkillIds, ['pdf', 'arxiv'], 'deduped, kept');
   assert.deepEqual(p2.allowedToolsets, ['file', 'kanban']);
   assert.deepEqual(p2.limits, { maxConcurrentWorkers: 3, maxTaskRuntimeSeconds: 600, maxDelegationDepth: 1 });

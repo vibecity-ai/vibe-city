@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { AGENT_EXCLUDED_TOOLSETS, PROVISIONING_STEPS, TOOLSETS, type AgentRole, type AgentView, type DepartmentView, type HermesDefaultsView, type QuestStatus, type TaskNode, type Toolset } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, PROVISIONING_STEPS, TOOLSETS, type AgentRole, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type TaskNode, type Toolset } from '@vibe-city/shared';
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
-  archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, loadDeptInfo, loadHermesDefaults, loadQuest, patchInventory, provisionDepartment,
+  archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
   reconcileNow, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
@@ -544,6 +544,56 @@ export function ArchiveModal() {
 }
 
 /* ============ C · inventory ============ */
+/** Hermes' model list, loaded once per mount. `reload` re-reads it (e.g. after Hermes came back). */
+function useHermesModels() {
+  const [models, setModels] = useState<HermesModelsView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reload = async () => {
+    setError(null);
+    const { value, error: e } = await loadHermesModels();
+    if (value) setModels(value); else setError(e?.message ?? 'Could not read the model list from Hermes.');
+  };
+  useEffect(() => { void reload(); }, []);
+  return { models, error, reload };
+}
+
+const modelKey = (m: ModelChoice | null) => (m ? `${m.provider}\u0000${m.id}` : '');
+
+/**
+ * One model, chosen from Hermes' list (grouped by provider). A saved choice Hermes no longer offers stays visible,
+ * marked, so it is never silently replaced.
+ */
+function ModelPicker({ label, hint, models, error, onRetry, value, onChange, disabled }: {
+  label: string; hint: string; models: HermesModelsView | null; error: string | null; onRetry: () => void;
+  value: ModelChoice | null; onChange: (m: ModelChoice | null) => void; disabled?: boolean;
+}) {
+  const offered = !value || !models || models.providers.some((p) => p.slug === value.provider && p.models.includes(value.id));
+  return (
+    <Field label={label} hint={hint} error={error ? `${error}` : !offered ? `${value!.id} (${value!.provider}) is not in Hermes’ list anymore. Choose another model.` : null}>
+      {(p) => (
+        <div className="row model-pick">
+          <select {...p} className="input mono" disabled={disabled || !models} value={modelKey(value)}
+            onChange={(e) => {
+              if (!e.target.value) return onChange(null);
+              const [provider, id] = e.target.value.split('\u0000');
+              onChange({ provider: provider!, id: id! });
+            }}>
+            {!models && <option value={modelKey(value)}>{error ? 'Model list unavailable' : 'Loading models from Hermes…'}</option>}
+            {models && <option value="">Keep the profile’s own model</option>}
+            {models && !offered && <option value={modelKey(value)}>{value!.id} · {value!.provider} (not offered)</option>}
+            {models?.providers.map((pr) => (
+              <optgroup key={pr.slug} label={`${pr.name}${pr.current ? ' · current provider' : ''}`}>
+                {pr.models.map((m) => <option key={m} value={modelKey({ provider: pr.slug, id: m })}>{m}</option>)}
+              </optgroup>
+            ))}
+          </select>
+          {error && <button type="button" className="link" onClick={onRetry}>Retry</button>}
+        </div>
+      )}
+    </Field>
+  );
+}
+
 function ListEditor({ label, hint, values, onSave, disabled }: { label: string; hint: string; values: readonly string[]; onSave: (v: string[]) => void; disabled: boolean }) {
   const [draft, setDraft] = useState('');
   const add = () => { const v = draft.trim(); if (v && !values.includes(v)) onSave([...values, v]); setDraft(''); };
@@ -652,6 +702,7 @@ export function AgentPanel() {
   const allowed = new Set(inv?.allowedSkillIds ?? []);
   const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
   const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
+  const hermesModels = useHermesModels();
   return (
     <div className="pane">
       <div className="pane-scroll">
@@ -730,8 +781,10 @@ export function AgentPanel() {
 
         <section className="pane-sec">
           <h3 className="sec-t">Model</h3>
-          <p className="fine">The first allowed model becomes the profile default when you provision. Hermes cannot restrict which models run. Shared by the department’s agents.</p>
-          {inv && <ListEditor label="Models" hint="Model ids, in order of preference." values={inv.allowedModelIds} disabled={saving} onSave={(v) => save({ allowedModelIds: v })} />}
+          <p className="fine">Shared by the department’s agents and set in Hermes when you provision. Hermes cannot stop an agent from picking another model for a task.</p>
+          {inv && <ModelPicker label="Default model" hint={`From Hermes’ model list.${view?.provider ? ` This profile now uses ${view.model ?? '—'} via ${view.provider}.` : ''}`}
+            models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
+            value={inv.model} disabled={saving} onChange={(m) => save({ model: m })} />}
         </section>
 
         <section className="pane-sec">
@@ -1088,7 +1141,9 @@ export function CreateDeptModal() {
   const [loading, setLoading] = useState(false);
   const [toolsets, setToolsets] = useState<Toolset[]>([]);
   const [skills, setSkills] = useState<string[]>([]);
-  const [model, setModel] = useState('');
+  const [model, setModel] = useState<ModelChoice | null>(null);
+  const [catalog, setCatalog] = useState<HermesModelsView | null>(null);
+  const [catalogErr, setCatalogErr] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [workers, setWorkers] = useState(0);
   const [provisionNow, setProvisionNow] = useState(true);
@@ -1097,22 +1152,26 @@ export function CreateDeptModal() {
   useDialog(ref, open, () => s.ui$({ modal: null }));
   useEffect(() => {
     if (!open) return;
-    setStep(0); setName(''); setPurpose(''); setDefaults(null); setLoadErr(null); setToolsets([]); setSkills([]); setModel(''); setFilter(''); setWorkers(0); setProvisionNow(true);
+    setStep(0); setName(''); setPurpose(''); setDefaults(null); setLoadErr(null); setCatalog(null); setCatalogErr(null); setToolsets([]); setSkills([]); setModel(null); setFilter(''); setWorkers(0); setProvisionNow(true);
   }, [open]);
   if (!open) return null;
   const busy = !!s.busy.create || !!Object.keys(s.busy).find((k) => k.startsWith('provision:') && s.busy[k]);
   const next = s.depts.length + 1;
 
-  const applyDefaults = (v: HermesDefaultsView) => {
+  const applyDefaults = (v: HermesDefaultsView, cat: HermesModelsView | null = catalog) => {
     setToolsets(v.toolsets.filter((t) => t.enabled && t.manageable).map((t) => t.name).filter(isToolset));
     setSkills(v.skills.filter((x) => x.enabled).map((x) => x.name));
-    setModel(v.model ?? '');
+    // The default profile's current pair, when Hermes offers it.
+    const cur = cat?.current;
+    const offered = cur?.provider && cur.model && cat!.providers.some((p) => p.slug === cur.provider && p.models.includes(cur.model!));
+    setModel(offered ? { provider: cur!.provider!, id: cur!.model! } : null);
   };
   const load = async () => {
     setLoading(true); setLoadErr(null);
-    const { value, error } = await loadHermesDefaults();
+    const [{ value, error }, models] = await Promise.all([loadHermesDefaults(), loadHermesModels()]);
     setLoading(false);
-    if (value) { setDefaults(value); applyDefaults(value); } else setLoadErr(error?.message ?? 'Could not read Hermes.');
+    setCatalog(models.value); setCatalogErr(models.value ? null : models.error?.message ?? 'Could not read the model list from Hermes.');
+    if (value) { setDefaults(value); applyDefaults(value, models.value); } else setLoadErr(error?.message ?? 'Could not read Hermes.');
   };
   const go = (n: number) => { setStep(n); if (n === 1 && !defaults && !loading) void load(); };
   const toggle = <T extends string>(list: T[], set: (v: T[]) => void, x: T) => set(list.includes(x) ? list.filter((y) => y !== x) : [...list, x]);
@@ -1121,7 +1180,7 @@ export function CreateDeptModal() {
     if (!name.trim() || busy) return;
     void createDepartment({
       name: name.trim(), purpose: purpose.trim(),
-      inventory: { allowedToolsets: toolsets, allowedSkillIds: skills, allowedModelIds: model.trim() ? [model.trim()] : [], limits: { maxConcurrentWorkers: workers } },
+      inventory: { allowedToolsets: toolsets, allowedSkillIds: skills, model, limits: { maxConcurrentWorkers: workers } },
     }, provisionNow && canProvision);
   };
   const shownSkills = (defaults?.skills ?? []).filter((x) => x.name.includes(filter.trim().toLowerCase()));
@@ -1175,9 +1234,9 @@ export function CreateDeptModal() {
               ))}
               {!shownSkills.length && <p className="muted small">No skill matches.</p>}
             </div>
-            <Field label="Model" hint={`The chief’s default model. Hermes’ default profile uses ${defaults.model ?? 'none'}. Blank = keep the profile’s own default. Hermes cannot stop an agent from picking another model.`}>
-              {(p) => <input {...p} className="input mono" value={model} onChange={(e) => setModel(e.target.value)} />}
-            </Field>
+            <ModelPicker label="Model" hint={`The chief’s default model, from Hermes’ list. The default profile uses ${catalog?.current.model ?? defaults.model ?? 'none'}${catalog?.current.provider ? ` via ${catalog.current.provider}` : ''}. Hermes cannot stop an agent from picking another model.`}
+              models={catalog} error={catalogErr} value={model} onChange={setModel}
+              onRetry={() => void loadHermesModels().then((m) => { setCatalog(m.value); setCatalogErr(m.value ? null : m.error?.message ?? 'Could not read the model list from Hermes.'); })} />
             <button type="button" className="link" onClick={() => applyDefaults(defaults)}>Reset to Hermes defaults</button>
           </>}
         </>}
@@ -1190,7 +1249,7 @@ export function CreateDeptModal() {
             ['Name', name.trim()],
             ['Toolsets', <span className="mono">{['kanban', ...toolsets].sort().join(', ')}</span>],
             ['Skills', skills.length ? `${skills.length} enabled` : 'none (Hermes keeps hermes-agent on)'],
-            ['Model', <span className="mono">{model.trim() || 'profile default'}</span>],
+            ['Model', <span className="mono">{model ? `${model.id} · ${model.provider}` : 'profile default'}</span>],
             ['Workers', workers === 0 ? 'none · chief only' : String(workers)],
           ]} />
           <label className="consent"><input type="checkbox" checked={provisionNow && canProvision} disabled={!canProvision} onChange={(e) => setProvisionNow(e.target.checked)} />

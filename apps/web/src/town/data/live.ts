@@ -8,7 +8,7 @@
    - Mutations refresh the affected department only; create/archive (which change the floor order) refresh everything.
    - Sockets, coalescer timers and cancellation polls are closed when a department leaves the tower or the app unmounts. */
 import type {
-  AgentRole, CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
+  AgentRole, CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
 } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
@@ -347,6 +347,12 @@ async function attempt<T>(key: string, fn: () => Promise<T>): Promise<{ value: T
 /** Hermes' default profile, the starting point of the create form. Errors go back to the form. */
 export async function loadHermesDefaults(): Promise<{ value: HermesDefaultsView | null; error: ApiError | null }> {
   try { return { value: await api.hermesDefaults(), error: null }; }
+  catch (e) { return { value: null, error: asApiError(e) }; }
+}
+
+/** Hermes' model list (authenticated providers and their models). Errors go back to the caller. */
+export async function loadHermesModels(): Promise<{ value: HermesModelsView | null; error: ApiError | null }> {
+  try { return { value: await api.hermesModels(), error: null }; }
   catch (e) { return { value: null, error: asApiError(e) }; }
 }
 

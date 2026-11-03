@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
   AGENT_EXCLUDED_TOOLSETS, TOOLSETS, boardSlugForDepartment, profileNamesForDepartment,
-  type AgentRole, type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
+  type AgentRole, type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
 } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime,
@@ -12,7 +12,7 @@ import type { DepartmentRow, DepartmentService } from './departmentService.ts';
 import { buildBlock, hasBlock, upsertBlock, type Role } from './instructions.ts';
 import {
   ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, buildDepartmentWideReport, buildRoleReport, desiredToolsetMap, diffObserved, effectiveToolsets, hasWorkers,
-  inventoryHash, preferredModel, skillsToDisable, type ObservedConfig, type ObservedRole,
+  inventoryHash, modelToApply, skillsToDisable, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
 type Step = ProvisioningError['step'];
@@ -98,6 +98,11 @@ export class ProvisioningService {
     return { checkedAt: now(), hermes: await this.hermes.health() };
   }
 
+  /** Hermes' model picker data, read live: the only models a department can choose from. */
+  async hermesModels(): Promise<HermesModelsView> {
+    return { checkedAt: now(), ...(await this.hermes.listModels()) };
+  }
+
   /** Hermes' `default` profile, read live: the starting point of a new department's capabilities. */
   async hermesDefaults(): Promise<HermesDefaultsView> {
     const toolsets = await this.hermes.getToolsets('default');
@@ -105,7 +110,7 @@ export class ProvisioningService {
     const known = new Set<string>(TOOLSETS);
     const excluded = new Set<string>(AGENT_EXCLUDED_TOOLSETS);
     return {
-      checkedAt: now(), profile: 'default', model: await this.hermes.getModel('default'),
+      checkedAt: now(), profile: 'default', model: (await this.hermes.getModel('default')).id,
       toolsets: Object.entries(toolsets).map(([name, enabled]) => ({ name, enabled, manageable: known.has(name) && !excluded.has(name) && !(REQUIRED_TOOLSETS as readonly string[]).includes(name) }))
         .sort((a, b) => a.name.localeCompare(b.name)),
       skills: skills.map((x) => ({ name: x.name, enabled: x.enabled })).sort((a, b) => a.name.localeCompare(b.name)),
@@ -157,7 +162,7 @@ export class ProvisioningService {
       }
     }
     return {
-      departmentId: id, role, profileRef: ref, observedAt: o ? obs!.at : null, model: o?.model ?? null,
+      departmentId: id, role, profileRef: ref, observedAt: o ? obs!.at : null, model: o?.model ?? null, provider: o?.provider ?? null,
       skills: (o?.installedSkills ?? []).map((name) => ({ name, enabled: enabled.has(name), essential: (ESSENTIAL_SKILLS as readonly string[]).includes(name) })).sort((a, b) => a.name.localeCompare(b.name)),
       toolsets: Object.entries(o?.toolsets ?? {}).map(([name, on]) => ({ name, enabled: on })).sort((a, b) => a.name.localeCompare(b.name)),
       sessions, sessionsError,
@@ -368,8 +373,8 @@ export class ProvisioningService {
       // skills: everything installed that is not allowed is disabled
       const installed = (await this.hermes.listSkills(profile)).map((s) => s.name);
       await this.hermes.setDisabledSkills(profile, skillsToDisable(inv, installed));
-      // model: only when the department states a preference
-      const model = preferredModel(inv, await this.hermes.getModel(profile));
+      // model: only when the department chose one (provider + id, set together through Hermes)
+      const model = modelToApply(inv, await this.hermes.getModel(profile));
       if (model) await this.hermes.setModel(profile, model);
       // instructions: managed block only
       const block = buildBlock({ deptId: id, deptName: row.name, purpose: row.purpose, role, counterpart, inv });
@@ -393,7 +398,7 @@ export class ProvisioningService {
       toolsets: await this.hermes.getToolsets(profile),
       installedSkills: skills.map((s) => s.name),
       enabledSkills: skills.filter((s) => s.enabled).map((s) => s.name),
-      model: await this.hermes.getModel(profile),
+      ...(({ id, provider }) => ({ model: id, provider }))(await this.hermes.getModel(profile)),
       instructionsPresent: hasBlock(soul, block),
     };
   }

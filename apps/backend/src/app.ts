@@ -8,7 +8,7 @@ import {
   InventoryPatchSchema, InventorySchema,
 } from '@vibe-city/shared';
 import {
-  AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
+  AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
 } from '@vibe-city/shared';
 import type { HermesRuntime } from './hermes/ports.ts';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './hermes/ports.ts';
@@ -131,6 +131,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.get('/api/runtime/health', async () => parse(HealthViewSchema, await provisioning.health()));
 
   app.get('/api/runtime/defaults', async () => parse(HermesDefaultsViewSchema, await provisioning.hermesDefaults()));
+
+  app.get('/api/runtime/models', async () => parse(HermesModelsViewSchema, await provisioning.hermesModels()));
 
   app.post('/api/runtime/reconcile', async () => parse(ReconcileResultSchema, { departments: await provisioning.reconcileAll() }));
 

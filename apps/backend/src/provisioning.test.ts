@@ -60,13 +60,36 @@ test('inventory is applied: toolsets, skills, instructions; other profiles and u
   assert.ok(t.hermes.calls.every((c2) => !/\(default[,)]/.test(c2) || c2.startsWith('listProfiles')), 'no profile-scoped call targeted default');
 });
 
-test('allowed models: profile default is switched to an allowed model', async () => {
+test('chosen model: both profiles get the provider + model pair, set through Hermes', async () => {
   const t = provApp();
-  const d = await t.create('Eng', { inventory: { allowedModelIds: ['model-a', 'model-b'] } });
-  await t.provision(d.id);
+  const d = await t.create('Eng', { inventory: { model: { provider: 'anthropic', id: 'claude-x' } } });
+  assert.equal((await t.provision(d.id)).json().state, 'ready');
   const { chief, worker } = profileNamesForDepartment(d.id);
-  assert.equal(t.hermes.profiles.get(chief)!.model, 'model-a');
-  assert.equal(t.hermes.profiles.get(worker)!.model, 'model-a');
+  for (const n of [chief, worker]) {
+    assert.deepEqual([t.hermes.profiles.get(n)!.provider, t.hermes.profiles.get(n)!.model], ['anthropic', 'claude-x'], n);
+  }
+  assert.equal(t.hermes.profiles.get('default')!.model, 'base-model', 'default profile untouched');
+});
+
+test('a model Hermes does not offer fails provisioning at the inventory step', async () => {
+  const t = provApp();
+  const d = await t.create('Eng', { inventory: { model: { provider: 'near-ai', id: 'not-offered' } } });
+  const res = (await t.provision(d.id)).json();
+  assert.equal(res.state, 'error');
+  assert.equal(res.error.step, 'inventory');
+  assert.match(res.error.message, /not available/);
+});
+
+test('model catalog lists Hermes providers and models; legacy allowedModelIds are dropped on read', async () => {
+  const t = provApp();
+  const cat = (await t.app.inject('/api/runtime/models')).json();
+  assert.deepEqual(cat.current, { provider: 'near-ai', model: 'base-model' });
+  assert.deepEqual(cat.providers.map((p: any) => p.slug), ['near-ai', 'anthropic']);
+  const d = await t.create('Old');
+  t.db.prepare('UPDATE department_inventory SET inventory_json = json_set(inventory_json, \'$.allowedModelIds\', json(\'["m"]\')) WHERE department_id = ?').run(d.id);
+  const inv = (await t.app.inject(`/api/departments/${d.id}/inventory`)).json();
+  assert.equal(inv.model, null);
+  assert.ok(!('allowedModelIds' in inv));
 });
 
 test('board default workdir is passed to Hermes server-side and never exposed by the API', async () => {
@@ -566,7 +589,7 @@ test('reconcile never modifies an associated profile whose consent is missing', 
 test('guarantee is true only for enforced capabilities; workspace isolation and delegation depth never are', async () => {
   const t = provApp();
   t.hermes.concurrencyCap = 1;
-  const d = await t.create('Eng', { inventory: { allowedToolsets: ['file', 'terminal'], allowedMcpTools: ['x:y'], allowedModelIds: ['m'], limits: { maxConcurrentWorkers: 1 } } });
+  const d = await t.create('Eng', { inventory: { allowedToolsets: ['file', 'terminal'], allowedMcpTools: ['x:y'], model: { provider: 'near-ai', id: 'm-1' }, limits: { maxConcurrentWorkers: 1 } } });
   await t.provision(d.id);
   const eff = (await t.app.inject(`/api/departments/${d.id}/effective-inventory`)).json();
   const all = [...eff.chief.entries, ...eff.worker.entries, ...eff.departmentWide];

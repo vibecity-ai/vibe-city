@@ -2,10 +2,11 @@ import { execFile } from 'node:child_process';
 import { readFile, rename, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
+import type { ModelChoice } from '@vibe-city/shared';
 import { HermesHttp } from './http.ts';
 import {
   HermesAuthError, HermesCliMissingError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type HermesRuntime, type ProfileInfo, type SessionInfo, type SkillInfo,
+  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SkillInfo,
 } from './ports.ts';
 
 const execFileP = promisify(execFile);
@@ -165,14 +166,36 @@ export class RealHermesRuntime implements HermesRuntime {
     await this.cli(['config', 'set', 'skills.disabled', JSON.stringify([...names].sort()), '--force'], profile);
   }
 
-  async getModel(profile: string): Promise<string | null> {
-    const out = (await this.cli(['config', 'get', 'model.default'], profile)).trim().split('\n').pop()?.trim();
-    return out ? out : null;
+  async getModel(profile: string): Promise<{ id: string | null; provider: string | null }> {
+    const get = async (key: string) => (await this.cli(['config', 'get', key], profile)).trim().split('\n').pop()?.trim() || null;
+    return { id: await get('model.default'), provider: await get('model.provider') };
   }
 
-  async setModel(profile: string, model: string): Promise<void> {
-    if (!MODEL_RE.test(model)) throw new HermesRejectedError('invalid model id');
-    await this.cli(['config', 'set', 'model.default', model], profile);
+  /** Through the dashboard's own model assignment (`POST /api/model/set`), which validates the pair against the provider. */
+  async setModel(profile: string, choice: ModelChoice): Promise<ModelChoice> {
+    if (!PROFILE_RE.test(profile)) throw new HermesRejectedError('invalid profile name');
+    if (!MODEL_RE.test(choice.id) || !MODEL_RE.test(choice.provider)) throw new HermesRejectedError('invalid model or provider id');
+    // The user picked this model explicitly, so Hermes' "expensive model" confirmation is given here.
+    const r = await this.http<{ ok: boolean; provider?: string; model?: string; confirm_message?: string; detail?: string }>(
+      'POST', `/api/model/set?profile=${encodeURIComponent(profile)}`,
+      { body: { scope: 'main', provider: choice.provider, model: choice.id, confirm_expensive_model: true } },
+    );
+    if (!r.ok || !r.model || !r.provider) throw new HermesRejectedError(`Hermes did not set the model: ${r.confirm_message ?? r.detail ?? 'unknown reason'}`);
+    return { provider: r.provider, id: r.model };
+  }
+
+  async listModels(): Promise<ModelCatalog> {
+    const r = await this.http<{
+      model?: string; provider?: string;
+      providers?: { slug: string; name?: string; is_current?: boolean; authenticated?: boolean; source?: string; models?: string[] }[];
+    }>('GET', '/api/model/options?profile=default');
+    return {
+      current: { provider: r.provider || null, model: r.model || null },
+      // Only providers Hermes can actually call; the virtual Mixture-of-Agents slot is not a model.
+      providers: (r.providers ?? [])
+        .filter((p) => p.authenticated && p.source !== 'virtual' && (p.models ?? []).length > 0)
+        .map((p) => ({ slug: p.slug, name: p.name ?? p.slug, current: !!p.is_current, models: [...new Set(p.models)] })),
+    };
   }
 
   private async soulPath(profile: string): Promise<string> {

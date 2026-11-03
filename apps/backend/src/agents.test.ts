@@ -19,7 +19,7 @@ test('before provisioning the agent view has no profile, no read-back and says w
 
 test('after provisioning: installed skills with their enabled state, toolsets and model come from the read-back', async () => {
   const t = provApp();
-  const d = await t.create('Engineering', { inventory: { allowedToolsets: ['file', 'terminal'], allowedSkillIds: ['pdf'], allowedModelIds: ['m-1'] } });
+  const d = await t.create('Engineering', { inventory: { allowedToolsets: ['file', 'terminal'], allowedSkillIds: ['pdf'], model: { provider: 'near-ai', id: 'm-1' } } });
   assert.equal((await t.provision(d.id)).statusCode, 200);
   const names = profileNamesForDepartment(d.id);
 

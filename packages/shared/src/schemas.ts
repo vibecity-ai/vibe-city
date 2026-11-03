@@ -24,7 +24,12 @@ export const MAX_WORKERS_CEILING = 10;
 const skillIds = idList('skill');
 /** MCP tools in Hermes' `server:tool` notation, or a bare server id for the whole server. */
 const mcpTools = idList('MCP tool');
-const modelIds = idList('model');
+/** One model as Hermes names it: the provider slug plus the model id within that provider. */
+export const ModelChoiceSchema = z.object({
+  provider: z.string().trim().min(1).max(100),
+  id: z.string().trim().min(1).max(200),
+}).strict();
+export type ModelChoice = z.infer<typeof ModelChoiceSchema>;
 /** Toolset-level permissions. Verified enforceable in Hermes for `terminal`, `file`, `web`, `browser`, `code_execution`. */
 const toolsets = z.array(ToolsetSchema).max(TOOLSETS.length).transform((a) => [...new Set(a)]);
 const contextRefs = idList('shared context ref');
@@ -32,7 +37,8 @@ const contextRefs = idList('shared context ref');
 export const InventorySchema = z.object({
   allowedSkillIds: skillIds.default([]),
   allowedMcpTools: mcpTools.default([]),
-  allowedModelIds: modelIds.default([]),
+  /** The agents' default model, chosen from Hermes' list. Null = keep the profile's own default. */
+  model: ModelChoiceSchema.nullable().default(null),
   allowedToolsets: toolsets.default([]),
   sharedContextRefs: contextRefs.default([]),
   limits: z.object({
@@ -52,7 +58,7 @@ export type Inventory = z.infer<typeof InventorySchema>;
 export const InventoryPatchSchema = z.object({
   allowedSkillIds: skillIds.optional(),
   allowedMcpTools: mcpTools.optional(),
-  allowedModelIds: modelIds.optional(),
+  model: ModelChoiceSchema.nullable().optional(),
   allowedToolsets: toolsets.optional(),
   sharedContextRefs: contextRefs.optional(),
   limits: z.object({
@@ -260,6 +266,20 @@ export const HermesDefaultsViewSchema = z.object({
 }).strict();
 export type HermesDefaultsView = z.infer<typeof HermesDefaultsViewSchema>;
 
+/** Models Hermes can use right now: its authenticated providers and their model lists (Hermes' own model picker data). */
+export const HermesModelsViewSchema = z.object({
+  checkedAt: z.string(),
+  /** What the `default` profile uses. */
+  current: z.object({ provider: z.string().nullable(), model: z.string().nullable() }).strict(),
+  providers: z.array(z.object({
+    slug: z.string(),
+    name: z.string(),
+    current: z.boolean(),
+    models: z.array(z.string()),
+  }).strict()),
+}).strict();
+export type HermesModelsView = z.infer<typeof HermesModelsViewSchema>;
+
 export const ProfilesViewSchema = z.object({
   departmentId: z.string(),
   /** Live Hermes data; null when Hermes could not be reached (the stored refs are still returned). */
@@ -301,6 +321,8 @@ export const AgentViewSchema = z.object({
   profileRef: z.string().nullable(),
   observedAt: z.string().nullable(),
   model: z.string().nullable(),
+  /** The profile's model provider as Hermes reports it. */
+  provider: z.string().nullable(),
   /** Every skill installed in the profile, with whether Hermes reports it enabled. */
   skills: z.array(z.object({ name: z.string(), enabled: z.boolean(), essential: z.boolean() }).strict()),
   /** Every toolset Hermes lists for the profile, with whether it is enabled there. */
