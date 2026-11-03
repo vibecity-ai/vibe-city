@@ -1,6 +1,6 @@
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type HermesRuntime, type ProfileInfo, type SkillInfo,
+  type BoardInfo, type HermesHealth, type HermesRuntime, type ProfileInfo, type SessionInfo, type SkillInfo,
 } from '../hermes/ports.ts';
 
 type Method = keyof HermesRuntime;
@@ -22,6 +22,8 @@ export class FakeHermes implements HermesRuntime {
   profiles = new Map<string, FakeProfile>();
   boards = new Map<string, BoardInfo>();
   calls: string[] = [];
+  /** Sessions per profile, newest first (already reduced to SessionInfo, as the real adapter does). */
+  sessions = new Map<string, SessionInfo[]>();
   private faults: { method: Method; err: Error; times: number }[] = [];
 
   constructor() {
@@ -131,6 +133,12 @@ export class FakeHermes implements HermesRuntime {
   async writeInstructions(profile: string, text: string) {
     this.enter('writeInstructions', [profile]);
     this.profile(profile).soul = text;
+  }
+
+  async listSessions(profile: string, limit: number) {
+    this.enter('listSessions', [profile]);
+    this.profile(profile);
+    return (this.sessions.get(profile) ?? []).slice(0, limit);
   }
 
   async getConcurrencyCap() {

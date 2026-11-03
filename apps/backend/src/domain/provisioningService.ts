@@ -1,16 +1,17 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
   boardSlugForDepartment, profileNamesForDepartment,
-  type EffectiveInventory, type HealthView, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
+  type AgentRole, type AgentView, type EffectiveInventory, type HealthView, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
 } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime,
 } from '../hermes/ports.ts';
 import { ConflictError } from './errors.ts';
+import { scrub } from './scrub.ts';
 import type { DepartmentRow, DepartmentService } from './departmentService.ts';
 import { buildBlock, hasBlock, upsertBlock, type Role } from './instructions.ts';
 import {
-  buildDepartmentWideReport, buildRoleReport, desiredToolsetMap, diffObserved, effectiveToolsets,
+  ESSENTIAL_SKILLS, buildDepartmentWideReport, buildRoleReport, desiredToolsetMap, diffObserved, effectiveToolsets,
   inventoryHash, preferredModel, skillsToDisable, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
@@ -111,6 +112,42 @@ export class ProvisioningService {
       if (!(e instanceof HermesUnavailableError) && !(e instanceof HermesAuthError)) throw e;
       return { departmentId: id, reachable: false, chief: empty(r.chief_profile_ref), worker: empty(r.worker_profile_ref) };
     }
+  }
+
+  /**
+   * One agent profile of the department. Skills/toolsets/model are the last read-back from Hermes (no CLI call per
+   * view); sessions are read live and degrade to null with a reason when Hermes is unavailable.
+   */
+  async agent(id: string, role: AgentRole): Promise<AgentView> {
+    const r = this.depts.getRow(id);
+    const ref = role === 'chief' ? r.chief_profile_ref : r.worker_profile_ref;
+    const obs = r.observed_config_json ? (JSON.parse(r.observed_config_json) as ObservedConfig) : null;
+    const o = obs?.[role] ?? null;
+    const enabled = new Set(o?.enabledSkills ?? []);
+    let sessions: AgentView['sessions'] = null;
+    let sessionsError: string | null = null;
+    if (!ref) sessionsError = 'This department has no Hermes profile yet. Provision it first.';
+    else {
+      try {
+        const iso = (t: number | null) => (t === null ? null : new Date(t * 1000).toISOString());
+        sessions = (await this.hermes.listSessions(ref, 10)).map((x) => ({
+          id: x.id, title: scrub(x.title, 200), source: scrub(x.source, 40), model: scrub(x.model, 128),
+          startedAt: iso(x.startedAt), endedAt: iso(x.endedAt), lastActiveAt: iso(x.lastActive), active: x.active,
+          messageCount: x.messageCount, toolCallCount: x.toolCallCount, endReason: scrub(x.endReason, 80),
+        }));
+      } catch (e) {
+        if (e instanceof HermesUnavailableError) sessionsError = 'Hermes is not reachable, so sessions cannot be read right now.';
+        else if (e instanceof HermesAuthError) sessionsError = 'Hermes rejected the configured session token.';
+        else if (e instanceof HermesRejectedError) sessionsError = 'Hermes could not list sessions for this profile.';
+        else throw e;
+      }
+    }
+    return {
+      departmentId: id, role, profileRef: ref, observedAt: o ? obs!.at : null, model: o?.model ?? null,
+      skills: (o?.installedSkills ?? []).map((name) => ({ name, enabled: enabled.has(name), essential: (ESSENTIAL_SKILLS as readonly string[]).includes(name) })).sort((a, b) => a.name.localeCompare(b.name)),
+      toolsets: Object.entries(o?.toolsets ?? {}).map(([name, on]) => ({ name, enabled: on })).sort((a, b) => a.name.localeCompare(b.name)),
+      sessions, sessionsError,
+    };
   }
 
   // ---- provisioning ------------------------------------------------------------

@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { PROVISIONING_STEPS, TOOLSETS, type CapabilityEntry, type DepartmentView, type QuestStatus, type TaskNode } from '@vibe-city/shared';
+import { PROVISIONING_STEPS, TOOLSETS, type AgentRole, type AgentView, type DepartmentView, type QuestStatus, type TaskNode } from '@vibe-city/shared';
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
-  archiveDepartment, cancelQuest, createDepartment, createQuest, loadArchived, loadDeptInfo, loadQuest, patchInventory, provisionDepartment,
+  archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, loadDeptInfo, loadQuest, patchInventory, provisionDepartment,
   reconcileNow, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
@@ -12,8 +12,8 @@ import {
   type BoardQuest, type ColumnKey, type DeptOption,
 } from '../data/company';
 import {
-  CANCEL_CONFIRM, CAP_STATUS_LABEL, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL, WORKSPACE_ADVISORY,
-  archiveConsequences, assigneeWarning, cancellationView, capValue, fieldErrors, isGuaranteed, profileRows, provisioningActions,
+  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL, WORKSPACE_ADVISORY,
+  archiveConsequences, assigneeWarning, cancellationView, fieldErrors, profileRows, provisioningActions,
   settingsFormFrom, settingsPatch, taskStatusView, workspaceErrorField, workspaceSummary, type SettingsForm,
 } from '../data/views';
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
@@ -225,7 +225,7 @@ export function DeptPanel() {
             <>
               <section className="pane-sec">
                 <h3 className="sec-t">Chain of command</h3>
-                <button type="button" className={`chief-card${sel === 'chief' ? ' sel' : ''}`} aria-pressed={sel === 'chief'} onClick={() => s.ui$({ agent: 'chief' })}>
+                <button type="button" className={`chief-card${sel === 'chief' ? ' sel' : ''}`} aria-pressed={sel === 'chief'} onClick={() => s.openPanel('agent', { agent: 'chief' })}>
                   <span className="chief-top">
                     <Portrait shirt="#fff" chief size={44} />
                     <span>
@@ -238,7 +238,7 @@ export function DeptPanel() {
                 </button>
                 <div className="tree">
                   {d.workers.map((w) => (
-                    <button key={w.taskId} className={`wrow${sel === w.id ? ' sel' : ''}`} aria-pressed={sel === w.id} onClick={() => s.ui$({ agent: w.id })}>
+                    <button key={w.taskId} className={`wrow${sel === w.id ? ' sel' : ''}`} aria-pressed={sel === w.id} onClick={() => s.openPanel('agent', { agent: w.id })}>
                       <Portrait shirt={w.shirt} size={28} />
                       <span className="wrow-t"><span><span className="mono muted">{w.id}</span> <b>{w.task}</b></span>
                         <small style={{ color: statusColor(w.status) }}><Glyph k={w.status} />{WORKER_WORD[w.status]} <span className="muted">· {w.status === 'completed' ? 'done' : 'since'} {w.since}</span></small>
@@ -293,17 +293,19 @@ function QuestMini({ q }: { q: QuestItem }) {
 function InventorySummary({ d }: { d: Dept }) {
   const openPanel = useStore((s) => s.openPanel);
   const inv = useStore((s) => s.info[d.id]?.inventory);
-  const sec = (label: string, items: readonly string[]) => (
-    <div className="inv-sum">
-      <div className="inv-sum-h"><b>{label}</b><span className="mono muted">{items.length} {label === 'Shared context' ? 'refs' : 'allowed'}</span></div>
-      <div className="inv-tags">{items.map((i) => <span key={i} className="itag">{i}</span>)}{items.length === 0 && <span className="muted small">None set</span>}</div>
-    </div>
-  );
+  const ws = workspaceSummary(d.workspace);
   return (
     <section className="pane-sec">
       {!inv && <p className="muted">Loading inventory…</p>}
-      {inv && <>{sec('Toolsets', inv.allowedToolsets)}{sec('Skills', inv.allowedSkillIds)}{sec('MCP tools', inv.allowedMcpTools)}{sec('Models', inv.allowedModelIds)}{sec('Shared context', inv.sharedContextRefs)}</>}
-      <Btn kind="secondary" onClick={() => openPanel('inventory')}>Open full inventory</Btn>
+      {inv && (
+        <KV rows={[
+          ['Agents', `1 chief + up to ${inv.limits.maxConcurrentWorkers} worker${inv.limits.maxConcurrentWorkers === 1 ? '' : 's'}`],
+          ['Workspace', ws.label],
+          ['MCP tools', inv.allowedMcpTools.length ? inv.allowedMcpTools.join(', ') : 'None'],
+        ]} />
+      )}
+      <p className="fine">Skills, models and toolsets are on each agent: click the chief or a worker on the floor.</p>
+      <Btn kind="secondary" onClick={() => openPanel('inventory')}>Open inventory</Btn>
     </section>
   );
 }
@@ -346,7 +348,7 @@ function SetupPanel({ d }: { d: Dept }) {
         <section className="pane-sec">
           <h3 className="sec-t">Get this floor running</h3>
           <div className="step done"><Glyph k="completed" size={12} /><b>Name & objective</b><span className="muted small">Saved</span><button className="link" onClick={() => s.openPanel('settings')}>Edit</button></div>
-          <div className="step done"><Glyph k="completed" size={12} /><span><b>Inventory</b><small className="muted">{inv ? `${inv.allowedToolsets.length} toolsets · ${inv.allowedSkillIds.length} skills · ${inv.allowedModelIds.length} models` : 'Loading…'}</small></span><button className="link" onClick={() => s.openPanel('inventory')}>Edit</button></div>
+          <div className="step done"><Glyph k="completed" size={12} /><span><b>Inventory</b><small className="muted">{inv ? `1 chief + up to ${inv.limits.maxConcurrentWorkers} worker${inv.limits.maxConcurrentWorkers === 1 ? '' : 's'} · ${inv.allowedMcpTools.length} MCP tools` : 'Loading…'}</small></span><button className="link" onClick={() => s.openPanel('inventory')}>Edit</button></div>
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
             <p className="fine">Provisioning creates a Kanban board and two Hermes profiles (a chief and a worker), applies the inventory and verifies it by reading it back. It can take a minute.</p>
@@ -554,41 +556,8 @@ function ListEditor({ label, hint, values, onSave, disabled }: { label: string; 
   );
 }
 
-const CAP_GROUPS = [
-  ['enforced', 'Applied, read back from Hermes, and tested to hold at runtime on one Hermes version.'],
-  ['configured', 'Set in Hermes and read back. Runtime behavior has not been tested, so this is not a guarantee.'],
-  ['unverified', 'Could not be applied or read back in this installation.'],
-  ['unsupported', 'Hermes has no interface to enforce this. It is a request, not a control.'],
-] as const;
-
-function CapabilityReport({ entries }: { entries: { role: string; e: CapabilityEntry }[] }) {
-  return (
-    <>
-      {CAP_GROUPS.map(([status, blurb]) => {
-        const list = entries.filter((x) => x.e.status === status);
-        if (!list.length) return null;
-        return (
-          <div key={status} className={`capgroup ${status}`}>
-            <h4>{CAP_STATUS_LABEL[status]} <span className="count">{list.length}</span></h4>
-            <p className="fine">{blurb}</p>
-            {list.map((x, i) => {
-              const locked = isGuaranteed(x.e);
-              return (
-                <div key={i} className={`cap${locked ? ' locked' : ''}`}>
-                  <span className="cap-h">{locked && <Icon n="lock" size={12} />}<b>{x.e.capability}</b> <span className="muted small">· {x.role}</span>
-                    <span className={`cap-g${locked ? ' on' : ''}`}>{locked ? 'Guaranteed' : 'Not a guarantee'}</span></span>
-                  <small>{x.e.detail}</small>
-                  <small className="mono muted">requested: {capValue(x.e.requested)} · effective: {capValue(x.e.effective)}</small>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-    </>
-  );
-}
-
+/* The department inventory holds what belongs to the floor: its agents (worker desks), limits, workspace and MCP
+   tools. Skills, models and toolsets live on the agent view. The capability report stays internal (API only). */
 export function InventorySheet() {
   const s = useStore();
   const d = s.depts.find((x) => x.id === s.ui.floorId);
@@ -601,16 +570,19 @@ export function InventorySheet() {
   const saving = !!s.busy[`inv:${d.id}`];
   const busyProv = !!s.busy[`provision:${d.id}`];
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
-  const entries = eff ? [...eff.chief.entries.map((e) => ({ role: 'chief', e })), ...eff.worker.entries.map((e) => ({ role: 'worker', e })), ...eff.departmentWide.map((e) => ({ role: 'department', e }))] : [];
   const ws = workspaceSummary(d.workspace);
   const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
+  const agents: { role: AgentRole; label: string; ref: string | null }[] = [
+    { role: 'chief', label: d.chief?.name ?? 'Chief', ref: d.chiefProfileRef },
+    { role: 'worker', label: 'Workers (one shared profile)', ref: d.workerProfileRef },
+  ];
   return (
     <div className="pane sheet">
       <div className="pane-scroll">
         <section className="pane-head">
           <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where><button className="x boxed" onClick={() => s.openPanel('dept')} aria-label="Close inventory"><Icon n="x" /></button></div>
           <h1 className="display" tabIndex={-1}>Department inventory</h1>
-          <p className="sub">What agents on this floor may use. The chief and workers are narrowed by role, never beyond this allowance. A setting counts as a guarantee only where the report below says <b>Enforced</b>.</p>
+          <p className="sub">The floor’s agents, limits, workspace and MCP tools. Skills, models and toolsets are set on each agent.</p>
         </section>
         {!inv && <p className="muted pane-sec">Loading inventory…</p>}
         {inv && (
@@ -620,33 +592,13 @@ export function InventorySheet() {
               {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs provisioning again</b><p>Saved changes are not in Hermes yet. Agents keep their previous configuration until you provision again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
               {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this inventory.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
             </div>
-            <h3 className="inv-h">Toolsets <span>Switched off in Hermes unless allowed</span></h3>
-            <div className="slot-grid">
-              {TOOLSETS.map((t) => {
-                const on = inv.allowedToolsets.includes(t);
-                return (
-                  <div key={t} className={`slot-card ${on ? '' : 'disabled'}`}>
-                    <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
-                      <button className={`toggle${on ? ' on' : ''}`} disabled={saving} aria-label={`${t}: ${on ? 'allowed' : 'not allowed'}`} aria-pressed={on}
-                        onClick={() => save({ allowedToolsets: on ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
-                    <div className="slot-name mono">{t}</div>
-                    <div className="slot-desc">{on ? 'Allowed' : 'Off'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
-                  </div>
-                );
-              })}
-            </div>
-            <h3 className="inv-h">Skills, MCP tools and models <span>Allowlists</span></h3>
-            <ListEditor label="Skills" hint="Installed skills not listed are disabled." values={inv.allowedSkillIds} disabled={saving} onSave={(v) => save({ allowedSkillIds: v })} />
-            <ListEditor label="MCP tools" hint="server:tool or a bare server id. Not applied yet: reported unverified." values={inv.allowedMcpTools} disabled={saving} onSave={(v) => save({ allowedMcpTools: v })} />
-            <ListEditor label="Models" hint="Sets the profile default. Hermes cannot restrict which models run." values={inv.allowedModelIds} disabled={saving} onSave={(v) => save({ allowedModelIds: v })} />
-            <h3 className="inv-h">Shared context <span>References only</span></h3>
-            <ListEditor label="Shared context refs" hint={LIMIT_COPY.sharedContextRefs} values={inv.sharedContextRefs} disabled={saving} onSave={(v) => save({ sharedContextRefs: v })} />
-            <h3 className="inv-h">Workspace</h3>
-            <div className="kv-card"><Icon n="folder" size={14} /><span className="mono">{ws.label}</span>
-              <span className="muted small">{ws.isolation} {WORKSPACE_ADVISORY}</span><button className="link" onClick={() => s.openPanel('settings')}>Change in settings</button></div>
-            <h3 className="inv-h">Limits</h3>
+            <h3 className="inv-h">Agents <span>1 chief + up to {inv.limits.maxConcurrentWorkers} worker{inv.limits.maxConcurrentWorkers === 1 ? '' : 's'}</span></h3>
             <div className="kv-card block">
-              <Field label="Requested worker limit (1–10) · host-limited" hint={LIMIT_COPY.maxConcurrentWorkers}>
+              {agents.map((a) => (
+                <div key={a.role} className="agent-line"><b>{a.role === 'chief' ? 'Chief' : 'Workers'}</b><span className="mono muted small">{a.ref ?? 'no profile yet'}</span>
+                  <button className="link" onClick={() => s.openPanel('agent', { agent: a.role === 'chief' ? 'chief' : 'worker' })}>Open agent</button></div>
+              ))}
+              <Field label="Worker desks (1–10)" hint={`One desk per worker on the floor. ${LIMIT_COPY.maxConcurrentWorkers}`}>
                 {(p) => <input {...p} className="input mono" type="number" min={1} max={10} defaultValue={inv.limits.maxConcurrentWorkers} key={inv.limits.maxConcurrentWorkers} disabled={saving}
                   onBlur={(e) => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 10 && n !== inv.limits.maxConcurrentWorkers) save({ limits: { maxConcurrentWorkers: n } }); else e.target.value = String(inv.limits.maxConcurrentWorkers); }} />}
               </Field>
@@ -654,14 +606,165 @@ export function InventorySheet() {
                 {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
                   onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
               </Field>
-              <KV rows={[['Delegation depth', <>{inv.limits.maxDelegationDepth} (fixed) · <span className="muted">{LIMIT_COPY.maxDelegationDepth}</span></>]]} />
             </div>
-            <h3 className="inv-h">What is actually guaranteed {eff?.observedAt && <span>Read from Hermes {formatTime(eff.observedAt)}</span>}</h3>
-            {!eff && <p className="muted">{info?.infoError ? `Could not load the capability report: ${info.infoError}` : 'Loading the capability report…'}</p>}
-            {eff && !eff.observedAt && <p className="fine">Nothing has been read back from Hermes yet: every entry below is what was requested, not what Hermes applied.</p>}
-            {eff && <CapabilityReport entries={entries} />}
+            <h3 className="inv-h">Workspace</h3>
+            <div className="kv-card"><Icon n="folder" size={14} /><span className="mono">{ws.label}</span>
+              <span className="muted small">{ws.isolation} {WORKSPACE_ADVISORY}</span><button className="link" onClick={() => s.openPanel('settings')}>Change in settings</button></div>
+            <h3 className="inv-h">MCP tools <span>For this department</span></h3>
+            <ListEditor label="MCP tools" hint="server:tool or a bare server id. Not applied in Hermes yet." values={inv.allowedMcpTools} disabled={saving} onSave={(v) => save({ allowedMcpTools: v })} />
           </div></div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/* ============ H · agent view ============ */
+/* Opens when you click a person on the floor (or in the chain of command). The chief is the department's chief
+   profile; a worker character is one worker task, run by the department's shared worker profile. */
+export function AgentPanel() {
+  const s = useStore();
+  const d = s.depts.find((x) => x.id === s.ui.floorId);
+  const sel = s.ui.agent;
+  const role: AgentRole = sel === 'chief' ? 'chief' : 'worker';
+  const worker = d && sel !== 'chief' ? d.workers.find((w) => w.id === sel) ?? null : null;
+  const id = d?.id;
+  useEffect(() => { if (id) void loadAgent(id, role); }, [id, role, d?.provisioning]);
+  useEffect(() => { if (id) void loadDeptInfo(id); }, [id]);
+  if (!d) return null;
+  const a = s.agents[`${d.id}:${role}`];
+  const view = a?.view ?? null;
+  const inv = s.info[d.id]?.inventory ?? null;
+  const saving = !!s.busy[`inv:${d.id}`];
+  const busyProv = !!s.busy[`provision:${d.id}`];
+  const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
+  const wasProvisioned = !!s.info[d.id]?.provisioning?.inventory.appliedAt;
+  const name = role === 'chief' ? d.chief?.name ?? 'Chief' : worker ? `Worker ${worker.id}` : 'Workers';
+  const status = role === 'chief' ? d.chief?.status ?? 'awaiting' : worker?.status ?? 'idle';
+  // This agent's tasks among the quests loaded for this floor: the chief's planning tasks, or the worker's one task.
+  const mine = Object.values(s.details).filter((q) => s.quests.some((x) => x.deptId === d.id && x.summary.id === q.id))
+    .flatMap((q) => q.tasks.map((t) => ({ t, questId: q.id })))
+    .filter(({ t }) => (role === 'chief' ? t.role === 'chief' : t.id === worker?.taskId));
+  const taskIds = new Set(mine.map(({ t }) => t.id));
+  const tasks = mine.sort((x, y) => (y.t.createdAt ?? '').localeCompare(x.t.createdAt ?? '')).slice(0, 6);
+  const log = s.log.filter((l) => l.dept === d.id && l.taskId && taskIds.has(l.taskId)).slice(0, 8);
+  const allowed = new Set(inv?.allowedSkillIds ?? []);
+  const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
+  const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
+  return (
+    <div className="pane">
+      <div className="pane-scroll">
+        <section className="pane-head">
+          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where><button className="x" onClick={() => s.openPanel('dept')} aria-label="Close agent"><Icon n="x" /></button></div>
+          <div className="agent-head">
+            <Portrait shirt={worker?.shirt ?? '#fff'} chief={role === 'chief'} size={56} />
+            <div>
+              <div className="title-row"><h1 className="display sm" tabIndex={-1}>{name}</h1><Chip k={status} /></div>
+              <p className="mono muted small">{role === 'chief' ? 'Chief' : 'Worker'} · Hermes profile {view?.profileRef ?? (role === 'chief' ? d.chiefProfileRef : d.workerProfileRef) ?? '— (not provisioned)'}</p>
+              <p className="mono small">model · {view?.model ?? '—'}{view?.observedAt && <span className="muted"> · read from Hermes {formatTime(view.observedAt)}</span>}</p>
+            </div>
+          </div>
+        </section>
+        <div aria-live="polite">
+          {a?.error && <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>{view ? 'Refresh failed: showing the last data received' : 'Could not load this agent'}</b><p>{a.error}</p><Btn kind="destructive" onClick={() => void loadAgent(d.id, role)}>Retry</Btn></div></div>}
+          {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs provisioning again</b><p>Saved changes are not in Hermes yet. The agent keeps its previous skills and model until you provision again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
+        </div>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Now</h3>
+          {role === 'chief' && d.chief && <p>{d.chief.activity} <span className="mono muted small">since {d.chief.since}</span></p>}
+          {role === 'worker' && worker && <p><b>{worker.task}</b> <span className="mono muted small">· {worker.status === 'completed' ? 'done' : 'since'} {worker.since}</span></p>}
+          {role === 'worker' && !worker && <p className="muted">No worker task selected. Workers appear at desks when the chief delegates.</p>}
+          <h4 className="mini-h">Latest activity</h4>
+          {role === 'chief' && (
+            <ul className="stack tight">{s.quests.filter((q) => q.deptId === d.id).slice(0, 5).map((q) => (
+              <li key={q.summary.id}><button className="link" onClick={() => s.openPanel('quest', { questId: q.summary.id, questFrom: 'dept' })}><Glyph k={questStatus(q.summary.status)} /> {q.summary.title}</button> <span className="muted small">· quest {STATUS[q.summary.status].label.toLowerCase()} · {formatTime(q.summary.createdAt)}</span></li>
+            ))}</ul>
+          )}
+          {(role === 'chief' ? !s.quests.some((q) => q.deptId === d.id) : tasks.length === 0) && log.length === 0 && <p className="muted small">{role === 'chief' ? 'No quests yet. Every quest goes to the chief first.' : 'Nothing yet.'}</p>}
+          {role === 'worker' && <ul className="stack tight">{tasks.map(({ t, questId }) => {
+            const v = taskStatusView(t);
+            return <li key={t.id}><button className="link" onClick={() => s.openPanel('quest', { questId, questFrom: 'dept' })}><Glyph k={v.k} /> {t.title}</button> <span className="muted small">· {v.label} · {formatTime(t.completedAt ?? t.startedAt ?? t.createdAt)}</span></li>;
+          })}</ul>}
+          {log.length > 0 && <ol className="feed">{log.map((l, i) => <li key={i}><span className="mono muted">{l.t}</span><Glyph k={(l.kind === 'chief' ? 'awaiting' : l.kind) as StatusKey} /><span>{l.text}</span></li>)}</ol>}
+        </section>
+
+        <section className="pane-sec" aria-busy={a?.loading}>
+          <h3 className="sec-t">Sessions in Hermes {view?.sessions && <span className="count">{view.sessions.length}</span>}</h3>
+          {!view && a?.loading && <p className="muted">Loading…</p>}
+          {view?.sessionsError && <p className="muted small"><Glyph k="disconnected" /> {view.sessionsError}</p>}
+          {view?.sessions?.length === 0 && <p className="muted small">No sessions yet for this profile.</p>}
+          <ul className="stack tight">{view?.sessions?.map((x) => (
+            <li key={x.id} className="session"><Glyph k={x.active ? 'running' : x.endedAt ? 'completed' : 'idle'} />
+              <span><b>{x.title ?? 'Untitled session'}</b><small className="mono muted">{[x.source, x.model, formatTime(x.startedAt), x.active ? 'active now' : x.endedAt ? `ended ${formatTime(x.endedAt)}` : 'not ended', x.messageCount != null ? `${x.messageCount} messages` : null, x.toolCallCount != null ? `${x.toolCallCount} tool calls` : null].filter(Boolean).join(' · ')}</small></span></li>
+          ))}</ul>
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Skills</h3>
+          <p className="fine">Shared by the chief and workers of this department. Changes apply when you provision again.</p>
+          {!view?.observedAt && <p className="muted small">Hermes has not reported this profile’s skills yet (provision the department first). Allowed: {inv?.allowedSkillIds.join(', ') || 'none'}.</p>}
+          {view && view.skills.length > 0 && (() => {
+            const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name);
+            const card = (k: AgentView['skills'][number]) => {
+              const on = isOn(k);
+              return (
+                <div key={k.name} className={`skill${on ? ' on' : ''}`}>
+                  <span className="mono">{k.name}</span>
+                  <small className="muted">{k.essential ? 'always on in Hermes' : `${k.enabled ? 'on' : 'off'} in Hermes`}</small>
+                  <button className={`toggle${on ? ' on' : ''}`} disabled={saving || k.essential || !inv} aria-pressed={on} aria-label={`${k.name}: ${on ? 'allowed' : 'not allowed'}`} onClick={() => toggleSkill(k.name)}><i /></button>
+                </div>
+              );
+            };
+            const active = view.skills.filter(isOn), rest = view.skills.filter((k) => !isOn(k));
+            return (
+              <>
+                <div className="skill-grid">{active.map(card)}</div>
+                {rest.length > 0 && <details className="more"><summary>Available in this Hermes profile ({rest.length})</summary><div className="skill-grid">{rest.map(card)}</div></details>}
+              </>
+            );
+          })()}
+          {inv && view && inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).map((n) => <p key={n} className="field-err small"><Glyph k="awaiting" />{n} is allowed but not installed in this profile.</p>)}
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Model</h3>
+          <p className="fine">The first allowed model becomes the profile default when you provision. Hermes cannot restrict which models run. Shared by the department’s agents.</p>
+          {inv && <ListEditor label="Models" hint="Model ids, in order of preference." values={inv.allowedModelIds} disabled={saving} onSave={(v) => save({ allowedModelIds: v })} />}
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Toolsets</h3>
+          {role === 'chief'
+            ? <p className="fine">The chief only plans and delegates, so it gets coordination toolsets ({['todo', 'memory', 'skills', 'session_search'].join(', ')}) where the department allows them, plus kanban, whatever else the workers may use.</p>
+            : <p className="fine">What the department’s workers may use. Switched off in Hermes unless allowed. Changes apply when you provision again.</p>}
+          {role === 'chief' && (
+            <p className="inv-tags">{[...observedTools].filter(([, on]) => on).map(([t]) => <span key={t} className="itag mono">{t}</span>)}
+              {observedTools.size === 0 && <span className="muted small">Not reported by Hermes yet.</span>}
+              {observedTools.size > 0 && <span className="muted small">{[...observedTools.values()].filter((on) => !on).length} other toolsets off</span>}</p>
+          )}
+          {role === 'worker' && <div className="slot-grid">
+            {[...TOOLSETS].map((t) => {
+              const allowedT = !!inv?.allowedToolsets.includes(t);
+              const inHermes = observedTools.get(t);
+              return (
+                <div key={t} className={`slot-card ${allowedT ? '' : 'disabled'}`}>
+                  <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
+                    <button className={`toggle${allowedT ? ' on' : ''}`} disabled={saving || !inv} aria-label={`${t}: ${allowedT ? 'allowed' : 'not allowed'}`} aria-pressed={allowedT}
+                      onClick={() => inv && save({ allowedToolsets: allowedT ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
+                  <div className="slot-name mono">{t}</div>
+                  <div className="slot-desc">{inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
+                </div>
+              );
+            })}
+          </div>}
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Shared context</h3>
+          <p className="fine">{LIMIT_COPY.sharedContextRefs} Read by every agent in this department.</p>
+          {inv && <ListEditor label="Shared context refs" hint="Paths or URLs the agents should read." values={inv.sharedContextRefs} disabled={saving} onSave={(v) => save({ sharedContextRefs: v })} />}
+        </section>
       </div>
     </div>
   );

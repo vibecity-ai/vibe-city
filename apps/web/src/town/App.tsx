@@ -3,7 +3,7 @@ import { useStore } from './store';
 import { City } from './world/City';
 import { startLive } from './data/live';
 import { StageOverlay } from './ui/Stage';
-import { TopBar, ExecPanel, DeptPanel, SettingsSheet, InventorySheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal } from './ui/Panels';
+import { TopBar, ExecPanel, DeptPanel, SettingsSheet, InventorySheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -57,6 +57,7 @@ export default function App() {
           {panel === 'inventory' && <InventorySheet />}
           {panel === 'board' && <QuestBoard />}
           {panel === 'quest' && <QuestDetail />}
+          {panel === 'agent' && <AgentPanel />}
         </aside>
       </main>
       <CreateDeptModal />

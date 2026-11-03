@@ -291,7 +291,8 @@ The renderer is the integrated custom Canvas 2D renderer under `apps/web/src/tow
 - `POST /api/departments/:id/provision/retry`
 - `GET /api/departments/:id/provisioning`
 - `GET /api/departments/:id/profiles`
-- `GET /api/departments/:id/effective-inventory`
+- `GET /api/departments/:id/effective-inventory` (internal: not shown in the city UI)
+- `GET /api/departments/:id/agents/:role` (`chief` | `worker`): the agent view. Skills (installed, enabled, essential), toolsets and model come from the last provisioning/reconcile read-back (`observedAt`). Recent sessions are read live from the dashboard (`GET /api/sessions?profile=`) and reduced to safe fields: no `cwd`, prompt preview, origin or billing endpoints, and titles are scrubbed of paths. When Hermes is unavailable, `sessions` is null and `sessionsError` gives the reason.
 
 ### Quests
 

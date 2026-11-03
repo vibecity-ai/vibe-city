@@ -8,7 +8,7 @@ import {
   InventoryPatchSchema, InventorySchema,
 } from '@vibe-city/shared';
 import {
-  EffectiveInventorySchema, HealthViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
+  AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
 } from '@vibe-city/shared';
 import type { HermesRuntime } from './hermes/ports.ts';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './hermes/ports.ts';
@@ -150,6 +150,13 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.get('/api/departments/:id/profiles', async (req) => {
     const id = idOf(req.params);
     return parse(ProfilesViewSchema, await provisioning.profiles(id));
+  });
+
+  app.get('/api/departments/:id/agents/:role', async (req) => {
+    const id = idOf(req.params);
+    const role = (req.params as { role?: string }).role;
+    if (role !== 'chief' && role !== 'worker') throw new NotFoundError('agent not found');
+    return parse(AgentViewSchema, await provisioning.agent(id, role));
   });
 
   app.get('/api/departments/:id/effective-inventory', async (req) => {

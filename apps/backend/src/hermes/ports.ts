@@ -30,6 +30,21 @@ export interface SkillInfo {
   enabled: boolean;
 }
 
+/** A Hermes session row reduced to the fields Vibe City may relay (times are epoch seconds). */
+export interface SessionInfo {
+  id: string;
+  title: string | null;
+  source: string | null;
+  model: string | null;
+  startedAt: number | null;
+  endedAt: number | null;
+  lastActive: number | null;
+  active: boolean;
+  messageCount: number | null;
+  toolCallCount: number | null;
+  endReason: string | null;
+}
+
 export type HermesHealth = HealthView['hermes'];
 
 /**
@@ -59,6 +74,9 @@ export interface HermesRuntime {
 
   readInstructions(profile: string): Promise<string | null>;
   writeInstructions(profile: string, text: string): Promise<void>;
+
+  /** Most recent sessions of one profile (dashboard `GET /api/sessions?profile=`), newest activity first. */
+  listSessions(profile: string, limit: number): Promise<SessionInfo[]>;
 
   /** Host-wide `kanban.max_in_progress_per_profile`, or null when unset/unlimited. */
   getConcurrencyCap(): Promise<number | null>;

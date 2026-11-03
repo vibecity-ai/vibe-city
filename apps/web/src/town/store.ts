@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  ActivityEvent, CancellationStatus, DepartmentView, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
+  ActivityEvent, AgentView, CancellationStatus, DepartmentView, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
 } from '@vibe-city/shared';
 import type { AgentStatus, Connection, Dept } from './data/types';
 import type { QuestSync } from './data/company';
@@ -18,11 +18,11 @@ export type Fx =
   | { k: 'workerJoined'; dept: string; worker: string };
 
 export type View = 'tower' | 'floor';
-export type Panel = 'exec' | 'dept' | 'settings' | 'inventory' | 'board' | 'quest';
+export type Panel = 'exec' | 'dept' | 'settings' | 'inventory' | 'board' | 'quest' | 'agent';
 export type DeptTab = 'overview' | 'inventory' | 'quests';
 
 export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
-export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string }
+export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string; taskId?: string }
 export interface QuestItem { deptId: string; summary: QuestSummary }
 /** `poll` tracks the explicit cancellation polling after a cancel request (see live.ts pollCancellation). */
 export type CancelPoll = 'idle' | 'polling' | 'timeout' | 'hermes_down';
@@ -65,6 +65,8 @@ export interface State {
   loaded: boolean;
   /** The latest refresh failed: what is on screen is the last good data. */
   stale: boolean;
+  /** Agent views keyed `<deptId>:<role>`; a failed reload keeps the last view and sets `error`. */
+  agents: Record<string, { view: AgentView | null; error: string | null; loading: boolean }>;
   /** Archived departments (read-only), loaded on demand with includeArchived=true. */
   archived: { list: DepartmentView[] | null; error: string | null; loading: boolean };
   /** Departments whose live socket to the backend is down (REST polling still runs). */
@@ -98,6 +100,7 @@ export const useStore = create<State>((set) => ({
   stale: false,
   busy: {},
   archived: { list: null, error: null, loading: false },
+  agents: {},
   liveDown: {},
   ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', execView: 'active', boardDept: null, composerDept: null, questFrom: 'board' },
   toasts: [], fx: [], log: [],

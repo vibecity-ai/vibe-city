@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { HermesHttp } from './http.ts';
 import {
   HermesAuthError, HermesCliMissingError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type HermesRuntime, type ProfileInfo, type SkillInfo,
+  type BoardInfo, type HermesHealth, type HermesRuntime, type ProfileInfo, type SessionInfo, type SkillInfo,
 } from './ports.ts';
 
 const execFileP = promisify(execFile);
@@ -90,6 +90,21 @@ export class RealHermesRuntime implements HermesRuntime {
     const j = await this.http<{ profiles: { name: string; is_default: boolean; model: string | null; description: string | null }[] }>(
       'GET', '/api/plugins/kanban/profiles');
     return j.profiles.map((p) => ({ name: p.name, isDefault: p.is_default, model: p.model ?? null, description: p.description ?? null }));
+  }
+
+  /** Rows carry host paths (cwd), prompt previews and billing endpoints: only an allowlist of fields is kept. */
+  async listSessions(profile: string, limit: number): Promise<SessionInfo[]> {
+    if (!PROFILE_RE.test(profile)) throw new HermesRejectedError(`invalid profile name: ${profile}`);
+    const n = Math.min(Math.max(Math.floor(limit), 1), 100);
+    const j = await this.http<{ sessions: Record<string, unknown>[] }>(
+      'GET', `/api/sessions?profile=${encodeURIComponent(profile)}&limit=${n}&order=recent`);
+    const str = (v: unknown) => (typeof v === 'string' && v !== '' ? v : null);
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+    return (j.sessions ?? []).filter((r) => typeof r.id === 'string').map((r) => ({
+      id: r.id as string, title: str(r.title), source: str(r.source), model: str(r.model),
+      startedAt: num(r.started_at), endedAt: num(r.ended_at), lastActive: num(r.last_active), active: r.is_active === true,
+      messageCount: num(r.message_count), toolCallCount: num(r.tool_call_count), endReason: str(r.end_reason),
+    }));
   }
 
   async listBoards(): Promise<BoardInfo[]> {

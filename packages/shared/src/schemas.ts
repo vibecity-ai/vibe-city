@@ -246,6 +246,47 @@ export const ProfilesViewSchema = z.object({
 }).strict();
 export type ProfilesView = z.infer<typeof ProfilesViewSchema>;
 
+export const AGENT_ROLES = ['chief', 'worker'] as const;
+export type AgentRole = (typeof AGENT_ROLES)[number];
+
+/** One Hermes session of a profile, reduced to safe fields (no cwd, prompt preview, origin, billing endpoints). */
+export const AgentSessionSchema = z.object({
+  id: z.string(),
+  title: z.string().nullable(),
+  /** Where the session came from in Hermes, e.g. `kanban`, `cli`, `cron`. */
+  source: z.string().nullable(),
+  model: z.string().nullable(),
+  startedAt: z.string().nullable(),
+  endedAt: z.string().nullable(),
+  lastActiveAt: z.string().nullable(),
+  /** Hermes' own "active" flag: not ended and recently active. */
+  active: z.boolean(),
+  messageCount: z.number().int().nullable(),
+  toolCallCount: z.number().int().nullable(),
+  endReason: z.string().nullable(),
+}).strict();
+export type AgentSession = z.infer<typeof AgentSessionSchema>;
+
+/**
+ * The agent view: one Hermes profile of a department (the chief, or the shared worker profile).
+ * Skills, toolsets and model come from the last read-back during provisioning/reconcile (`observedAt`); sessions are
+ * read live and are null when Hermes could not be reached. Skills and models are department-wide allowances.
+ */
+export const AgentViewSchema = z.object({
+  departmentId: z.string(),
+  role: z.enum(AGENT_ROLES),
+  profileRef: z.string().nullable(),
+  observedAt: z.string().nullable(),
+  model: z.string().nullable(),
+  /** Every skill installed in the profile, with whether Hermes reports it enabled. */
+  skills: z.array(z.object({ name: z.string(), enabled: z.boolean(), essential: z.boolean() }).strict()),
+  /** Every toolset Hermes lists for the profile, with whether it is enabled there. */
+  toolsets: z.array(z.object({ name: z.string(), enabled: z.boolean() }).strict()),
+  sessions: z.array(AgentSessionSchema).nullable(),
+  sessionsError: z.string().nullable(),
+}).strict();
+export type AgentView = z.infer<typeof AgentViewSchema>;
+
 export const profileNamesForDepartment = (id: string) => {
   const short = id.replace(/-/g, '').slice(0, 12);
   return { chief: `vc-${short}-chief`, worker: `vc-${short}-worker` };

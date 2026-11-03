@@ -8,7 +8,7 @@
    - Mutations refresh the affected department only; create/archive (which change the floor order) refresh everything.
    - Sockets, coalescer timers and cancellation polls are closed when a department leaves the tower or the app unmounts. */
 import type {
-  CancellationStatus, DepartmentUpdate, DepartmentView, HealthView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
+  AgentRole, CancellationStatus, DepartmentUpdate, DepartmentView, HealthView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
 } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
@@ -168,6 +168,7 @@ function forgetGone() {
     delete raw.prov[id]; delete raw.inv[id]; delete raw.quests[id]; delete raw.live[id]; delete raw.sync[id];
     slots.delete(id); staleDepts.delete(id); hints.cancel(id);
     for (const k of ['local', 'quests', 'info', 'dept']) gate.forget(`${k}:${id}`);
+    gate.forget(`agent:${id}:chief`); gate.forget(`agent:${id}:worker`);
     for (const p of [...polls.values()]) if (p.dept === id) p.stop();
   }
 }
@@ -175,7 +176,7 @@ function forgetGone() {
 function pushLog(deptId: string, taskId: string, kind: string, at: string) {
   const title = raw.live[deptId]?.flatMap((q) => q.tasks).find((t) => t.id === taskId)?.title ?? taskId;
   const k = /fail|block|crash|timed/i.test(kind) ? 'failed' : /complet|done/i.test(kind) ? 'completed' : /start|claim|spawn|run|promot/i.test(kind) ? 'running' : 'idle';
-  const line: LogLine = { t: clock(at), dept: deptId, kind: k, text: `${title} · ${kind.replace(/_/g, ' ')}` };
+  const line: LogLine = { t: clock(at), dept: deptId, kind: k, text: `${title} · ${kind.replace(/_/g, ' ')}`, taskId };
   useStore.setState((s) => ({ log: [line, ...s.log].slice(0, 80) }));
 }
 
@@ -289,6 +290,22 @@ export async function loadDeptInfo(deptId: string) {
       infoError: err ? message(err.reason) : null,
     } } };
   });
+}
+
+/** The agent view of one profile (chief or the department's worker profile). Keeps the last view on failure. */
+export async function loadAgent(deptId: string, role: AgentRole) {
+  const key = `${deptId}:${role}`;
+  const t = gate.begin(`agent:${key}`);
+  const prev = () => st().agents[key] ?? { view: null, error: null, loading: false };
+  useStore.setState((s) => ({ agents: { ...s.agents, [key]: { ...prev(), loading: true } } }));
+  try {
+    const view = await api.agent(deptId, role);
+    if (!gate.current(`agent:${key}`, t)) return;
+    useStore.setState((s) => ({ agents: { ...s.agents, [key]: { view, error: null, loading: false } } }));
+  } catch (e) {
+    if (!gate.current(`agent:${key}`, t)) return;
+    useStore.setState((s) => ({ agents: { ...s.agents, [key]: { ...prev(), error: message(e), loading: false } } }));
+  }
 }
 
 export async function loadArchived() {
