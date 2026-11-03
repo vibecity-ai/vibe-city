@@ -5,3 +5,10 @@ dist
 /apps/backend/data/
 .env.*
 !.env.example
+
+# Local-only product docs (kept out of the repo)
+HERMES_COMPATIBILITY.md
+HUD_CEO_UX_SPEC.md
+HUD_CEO_WIREFRAME.html
+UI_COVERAGE.md
+VIBE_CITY_SPEC.md

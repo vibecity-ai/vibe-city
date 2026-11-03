@@ -10,7 +10,7 @@ import type { Role } from './instructions.ts';
 export const REQUIRED_TOOLSETS = ['kanban'] as const;
 /** Hermes pins these skills on ("cannot be disabled from any surface", agent/skill_utils.py ESSENTIAL_SKILLS). */
 export const ESSENTIAL_SKILLS = ['hermes-agent'] as const;
-/** Restrictions whose runtime effect was verified against real Hermes (HERMES_COMPATIBILITY.md section 3). */
+/** Restrictions whose runtime effect was verified against real Hermes (a disabled toolset was confirmed unavailable to the agent). */
 export const BEHAVIOR_TESTED_TOOLSETS = ['terminal', 'file', 'web', 'browser', 'code_execution'] as const;
 
 /**

@@ -6,7 +6,7 @@ const idList = (what: string) =>
   z.array(z.string().trim().min(1, `${what} entries must be non-empty`).max(200)).max(200)
     .transform((a) => [...new Set(a)]);
 
-/** Built-in toolset names Hermes 0.22 lists in `hermes tools list` (verified list in HERMES_COMPATIBILITY.md). */
+/** Built-in toolset names Hermes 0.22 lists in `hermes tools list` (verified against Hermes 0.22.5/0.22.6). */
 export const TOOLSETS = [
   'web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'video', 'image_gen', 'video_gen', 'x_search',
   'tts', 'stt', 'skills', 'todo', 'kanban', 'memory', 'context_engine', 'session_search', 'connections', 'clarify',
@@ -74,7 +74,7 @@ export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
 /**
  * Input: an absolute host path (accepted only server-side, never echoed back).
  * Output: opaque summary. `isolation` is always 'unverified' until a verified sandbox exists
- * (workspace paths are advisory with Hermes' local backend; see HERMES_COMPATIBILITY.md).
+ * (workspace paths are advisory with Hermes' local backend: an agent with file tools can write outside them).
  */
 export const WorkspaceInputSchema = z.string().trim().max(1024).nullable();
 export const WorkspaceViewSchema = z.object({

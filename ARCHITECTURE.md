@@ -1,8 +1,6 @@
 # Vibe City: Architecture (through Milestone 3 and the city UI merge)
 
-Normative product spec: `VIBE_CITY_SPEC.md`. Hermes facts and limits: `HERMES_COMPATIBILITY.md`.
-
-> This document records implementation architecture through Milestone 3. Where it differs from the current product contract or integrated city implementation, `VIBE_CITY_SPEC.md` governs.
+> This document records implementation architecture through Milestone 3 and the city UI merge.
 
 ## Layout
 
@@ -212,7 +210,7 @@ The vibeytown prototype was copied in once (it is no longer synced from that rep
 
 ### UI merge (every backend route usable from the city)
 
-The city at `/` is the complete product surface (the original `#board` view has been removed). Route-by-route coverage, states and tests are in `UI_COVERAGE.md`.
+The city at `/` is the complete product surface (the original `#board` view has been removed).
 
 - **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, workspace set/clear with advisory copy, the provisioning/profile inspector, archive); inventory sheet (the floor's agents, worker desks = `maxConcurrentWorkers`, task runtime, workspace, MCP tools; the capability report is API-only); **agent view** (click a person on the floor: model, skills, toolsets, recent Hermes sessions, latest activity, shared context; edits change the department inventory shared by both roles); the **company quest board** (top bar and Executive Office; the player's only board, combining every department's quests, see `data/company.ts`; department panels link to it with a department filter); quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
 - **Copy and rules** live in `data/views.ts` (pure, tested): what a status means in words, which provisioning action is allowed (retry only for a retryable error or `disconnected`), the settings PATCH diff, archive consequences, cancellation wording (a 202 `requested` is never shown as cancelled).
