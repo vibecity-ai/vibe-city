@@ -8,7 +8,7 @@ import {
   InventoryPatchSchema, InventorySchema,
 } from '@vibe-city/shared';
 import {
-  EffectiveInventorySchema, HealthViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
+  EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
 } from '@vibe-city/shared';
 import type { HermesRuntime } from './hermes/ports.ts';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './hermes/ports.ts';
@@ -129,6 +129,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   // ---- Hermes provisioning (Milestone 2) ----
 
   app.get('/api/runtime/health', async () => parse(HealthViewSchema, await provisioning.health()));
+
+  app.get('/api/runtime/defaults', async () => parse(HermesDefaultsViewSchema, await provisioning.hermesDefaults()));
 
   app.post('/api/runtime/reconcile', async () => parse(ReconcileResultSchema, { departments: await provisioning.reconcileAll() }));
 

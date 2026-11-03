@@ -6,12 +6,16 @@ const idList = (what: string) =>
   z.array(z.string().trim().min(1, `${what} entries must be non-empty`).max(200)).max(200)
     .transform((a) => [...new Set(a)]);
 
-/** Toolset names Hermes exposes via `hermes tools` (verified list in HERMES_COMPATIBILITY.md). */
+/** Built-in toolset names Hermes 0.22 lists in `hermes tools list` (verified list in HERMES_COMPATIBILITY.md). */
 export const TOOLSETS = [
-  'web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'image_gen',
-  'skills', 'todo', 'kanban', 'memory', 'session_search', 'delegation', 'cronjob', 'computer_use',
+  'web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'video', 'image_gen', 'video_gen', 'x_search',
+  'tts', 'stt', 'skills', 'todo', 'kanban', 'memory', 'context_engine', 'session_search', 'connections', 'clarify',
+  'delegation', 'cronjob', 'computer_use',
 ] as const;
 export const ToolsetSchema = z.enum(TOOLSETS);
+export type Toolset = z.infer<typeof ToolsetSchema>;
+/** Never given to a department agent: sub-agents and cron jobs run outside the department board, where Vibe City cannot see them. */
+export const AGENT_EXCLUDED_TOOLSETS = ['delegation', 'cronjob'] as const;
 
 export const MAX_WORKERS_CEILING = 10;
 
@@ -32,12 +36,15 @@ export const InventorySchema = z.object({
   allowedToolsets: toolsets.default([]),
   sharedContextRefs: contextRefs.default([]),
   limits: z.object({
-    /** REQUESTED limit. Hermes only has a host-wide per-profile cap, so this is not guaranteed per department. */
-    maxConcurrentWorkers: z.number().int().min(1).max(MAX_WORKERS_CEILING).default(1),
+    /**
+     * 0 = no worker profile: the chief does the work itself. Above 0 a worker profile is provisioned; the number is a
+     * REQUESTED limit (Hermes only has a host-wide per-profile cap, so it is not guaranteed per department).
+     */
+    maxConcurrentWorkers: z.number().int().min(0).max(MAX_WORKERS_CEILING).default(0),
     /** Per-task runtime cap passed to Hermes as max_runtime_seconds when tasks are created. */
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable().default(null),
     maxDelegationDepth: z.literal(1).default(1),
-  }).default({ maxConcurrentWorkers: 1, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
+  }).default({ maxConcurrentWorkers: 0, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
 }).strict();
 export type Inventory = z.infer<typeof InventorySchema>;
 
@@ -49,7 +56,7 @@ export const InventoryPatchSchema = z.object({
   allowedToolsets: toolsets.optional(),
   sharedContextRefs: contextRefs.optional(),
   limits: z.object({
-    maxConcurrentWorkers: z.number().int().min(1).max(MAX_WORKERS_CEILING),
+    maxConcurrentWorkers: z.number().int().min(0).max(MAX_WORKERS_CEILING),
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable(),
     maxDelegationDepth: z.literal(1),
   }).partial().strict().optional(),
@@ -218,7 +225,8 @@ export const EffectiveInventorySchema = z.object({
   observedAt: z.string().nullable(),
   inSync: z.boolean(),
   chief: RoleConfigSchema,
-  worker: RoleConfigSchema,
+  /** Null when the department has no workers (maxConcurrentWorkers 0). */
+  worker: RoleConfigSchema.nullable(),
   /** Department-wide gaps that are not per-role (concurrency, workspace isolation, ...). */
   departmentWide: z.array(CapabilityEntrySchema),
 }).strict();
@@ -236,6 +244,21 @@ export const HealthViewSchema = z.object({
   }).strict(),
 }).strict();
 export type HealthView = z.infer<typeof HealthViewSchema>;
+
+/**
+ * What Hermes' `default` profile has enabled, read live. The create-department form starts from it; nothing is
+ * copied until the department is created with an inventory.
+ */
+export const HermesDefaultsViewSchema = z.object({
+  checkedAt: z.string(),
+  profile: z.literal('default'),
+  model: z.string().nullable(),
+  /** Every toolset Hermes lists. `manageable` = Vibe City can grant it (known and not excluded for agents). */
+  toolsets: z.array(z.object({ name: z.string(), enabled: z.boolean(), manageable: z.boolean() }).strict()),
+  /** Every installed skill, with whether the default profile has it enabled. */
+  skills: z.array(z.object({ name: z.string(), enabled: z.boolean() }).strict()),
+}).strict();
+export type HermesDefaultsView = z.infer<typeof HermesDefaultsViewSchema>;
 
 export const ProfilesViewSchema = z.object({
   departmentId: z.string(),

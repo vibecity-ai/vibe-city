@@ -8,7 +8,7 @@
    - Mutations refresh the affected department only; create/archive (which change the floor order) refresh everything.
    - Sockets, coalescer timers and cancellation polls are closed when a department leaves the tower or the app unmounts. */
 import type {
-  CancellationStatus, DepartmentUpdate, DepartmentView, HealthView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
+  CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
 } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
@@ -55,7 +55,7 @@ function commit() {
   const depts: Dept[] = sorted.map((v) => {
     const out = deriveDept({
       dept: v, provisioning: raw.prov[v.id] ?? null, liveQuests: raw.live[v.id] ?? [],
-      maxWorkers: raw.inv[v.id]?.limits.maxConcurrentWorkers ?? 1, chiefModel: s.info[v.id]?.profiles?.chief.model ?? null,
+      maxWorkers: raw.inv[v.id]?.limits.maxConcurrentWorkers ?? 0, chiefModel: s.info[v.id]?.profiles?.chief.model ?? null,
       slots: slots.get(v.id) ?? new Map(), hermesUp,
     });
     slots.set(v.id, out.slots);
@@ -327,13 +327,22 @@ async function attempt<T>(key: string, fn: () => Promise<T>): Promise<{ value: T
   finally { setBusy(key, false); }
 }
 
-export async function createDepartment(name: string, purpose: string) {
-  const v = await run('create', 'Could not create the department', () => api.createDepartment({ name, purpose }));
+/** Hermes' default profile, the starting point of the create form. Errors go back to the form. */
+export async function loadHermesDefaults(): Promise<{ value: HermesDefaultsView | null; error: ApiError | null }> {
+  try { return { value: await api.hermesDefaults(), error: null }; }
+  catch (e) { return { value: null, error: asApiError(e) }; }
+}
+
+/** Creates the department with its capabilities, then provisions it right away unless asked not to. */
+export async function createDepartment(input: DepartmentCreate, provisionNow: boolean) {
+  const v = await run('create', 'Could not create the department', () => api.createDepartment(input));
   if (!v) return;
   await refreshAll();
   st().ui$({ modal: null });
   st().openFloor(v.id);
-  st().toast(`Floor added · ${v.name}. Provision it to bring in the chief.`);
+  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Provision it to bring in the chief.`); return; }
+  st().toast(`Floor added · ${v.name}. Provisioning…`);
+  await provisionDepartment(v.id);
 }
 
 /** PATCH name/purpose/workspace. On failure nothing local changes (the last good state stays). */
@@ -370,7 +379,7 @@ export async function provisionDepartment(id: string, opts: ProvisionOptions = {
   });
   await refreshOne(id);
   if (!status) return;
-  if (status.state === 'ready') st().toast('Floor is ready. Chief and worker profiles are verified.');
+  if (status.state === 'ready') st().toast(status.worker.ref ? 'Floor is ready. Chief and worker profiles are verified.' : 'Floor is ready. The chief profile is verified.');
   else if (status.error) st().toast(status.error.message, status.error.retryable ? 'warn' : 'bad');
 }
 

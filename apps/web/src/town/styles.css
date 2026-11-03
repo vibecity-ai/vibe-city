@@ -370,6 +370,23 @@ select.input { cursor: pointer; }
 .modal::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 10px; background: var(--sun-stripes); }
 @keyframes modalIn { from { opacity: 0; transform: translateY(16px); } }
 .modal .sub { margin-bottom: 8px; }
+.modal.wide { width: min(720px, 100%); }
+/* create-department steps */
+.wiz-steps { list-style: none; display: flex; gap: 6px; flex-wrap: wrap; margin: 2px 0 8px; padding: 0; }
+.wiz-steps li { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; font-size: 13px; color: var(--ink-mute); border: 1px solid rgba(255,255,255,.12); }
+.wiz-steps li .num { width: 20px; height: 20px; display: grid; place-items: center; font: 400 16px var(--f-px); background: rgba(255,255,255,.08); }
+.wiz-steps li.on { color: var(--ink); border-color: var(--amber); }
+.wiz-steps li.on .num { background: var(--amber); color: #1A0716; }
+.wiz-steps li.done { color: var(--ink-dim); }
+.wiz-steps li.done .num { background: var(--mint); color: #1A0716; }
+.chk-grid { flex: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 4px 10px; margin-top: 6px; }
+.chk-grid.scroll { max-height: 220px; overflow: auto; padding-right: 4px; }
+.chk { display: flex; align-items: center; gap: 8px; min-height: 30px; font-size: 13px; cursor: pointer; }
+.chk input { accent-color: var(--cyan); width: 16px; height: 16px; flex: none; }
+.chk .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chk small { margin-left: auto; font-size: 11px; }
+.chk.off { cursor: not-allowed; opacity: .55; }
+.modal .row .input { flex: 1; }
 .preview { display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 2px dashed var(--amber); margin-top: 12px; background: rgba(255,181,71,.05); }
 .preview span { display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
 .preview b { font: 400 20px var(--f-px); }

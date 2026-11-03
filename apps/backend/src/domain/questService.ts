@@ -7,6 +7,7 @@ import type { KanbanApi, RawRun, RawTask, TaskDetail } from '../hermes/kanbanApi
 import { describeEvent } from './activity.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
 import type { DepartmentService } from './departmentService.ts';
+import { hasWorkers } from './inventoryPolicy.ts';
 import { aggregateQuest, type AggNode } from './questAggregation.ts';
 import { runState } from './runTracker.ts';
 import { scrub } from './scrub.ts';
@@ -19,7 +20,7 @@ const MARKER_AUTHOR = 'vibe-city';
 const iso = (t: number | null | undefined) => (t == null ? null : new Date(t * 1000).toISOString());
 const isTerminal = (s: string) => s === 'done' || s === 'archived';
 
-interface Ctx { departmentId: string; board: string; chief: string; worker: string; deptName: string; maxRuntime: number | null }
+interface Ctx { departmentId: string; board: string; chief: string; worker: string | null; deptName: string; maxRuntime: number | null }
 interface Tree {
   rootId: string;
   details: Map<string, TaskDetail>;
@@ -28,7 +29,8 @@ interface Tree {
   truncated: boolean;
 }
 
-export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, worker: string): string {
+/** `worker` is null when the department has no workers: the chief then does the work itself. */
+export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, worker: string | null): string {
   return [
     `# Quest: ${q.title}`,
     '',
@@ -37,9 +39,17 @@ export function buildQuestBody(q: { title: string; objective: string; instructio
     ...(q.instructions ? ['', '## Additional instructions', q.instructions] : []),
     '',
     '## How to execute (department workflow)',
-    `You are the department chief. Do NOT do the work yourself. Break the objective into independent units of work and create one child Kanban task per unit, assigned to the profile "${worker}", with parents set to this task's id.`,
-    'Each child task must be self-contained: the worker cannot see this quest, so put every instruction and input it needs in the child task.',
-    'Do not assign tasks to any other profile. When all child tasks are created, complete this task with a summary listing each child task id and what it covers.',
+    ...(worker === null
+      ? [
+        'You are the department chief and this department has no workers: do the work yourself.',
+        'Do not create Kanban tasks for any other profile. When the work is done, complete this task with a summary of the result and attach any output files.',
+      ]
+      : [
+        'You are the department chief. Do the work yourself, or, when parts of it can run independently, create one child Kanban task per part,',
+        `assigned to the profile "${worker}", with parents set to this task's id.`,
+        'Each child task must be self-contained: the worker cannot see this quest, so put every instruction and input it needs in the child task.',
+        'Do not assign tasks to any other profile. Complete this task with a summary of what you did and each child task id with what it covers.',
+      ]),
   ].join('\n');
 }
 
@@ -64,7 +74,8 @@ export class QuestService {
   /** Board and profiles always come from the stored, verified department record, never from the request. */
   private ctx(departmentId: string, opts: { requireReady?: boolean } = {}): Ctx {
     const r = this.depts.getRow(departmentId); // 404 for unknown
-    if (!r.hermes_board_ref || !r.chief_profile_ref || !r.worker_profile_ref || r.board_sync_state !== 'synced') {
+    const withWorker = hasWorkers(this.depts.getInventory(departmentId));
+    if (!r.hermes_board_ref || !r.chief_profile_ref || (withWorker && !r.worker_profile_ref) || r.board_sync_state !== 'synced') {
       throw new ConflictError('department is not provisioned');
     }
     if (opts.requireReady) {
@@ -72,7 +83,7 @@ export class QuestService {
       if (r.provisioning_state !== 'ready') throw new ConflictError(`department is not ready (state: ${r.provisioning_state})`);
     }
     return {
-      departmentId, board: r.hermes_board_ref, chief: r.chief_profile_ref, worker: r.worker_profile_ref, deptName: r.name,
+      departmentId, board: r.hermes_board_ref, chief: r.chief_profile_ref, worker: withWorker ? r.worker_profile_ref : null, deptName: r.name,
       maxRuntime: this.depts.getInventory(departmentId).limits.maxTaskRuntimeSeconds,
     };
   }
@@ -121,7 +132,8 @@ export class QuestService {
 
   private roleOf(ctx: Ctx, rootId: string, t: RawTask): TaskNode['role'] {
     if (t.id === rootId) return 'chief';
-    return t.assignee === ctx.worker ? 'worker' : 'other';
+    if (ctx.worker !== null && t.assignee === ctx.worker) return 'worker';
+    return t.assignee === ctx.chief ? 'chief' : 'other';
   }
 
   private nodes(ctx: Ctx, tree: Tree): TaskNode[] {
@@ -148,7 +160,9 @@ export class QuestService {
     for (const n of nodes) {
       if (n.id === rootId) continue;
       if (!n.assignee) out.push(`Task "${n.title}" (${n.id}) has no assignee and will not run.`);
-      else if (n.assignee !== ctx.worker) out.push(`Task "${n.title}" (${n.id}) is assigned to "${n.assignee}", which is not this department's worker profile.`);
+      else if (n.assignee !== ctx.worker && n.assignee !== ctx.chief) {
+        out.push(`Task "${n.title}" (${n.id}) is assigned to "${n.assignee}", which is not ${ctx.worker ? "this department's chief or worker profile" : "this department's chief (the department has no workers)"}.`);
+      }
     }
     return out;
   }
@@ -184,7 +198,7 @@ export class QuestService {
         id: n.id, status: n.status, failed: n.failed,
         everStarted: d.task.started_at != null || d.runs.length > 0,
         activeRun: d.runs.some((r) => r.ended_at === null),
-        authorized: n.id === tree.rootId || n.assignee === ctx.worker,
+        authorized: n.id === tree.rootId || n.assignee === ctx.chief || (ctx.worker !== null && n.assignee === ctx.worker),
         hasChildren: n.childIds.length > 0,
       };
     });

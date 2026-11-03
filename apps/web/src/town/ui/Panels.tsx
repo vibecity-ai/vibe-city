@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { PROVISIONING_STEPS, TOOLSETS, type CapabilityEntry, type DepartmentView, type QuestStatus, type TaskNode } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, PROVISIONING_STEPS, TOOLSETS, type CapabilityEntry, type DepartmentView, type HermesDefaultsView, type QuestStatus, type TaskNode, type Toolset } from '@vibe-city/shared';
+
+const AGENT_EXCLUDED: readonly string[] = AGENT_EXCLUDED_TOOLSETS;
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
-  archiveDepartment, cancelQuest, createDepartment, createQuest, loadArchived, loadDeptInfo, loadQuest, patchInventory, provisionDepartment,
+  archiveDepartment, cancelQuest, createDepartment, createQuest, loadArchived, loadDeptInfo, loadHermesDefaults, loadQuest, patchInventory, provisionDepartment,
   reconcileNow, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
@@ -245,7 +247,7 @@ export function DeptPanel() {
                       </span>
                     </button>
                   ))}
-                  {d.workers.length === 0 && <div className="empty-w">No worker tasks yet. Workers appear when the chief delegates a quest.</div>}
+                  {d.workers.length === 0 && <div className="empty-w">{d.maxWorkers === 0 ? 'No workers: the chief does the work itself.' : 'No worker tasks yet. Workers appear when the chief delegates a quest.'}</div>}
                 </div>
                 <p className="mono muted small">{running} worker task{running === 1 ? '' : 's'} running · requested limit {d.maxWorkers} (host-limited, not enforced per department)</p>
               </section>
@@ -319,13 +321,14 @@ function SetupPanel({ d }: { d: Dept }) {
   const [consent, setConsent] = useState(false);
   const busy = !!s.busy[`provision:${d.id}`];
   const err = prov?.error ?? null;
-  const refs = [chief.trim(), worker.trim()].filter(Boolean);
-  const valid = mode === 'managed' || (PROFILE_RE.test(chief.trim()) && PROFILE_RE.test(worker.trim()) && chief.trim() !== worker.trim() && consent);
+  const withWorker = (inv?.limits.maxConcurrentWorkers ?? 0) > 0;
+  const refs = [chief.trim(), ...(withWorker ? [worker.trim()] : [])].filter(Boolean);
+  const valid = mode === 'managed' || (PROFILE_RE.test(chief.trim()) && (!withWorker || (PROFILE_RE.test(worker.trim()) && chief.trim() !== worker.trim())) && consent);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     void provisionDepartment(d.id, mode === 'managed'
       ? { chiefProfileRef: null, workerProfileRef: null }
-      : { chiefProfileRef: chief.trim(), workerProfileRef: worker.trim(), confirmModifyProfiles: refs });
+      : { chiefProfileRef: chief.trim(), workerProfileRef: withWorker ? worker.trim() : null, confirmModifyProfiles: refs });
   };
   return (
     <div className="pane">
@@ -349,7 +352,7 @@ function SetupPanel({ d }: { d: Dept }) {
           <div className="step done"><Glyph k="completed" size={12} /><span><b>Inventory</b><small className="muted">{inv ? `${inv.allowedToolsets.length} toolsets · ${inv.allowedSkillIds.length} skills · ${inv.allowedModelIds.length} models` : 'Loading…'}</small></span><button className="link" onClick={() => s.openPanel('inventory')}>Edit</button></div>
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
-            <p className="fine">Provisioning creates a Kanban board and two Hermes profiles (a chief and a worker), applies the inventory and verifies it by reading it back. It can take a minute.</p>
+            <p className="fine">Provisioning creates a Kanban board and {withWorker ? 'two Hermes profiles (a chief and a worker)' : 'a chief profile (this department has no workers)'}, applies the inventory and verifies it by reading it back. It can take a minute.</p>
             <fieldset className="plain">
               <legend className="sr">Profiles</legend>
               <label className={`radio${mode === 'managed' ? ' on' : ''}`}><input type="radio" name="m" checked={mode === 'managed'} onChange={() => setMode('managed')} />Create managed profiles (recommended)</label>
@@ -360,12 +363,12 @@ function SetupPanel({ d }: { d: Dept }) {
                 <Field label="Chief profile" error={chief.trim() && !PROFILE_RE.test(chief.trim()) ? 'Lowercase letters, digits, - and _ only.' : null}>
                   {(p) => <input {...p} className="input mono" value={chief} onChange={(e) => setChief(e.target.value)} placeholder="existing-profile-name" />}
                 </Field>
-                <Field label="Worker profile" error={worker.trim() && !PROFILE_RE.test(worker.trim()) ? 'Lowercase letters, digits, - and _ only.' : worker.trim() && worker.trim() === chief.trim() ? 'Chief and worker must be different profiles.' : null}>
+                {withWorker && <Field label="Worker profile" error={worker.trim() && !PROFILE_RE.test(worker.trim()) ? 'Lowercase letters, digits, - and _ only.' : worker.trim() && worker.trim() === chief.trim() ? 'Chief and worker must be different profiles.' : null}>
                   {(p) => <input {...p} className="input mono" value={worker} onChange={(e) => setWorker(e.target.value)} placeholder="existing-profile-name" />}
-                </Field>
+                </Field>}
                 <label className="consent">
                   <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-                  <span>Allow Vibe City to modify <b className="mono">{chief.trim() || 'the chief profile'}</b> and <b className="mono">{worker.trim() || 'the worker profile'}</b>: toolsets, skills, default model and a block in SOUL.md. This also changes how they behave <b>outside</b> Vibe City.</span>
+                  <span>Allow Vibe City to modify <b className="mono">{chief.trim() || 'the chief profile'}</b>{withWorker && <> and <b className="mono">{worker.trim() || 'the worker profile'}</b></>}: toolsets, skills, default model and a block in SOUL.md. This also changes how they behave <b>outside</b> Vibe City.</span>
                 </label>
               </>
             )}
@@ -475,7 +478,7 @@ function ProvisioningInspector({ d }: { d: Dept }) {
           <KV rows={[['Code', <span className="mono">{prov.error.code}</span>], ['Step', prov.error.step], ['Retryable', prov.error.retryable ? 'Yes' : 'No: change the configuration first'], ['At', formatTime(prov.error.at)]]} /></div></div>
       )}
       <KV rows={[['Hermes (profile lookup)', !profiles ? '—' : profiles.reachable ? 'Reachable' : 'Not reachable: stored profile names shown, live details unknown']]} />
-      {profileRows(profiles, prov, formatTime).map((r) => (
+      {profileRows(profiles, prov, formatTime).filter((r) => r.role === 'chief' || (info?.inventory?.limits.maxConcurrentWorkers ?? 0) > 0 || !!prov?.worker.ref).map((r) => (
         <div key={r.role} className="kv-card block">
           <b>{r.role === 'chief' ? 'Chief' : 'Worker'} · <span className="mono">{r.ref}</span></b>
           <KV rows={[['In Hermes', r.exists], ['Model', <span className="mono">{r.model}</span>], ['Description', r.description], ['Origin', r.origin], ['Verification', r.verified]]} />
@@ -601,7 +604,7 @@ export function InventorySheet() {
   const saving = !!s.busy[`inv:${d.id}`];
   const busyProv = !!s.busy[`provision:${d.id}`];
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
-  const entries = eff ? [...eff.chief.entries.map((e) => ({ role: 'chief', e })), ...eff.worker.entries.map((e) => ({ role: 'worker', e })), ...eff.departmentWide.map((e) => ({ role: 'department', e }))] : [];
+  const entries = eff ? [...eff.chief.entries.map((e) => ({ role: 'chief', e })), ...(eff.worker?.entries ?? []).map((e) => ({ role: 'worker', e })), ...eff.departmentWide.map((e) => ({ role: 'department', e }))] : [];
   const ws = workspaceSummary(d.workspace);
   const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
   return (
@@ -610,7 +613,7 @@ export function InventorySheet() {
         <section className="pane-head">
           <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where><button className="x boxed" onClick={() => s.openPanel('dept')} aria-label="Close inventory"><Icon n="x" /></button></div>
           <h1 className="display" tabIndex={-1}>Department inventory</h1>
-          <p className="sub">What agents on this floor may use. The chief and workers are narrowed by role, never beyond this allowance. A setting counts as a guarantee only where the report below says <b>Enforced</b>.</p>
+          <p className="sub">What agents on this floor may use. The chief and any workers get this allowance, except delegation and cronjob, which no department agent gets. A setting counts as a guarantee only where the report below says <b>Enforced</b>.</p>
         </section>
         {!inv && <p className="muted pane-sec">Loading inventory…</p>}
         {inv && (
@@ -624,13 +627,14 @@ export function InventorySheet() {
             <div className="slot-grid">
               {TOOLSETS.map((t) => {
                 const on = inv.allowedToolsets.includes(t);
+                const never = AGENT_EXCLUDED.includes(t);
                 return (
                   <div key={t} className={`slot-card ${on ? '' : 'disabled'}`}>
                     <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
-                      <button className={`toggle${on ? ' on' : ''}`} disabled={saving} aria-label={`${t}: ${on ? 'allowed' : 'not allowed'}`} aria-pressed={on}
+                      <button className={`toggle${on ? ' on' : ''}`} disabled={saving || never} aria-label={`${t}: ${on ? 'allowed' : 'not allowed'}`} aria-pressed={on}
                         onClick={() => save({ allowedToolsets: on ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
                     <div className="slot-name mono">{t}</div>
-                    <div className="slot-desc">{on ? 'Allowed' : 'Off'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
+                    <div className="slot-desc">{never ? 'Never given to agents · runs outside the board' : on ? 'Allowed' : 'Off'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
                   </div>
                 );
               })}
@@ -646,9 +650,9 @@ export function InventorySheet() {
               <span className="muted small">{ws.isolation} {WORKSPACE_ADVISORY}</span><button className="link" onClick={() => s.openPanel('settings')}>Change in settings</button></div>
             <h3 className="inv-h">Limits</h3>
             <div className="kv-card block">
-              <Field label="Requested worker limit (1–10) · host-limited" hint={LIMIT_COPY.maxConcurrentWorkers}>
-                {(p) => <input {...p} className="input mono" type="number" min={1} max={10} defaultValue={inv.limits.maxConcurrentWorkers} key={inv.limits.maxConcurrentWorkers} disabled={saving}
-                  onBlur={(e) => { const n = Math.round(Number(e.target.value)); if (n >= 1 && n <= 10 && n !== inv.limits.maxConcurrentWorkers) save({ limits: { maxConcurrentWorkers: n } }); else e.target.value = String(inv.limits.maxConcurrentWorkers); }} />}
+              <Field label="Workers (0–10) · host-limited" hint={`0 = no worker profile; the chief does the work itself. ${LIMIT_COPY.maxConcurrentWorkers}`}>
+                {(p) => <input {...p} className="input mono" type="number" min={0} max={10} defaultValue={inv.limits.maxConcurrentWorkers} key={inv.limits.maxConcurrentWorkers} disabled={saving}
+                  onBlur={(e) => { const n = Math.round(Number(e.target.value)); if (n >= 0 && n <= 10 && n !== inv.limits.maxConcurrentWorkers) save({ limits: { maxConcurrentWorkers: n } }); else e.target.value = String(inv.limits.maxConcurrentWorkers); }} />}
               </Field>
               <Field label="Max seconds for the quest task (10–86400, blank = none)" hint={LIMIT_COPY.maxTaskRuntimeSeconds}>
                 {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
@@ -972,30 +976,138 @@ function ResultsSection({ status, extra }: { status: QuestStatus; extra: ReturnT
 }
 
 /* ============ B1 · create department ============ */
+const WIZARD_STEPS = ['Basics', 'Capabilities', 'Workers & review'] as const;
+const isToolset = (t: string): t is Toolset => (TOOLSETS as readonly string[]).includes(t);
+
+/**
+ * Three steps: name and purpose; capabilities pre-filled from Hermes' default profile (editable); workers and review.
+ * Saving creates the department with that inventory and provisions it.
+ */
 export function CreateDeptModal() {
   const s = useStore();
+  const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [purpose, setPurpose] = useState('');
+  const [defaults, setDefaults] = useState<HermesDefaultsView | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [toolsets, setToolsets] = useState<Toolset[]>([]);
+  const [skills, setSkills] = useState<string[]>([]);
+  const [model, setModel] = useState('');
+  const [filter, setFilter] = useState('');
+  const [workers, setWorkers] = useState(0);
+  const [provisionNow, setProvisionNow] = useState(true);
   const ref = useRef<HTMLFormElement>(null);
   const open = s.ui.modal === 'create';
   useDialog(ref, open, () => s.ui$({ modal: null }));
+  useEffect(() => {
+    if (!open) return;
+    setStep(0); setName(''); setPurpose(''); setDefaults(null); setLoadErr(null); setToolsets([]); setSkills([]); setModel(''); setFilter(''); setWorkers(0); setProvisionNow(true);
+  }, [open]);
   if (!open) return null;
-  const busy = !!s.busy.create;
+  const busy = !!s.busy.create || !!Object.keys(s.busy).find((k) => k.startsWith('provision:') && s.busy[k]);
   const next = s.depts.length + 1;
+
+  const applyDefaults = (v: HermesDefaultsView) => {
+    setToolsets(v.toolsets.filter((t) => t.enabled && t.manageable).map((t) => t.name).filter(isToolset));
+    setSkills(v.skills.filter((x) => x.enabled).map((x) => x.name));
+    setModel(v.model ?? '');
+  };
+  const load = async () => {
+    setLoading(true); setLoadErr(null);
+    const { value, error } = await loadHermesDefaults();
+    setLoading(false);
+    if (value) { setDefaults(value); applyDefaults(value); } else setLoadErr(error?.message ?? 'Could not read Hermes.');
+  };
+  const go = (n: number) => { setStep(n); if (n === 1 && !defaults && !loading) void load(); };
+  const toggle = <T extends string>(list: T[], set: (v: T[]) => void, x: T) => set(list.includes(x) ? list.filter((y) => y !== x) : [...list, x]);
+  const canProvision = s.conn.hermes;
+  const submit = () => {
+    if (!name.trim() || busy) return;
+    void createDepartment({
+      name: name.trim(), purpose: purpose.trim(),
+      inventory: { allowedToolsets: toolsets, allowedSkillIds: skills, allowedModelIds: model.trim() ? [model.trim()] : [], limits: { maxConcurrentWorkers: workers } },
+    }, provisionNow && canProvision);
+  };
+  const shownSkills = (defaults?.skills ?? []).filter((x) => x.name.includes(filter.trim().toLowerCase()));
+
   return (
     <div className="scrim" onMouseDown={(e) => { if (e.target === e.currentTarget) s.ui$({ modal: null }); }}>
-      <form ref={ref} className="modal" role="dialog" aria-modal="true" aria-labelledby="cd-t" aria-busy={busy} onSubmit={(e) => { e.preventDefault(); if (name.trim() && !busy) void createDepartment(name.trim(), purpose.trim()); }}>
+      <form ref={ref} className="modal wide" role="dialog" aria-modal="true" aria-labelledby="cd-t" aria-busy={busy}
+        onSubmit={(e) => { e.preventDefault(); if (step < 2) { if (name.trim()) go(step + 1); } else submit(); }}>
         <div className="head-row"><Where n={'F' + next} tone="amber">New floor</Where><button type="button" className="x" onClick={() => s.ui$({ modal: null })} aria-label="Close"><Icon n="x" /></button></div>
         <h2 id="cd-t" className="display">Create a department</h2>
-        <p className="sub">Each department gets its own floor, a Hermes board, a chief and a worker profile. You provision them right after. A workspace path can be set later in the department settings.</p>
-        <Field label="Department name" hint="Shown on the floor sign. Up to 32 characters. Must be unique.">
-          {(p) => <input {...p} className="input" value={name} maxLength={32} onChange={(e) => setName(e.target.value)} autoFocus />}
-        </Field>
-        <Field label="Purpose / objective" hint="The chief reads this when planning quests.">
-          {(p) => <textarea {...p} className="input" rows={3} value={purpose} onChange={(e) => setPurpose(e.target.value)} />}
-        </Field>
-        <div className="preview"><svg width="58" height="28" viewBox="0 0 58 28" aria-hidden="true"><polygon points="2,4 36,20 56,10 56,16 36,26 2,10" fill="rgba(255,181,71,0.08)" stroke="#FFB547" strokeDasharray="3 2" /></svg><span><b>Adds floor F{next} · “{name || 'Untitled'}”</b><small><Glyph k="awaiting" />Starts not provisioned</small></span></div>
-        <div className="row end"><Btn onClick={() => s.ui$({ modal: null })}>Cancel</Btn><button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={!name.trim() || busy}>{busy ? 'Creating…' : 'Create department'}</button></div>
+        <ol className="wiz-steps" aria-label="Steps">
+          {WIZARD_STEPS.map((t, i) => <li key={t} className={i === step ? 'on' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}><span className="num">{i + 1}</span>{t}</li>)}
+        </ol>
+
+        {step === 0 && <>
+          <p className="sub">Each department gets its own floor, a Hermes board and a chief profile. Next you choose what the chief may use.</p>
+          <Field label="Department name" hint="Shown on the floor sign. Up to 32 characters. Must be unique.">
+            {(p) => <input {...p} className="input" value={name} maxLength={32} onChange={(e) => setName(e.target.value)} autoFocus />}
+          </Field>
+          <Field label="Purpose / objective" hint="The chief reads this when it works on quests.">
+            {(p) => <textarea {...p} className="input" rows={3} value={purpose} onChange={(e) => setPurpose(e.target.value)} />}
+          </Field>
+        </>}
+
+        {step === 1 && <>
+          <p className="sub">Pre-filled from Hermes’ <b className="mono">default</b> profile. Change anything; what you save here is copied into the department and later changes to the default profile do not affect it.</p>
+          <div aria-live="polite">
+            {loading && <p className="muted small" role="status">Reading the default profile from Hermes…</p>}
+            {loadErr && <div className="banner warn" role="alert"><Glyph k="awaiting" /><div><b>Could not read Hermes’ default profile</b><p>{loadErr}</p><Btn kind="secondary" onClick={() => void load()}>Try again</Btn></div></div>}
+          </div>
+          {defaults && <>
+            <h3 className="inv-h">Toolsets <span>{toolsets.length} on · kanban is always on</span></h3>
+            <div className="chk-grid">
+              {defaults.toolsets.map((t) => (
+                <label key={t.name} className={`chk${t.manageable ? '' : ' off'}`} title={t.manageable ? '' : t.name === 'kanban' ? 'Always on: agents report through Kanban.' : AGENT_EXCLUDED.includes(t.name) ? 'Never given to department agents: it would run work outside the department board.' : 'Not a toolset Vibe City manages.'}>
+                  <input type="checkbox" disabled={!t.manageable} checked={t.name === 'kanban' || (isToolset(t.name) && toolsets.includes(t.name))}
+                    onChange={() => { if (isToolset(t.name)) toggle(toolsets, setToolsets, t.name); }} />
+                  <span className="mono">{t.name}</span>{t.enabled && <small className="muted">default</small>}
+                </label>
+              ))}
+            </div>
+            <h3 className="inv-h">Skills <span>{skills.length} of {defaults.skills.length} on</span></h3>
+            <div className="row">
+              <input className="input mono" placeholder="Filter skills" aria-label="Filter skills" value={filter} onChange={(e) => setFilter(e.target.value)} />
+              <button type="button" className="link" onClick={() => setSkills([...new Set([...skills, ...shownSkills.map((x) => x.name)])])}>All</button>
+              <button type="button" className="link" onClick={() => setSkills(skills.filter((x) => !shownSkills.some((y) => y.name === x)))}>None</button>
+            </div>
+            <div className="chk-grid scroll">
+              {shownSkills.map((x) => (
+                <label key={x.name} className="chk"><input type="checkbox" checked={skills.includes(x.name)} onChange={() => toggle(skills, setSkills, x.name)} /><span className="mono">{x.name}</span>{x.enabled && <small className="muted">default</small>}</label>
+              ))}
+              {!shownSkills.length && <p className="muted small">No skill matches.</p>}
+            </div>
+            <Field label="Model" hint={`The chief’s default model. Hermes’ default profile uses ${defaults.model ?? 'none'}. Blank = keep the profile’s own default. Hermes cannot stop an agent from picking another model.`}>
+              {(p) => <input {...p} className="input mono" value={model} onChange={(e) => setModel(e.target.value)} />}
+            </Field>
+            <button type="button" className="link" onClick={() => applyDefaults(defaults)}>Reset to Hermes defaults</button>
+          </>}
+        </>}
+
+        {step === 2 && <>
+          <Field label="Workers (0–10)" hint={workers === 0 ? 'No workers: the chief does the work itself. No worker profile is created.' : `A worker profile is created and the chief may hand parts of a quest to it. ${LIMIT_COPY.maxConcurrentWorkers}`}>
+            {(p) => <input {...p} className="input mono" type="number" min={0} max={10} value={workers} onChange={(e) => setWorkers(Math.max(0, Math.min(10, Math.round(Number(e.target.value)) || 0)))} />}
+          </Field>
+          <KV rows={[
+            ['Name', name.trim()],
+            ['Toolsets', <span className="mono">{['kanban', ...toolsets].sort().join(', ')}</span>],
+            ['Skills', skills.length ? `${skills.length} enabled` : 'none (Hermes keeps hermes-agent on)'],
+            ['Model', <span className="mono">{model.trim() || 'profile default'}</span>],
+            ['Workers', workers === 0 ? 'none · chief only' : String(workers)],
+          ]} />
+          <label className="consent"><input type="checkbox" checked={provisionNow && canProvision} disabled={!canProvision} onChange={(e) => setProvisionNow(e.target.checked)} />
+            <span>Provision now: create the board and the chief{workers > 0 ? ' and worker' : ''} profile in Hermes and apply these settings.{!canProvision && ' Hermes is not reachable, so the department is only saved; provision it from its floor later.'}</span></label>
+        </>}
+
+        <div className="row end">
+          {step === 0 ? <Btn onClick={() => s.ui$({ modal: null })}>Cancel</Btn> : <Btn onClick={() => setStep(step - 1)} disabled={busy}>Back</Btn>}
+          {step < 2
+            ? <button className="btn primary lg" type="submit" disabled={!name.trim() || (step === 1 && loading)}>{step === 1 && !defaults ? 'Continue without defaults' : 'Next'}</button>
+            : <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={!name.trim() || busy}>{busy ? (s.busy.create ? 'Creating…' : 'Provisioning…') : provisionNow && canProvision ? 'Create and provision' : 'Create department'}</button>}
+        </div>
       </form>
     </div>
   );

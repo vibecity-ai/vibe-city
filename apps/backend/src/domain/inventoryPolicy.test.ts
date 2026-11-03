@@ -14,9 +14,9 @@ test('empty inventory allows only the required kanban toolset', () => {
   assert.deepEqual(effectiveToolsets('worker', inv()), ['kanban']);
 });
 
-test('chief is limited to coordination toolsets; worker never gets delegation/cronjob', () => {
+test('chief and worker get the department allowance; neither gets delegation/cronjob', () => {
   const i = inv({ allowedToolsets: ['terminal', 'file', 'todo', 'delegation', 'cronjob', 'web'] });
-  assert.deepEqual(effectiveToolsets('chief', i), ['kanban', 'todo']);
+  assert.deepEqual(effectiveToolsets('chief', i), ['file', 'kanban', 'terminal', 'todo', 'web']);
   assert.deepEqual(effectiveToolsets('worker', i), ['file', 'kanban', 'terminal', 'todo', 'web']);
 });
 
