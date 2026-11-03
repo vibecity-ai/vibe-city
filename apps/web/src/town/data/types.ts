@@ -1,7 +1,7 @@
 /* View model for the city. Everything here is derived from the Vibe City backend (see data/derive.ts):
    a department is a floor, the chief and workers are derived from real Kanban tasks, quests are Hermes tasks.
    Nothing is invented: no worker exists without a task, no percentage without counts. */
-import type { DepartmentView, ProvisioningState, WorkspaceView } from '@vibe-city/shared';
+import type { DepartmentView, ProvisioningState } from '@vibe-city/shared';
 
 export type AgentStatus = 'running' | 'idle' | 'completed' | 'failed' | 'disconnected' | 'awaiting';
 export type DeptState = 'active' | 'idle' | 'attention' | 'offline' | 'unconfigured';
@@ -17,7 +17,6 @@ export interface Dept {
   /** The requested worker limit. Hermes only enforces a host-wide cap, so this is never presented as a guarantee. */
   maxWorkers: number;
   theme: { floor: string; accent: string };
-  workspace: WorkspaceView;
   chiefProfileRef: string | null;
   workerProfileRef: string | null;
   /** Why the floor needs a person (provisioning error, failed task, ...). */

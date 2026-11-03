@@ -12,15 +12,14 @@ import {
   type BoardQuest, type ColumnKey, type DeptOption,
 } from '../data/company';
 import {
-  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL, WORKSPACE_ADVISORY,
-  archiveConsequences, assigneeWarning, cancellationView, fieldErrors, profileRows, provisioningActions,
-  settingsFormFrom, settingsPatch, taskStatusView, workspaceErrorField, workspaceSummary, type SettingsForm,
+  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL,
+  archiveConsequences, assigneeWarning, cancellationView, fieldErrors, provisioningActions,
+  settingsFormFrom, settingsPatch, taskStatusView, settingsErrorField, type SettingsForm,
 } from '../data/views';
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 
 const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
-const yesNo = (b: boolean | null | undefined) => (b === null || b === undefined ? '—' : b ? 'Yes' : 'No');
 
 /* ============ top bar ============ */
 export function TopBar() {
@@ -31,6 +30,7 @@ export function TopBar() {
   const attn = useStore((s) => attentionCount(s.quests));
   const onBoard = useStore((s) => s.ui.panel === 'board');
   const openPanel = useStore((s) => s.openPanel);
+  const closeFloor = useStore((s) => s.closeFloor);
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -51,7 +51,7 @@ export function TopBar() {
   return (
     <header className="top">
       <div className="logo"><span className="wordmark" data-t="VIBE CITY">VIBE CITY</span><span className="tag-line">Build your AI empire</span></div>
-      <span className="plate" title="Your company">{company?.name ?? '…'}</span>
+      <button className="plate" title="Back to the tower" onClick={closeFloor}>{company?.name ?? '…'}</button>
       <button className="btn secondary qb-btn" aria-pressed={onBoard} aria-label={`Quest board${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
         <span className="qb-long" aria-hidden="true">Quest board</span><span className="qb-short" aria-hidden="true">Quests</span>{attn > 0 && <span className="count bad" title="Quests that need attention" aria-hidden="true">{attn}</span>}
       </button>
@@ -160,7 +160,6 @@ function ArchivedList() {
 }
 
 function ArchivedCard({ d }: { d: DepartmentView }) {
-  const ws = workspaceSummary(d.workspace);
   return (
     <details className="kv-card arch">
       <summary><Glyph k="disconnected" /><b>{d.name}</b><span className="muted small">archived {formatTime(d.archivedAt)}</span></summary>
@@ -171,7 +170,6 @@ function ArchivedCard({ d }: { d: DepartmentView }) {
         ['Hermes board', d.hermesBoardRef ? <span className="mono">{d.hermesBoardRef} (kept in Hermes)</span> : 'never created'],
         ['Chief profile', <span className="mono">{d.chiefProfileRef ?? '—'}</span>],
         ['Worker profile', <span className="mono">{d.workerProfileRef ?? '—'}</span>],
-        ['Workspace', `${ws.label} · ${ws.isolation}`],
       ]} />
     </details>
   );
@@ -293,14 +291,12 @@ function QuestMini({ q }: { q: QuestItem }) {
 function InventorySummary({ d }: { d: Dept }) {
   const openPanel = useStore((s) => s.openPanel);
   const inv = useStore((s) => s.info[d.id]?.inventory);
-  const ws = workspaceSummary(d.workspace);
   return (
     <section className="pane-sec">
       {!inv && <p className="muted">Loading inventory…</p>}
       {inv && (
         <KV rows={[
           ['Agents', `1 chief + up to ${inv.limits.maxConcurrentWorkers} worker${inv.limits.maxConcurrentWorkers === 1 ? '' : 's'}`],
-          ['Workspace', ws.label],
           ['MCP tools', inv.allowedMcpTools.length ? inv.allowedMcpTools.join(', ') : 'None'],
         ]} />
       )}
@@ -397,7 +393,7 @@ export function SettingsSheet() {
           <h1 className="display" tabIndex={-1}>Department settings</h1>
           <p className="sub">Edit the department, inspect what Vibe City created or linked in Hermes, or archive the floor.</p>
         </section>
-        <SettingsForm key={`${d.id}|${d.name}|${d.purpose}|${d.workspace.label}`} d={d} />
+        <SettingsForm key={`${d.id}|${d.name}|${d.purpose}`} d={d} />
         <ProvisioningInspector d={d} />
         <section className="pane-sec danger">
           <h3 className="sec-t">Archive</h3>
@@ -414,15 +410,13 @@ function SettingsForm({ d }: { d: Dept }) {
   const [f, setF] = useState<SettingsForm>(() => settingsFormFrom(d));
   const [errs, setErrs] = useState<Record<string, string>>({});
   const patch = settingsPatch(d, f);
-  const ws = workspaceSummary(d.workspace);
   const set = (p: Partial<SettingsForm>) => { setF({ ...f, ...p }); setErrs({}); };
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!patch || busy) return;
-    if (f.workspaceMode === 'set' && !f.workspacePath.trim().startsWith('/')) return setErrs({ workspace: 'Enter an absolute path on the server, starting with /.' });
     const err = await saveDepartmentSettings(d.id, patch);
     if (!err) return;
-    setErrs(err.issues.length ? fieldErrors(err.issues, ['name', 'purpose', 'workspace']) : { [workspaceErrorField(err.message)]: err.message });
+    setErrs(err.issues.length ? fieldErrors(err.issues, ['name', 'purpose']) : { [settingsErrorField(err.message)]: err.message });
   };
   return (
     <form className="pane-sec" onSubmit={submit} aria-busy={busy} noValidate>
@@ -434,20 +428,6 @@ function SettingsForm({ d }: { d: Dept }) {
       <Field label="Purpose / objective" hint="The chief reads this when planning quests." error={errs.purpose}>
         {(p) => <textarea {...p} className="input" rows={3} maxLength={2000} value={f.purpose} onChange={(e) => set({ purpose: e.target.value })} />}
       </Field>
-      <fieldset className="plain" aria-describedby="ws-adv">
-        <legend className="lbl">Workspace</legend>
-        <p className="mono small">Current: {ws.label} · <span className="muted">{ws.isolation}</span></p>
-        <label className={`radio${f.workspaceMode === 'keep' ? ' on' : ''}`}><input type="radio" name="wsm" checked={f.workspaceMode === 'keep'} onChange={() => set({ workspaceMode: 'keep' })} />Keep {d.workspace.configured ? 'the current path' : 'it unset'}</label>
-        <label className={`radio${f.workspaceMode === 'set' ? ' on' : ''}`}><input type="radio" name="wsm" checked={f.workspaceMode === 'set'} onChange={() => set({ workspaceMode: 'set' })} />Set a new server path</label>
-        {d.workspace.configured && <label className={`radio${f.workspaceMode === 'clear' ? ' on' : ''}`}><input type="radio" name="wsm" checked={f.workspaceMode === 'clear'} onChange={() => set({ workspaceMode: 'clear' })} />Clear the workspace</label>}
-      </fieldset>
-      {f.workspaceMode === 'set' && (
-        <Field label="Absolute path on the server" hint="The directory must already exist on the machine running the backend." error={errs.workspace}>
-          {(p) => <input {...p} className="input mono" value={f.workspacePath} placeholder="/srv/projects/research" autoComplete="off" spellCheck={false} onChange={(e) => set({ workspacePath: e.target.value })} />}
-        </Field>
-      )}
-      {f.workspaceMode !== 'set' && errs.workspace && <small className="field-err" role="alert"><Glyph k="failed" />{errs.workspace}</small>}
-      <p id="ws-adv" className="fine">{WORKSPACE_ADVISORY}</p>
       {errs.form && <p className="field-err" role="alert"><Glyph k="failed" />{errs.form}</p>}
       <div className="row"><button className="btn primary" type="submit" disabled={!patch || busy} aria-busy={busy || undefined}>{busy ? 'Saving…' : 'Save changes'}</button>
         {patch && <Btn onClick={() => { setF(settingsFormFrom(d)); setErrs({}); }} disabled={busy}>Discard</Btn>}</div>
@@ -464,7 +444,13 @@ function ProvisioningInspector({ d }: { d: Dept }) {
   const acts = provisioningActions(prov);
   const busy = !!s.busy[`provision:${d.id}`];
   const [refreshing, setRefreshing] = useState(false);
-  const res = (r: NonNullable<typeof prov>['board']) => `${r.verified ? `Verified ${formatTime(r.verifiedAt)}` : 'Not verified'}`;
+  const hasWorker = (info?.inventory?.limits.maxConcurrentWorkers ?? 0) > 0 || !!prov?.worker.ref;
+  const agentSynced = (role: 'chief' | 'worker') => !!prov?.[role].verified && profiles?.[role]?.exists !== false;
+  const syncRows: [string, boolean][] = [
+    ['Chief', agentSynced('chief')],
+    ...(hasWorker ? [['Worker', agentSynced('worker')] as [string, boolean]] : []),
+    ['Board', !!prov?.board.verified && d.view.boardSyncState === 'synced'],
+  ];
   return (
     <section className="pane-sec" aria-labelledby="pi-h">
       <h3 className="sec-t" id="pi-h">Hermes profiles & provisioning</h3>
@@ -477,24 +463,12 @@ function ProvisioningInspector({ d }: { d: Dept }) {
         <div className="banner bad inline-b" role="alert"><Glyph k="failed" /><div><b>{prov.error.message}</b>
           <KV rows={[['Code', <span className="mono">{prov.error.code}</span>], ['Step', prov.error.step], ['Retryable', prov.error.retryable ? 'Yes' : 'No: change the configuration first'], ['At', formatTime(prov.error.at)]]} /></div></div>
       )}
-      <KV rows={[['Hermes (profile lookup)', !profiles ? '—' : profiles.reachable ? 'Reachable' : 'Not reachable: stored profile names shown, live details unknown']]} />
-      {profileRows(profiles, prov, formatTime).filter((r) => r.role === 'chief' || (info?.inventory?.limits.maxConcurrentWorkers ?? 0) > 0 || !!prov?.worker.ref).map((r) => (
-        <div key={r.role} className="kv-card block">
-          <b>{r.role === 'chief' ? 'Chief' : 'Worker'} · <span className="mono">{r.ref}</span></b>
-          <KV rows={[['In Hermes', r.exists], ['Model', <span className="mono">{r.model}</span>], ['Description', r.description], ['Origin', r.origin], ['Verification', r.verified]]} />
-        </div>
-      ))}
       {prov && (
-        <div className="kv-card block">
-          <b>Board & inventory</b>
-          <KV rows={[
-            ['Board', <span className="mono">{prov.board.ref ?? d.view.hermesBoardSlug + ' (not created yet)'}</span>],
-            ['Board sync', d.view.boardSyncState.replace('_', ' ')],
-            ['Board verification', res(prov.board)],
-            ['Inventory applied', prov.inventory.applied ? `Yes, ${formatTime(prov.inventory.appliedAt)}` : 'No'],
-            ['Inventory in sync', yesNo(prov.inventory.inSync)],
-          ]} />
-        </div>
+        <ul className="sync-list">
+          {syncRows.map(([label, ok]) => (
+            <li key={label}><Glyph k={ok ? 'completed' : 'awaiting'} size={12} />{label} {ok ? 'synced' : 'not synced'}</li>
+          ))}
+        </ul>
       )}
       {acts.hint && <p className="fine">{acts.hint}</p>}
       <div className="row wrap">
@@ -607,7 +581,7 @@ function ListEditor({ label, hint, values, onSave, disabled }: { label: string; 
   );
 }
 
-/* The department inventory holds what belongs to the floor: its agents (worker desks), limits, workspace and MCP
+/* The department inventory holds what belongs to the floor: its agents (worker desks), limits and MCP
    tools. Skills, models and toolsets live on the agent view. The capability report stays internal (API only). */
 export function InventorySheet() {
   const s = useStore();
@@ -621,7 +595,6 @@ export function InventorySheet() {
   const saving = !!s.busy[`inv:${d.id}`];
   const busyProv = !!s.busy[`provision:${d.id}`];
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
-  const ws = workspaceSummary(d.workspace);
   const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
   const agents: { role: AgentRole; label: string; ref: string | null }[] = [
     { role: 'chief', label: d.chief?.name ?? 'Chief', ref: d.chiefProfileRef },
@@ -633,7 +606,7 @@ export function InventorySheet() {
         <section className="pane-head">
           <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where><button className="x boxed" onClick={() => s.openPanel('dept')} aria-label="Close inventory"><Icon n="x" /></button></div>
           <h1 className="display" tabIndex={-1}>Department inventory</h1>
-          <p className="sub">The floor’s agents, limits, workspace and MCP tools. Skills, models and toolsets are set on each agent.</p>
+          <p className="sub">The floor’s agents, limits and MCP tools. Skills, models and toolsets are set on each agent.</p>
         </section>
         {!inv && <p className="muted pane-sec">Loading inventory…</p>}
         {inv && (
@@ -658,9 +631,6 @@ export function InventorySheet() {
                   onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
               </Field>
             </div>
-            <h3 className="inv-h">Workspace</h3>
-            <div className="kv-card"><Icon n="folder" size={14} /><span className="mono">{ws.label}</span>
-              <span className="muted small">{ws.isolation} {WORKSPACE_ADVISORY}</span><button className="link" onClick={() => s.openPanel('settings')}>Change in settings</button></div>
             <h3 className="inv-h">MCP tools <span>For this department</span></h3>
             <ListEditor label="MCP tools" hint="server:tool or a bare server id. Not applied in Hermes yet." values={inv.allowedMcpTools} disabled={saving} onSave={(v) => save({ allowedMcpTools: v })} />
           </div></div>
@@ -808,11 +778,6 @@ export function AgentPanel() {
           </div>
         </section>
 
-        <section className="pane-sec">
-          <h3 className="sec-t">Shared context</h3>
-          <p className="fine">{LIMIT_COPY.sharedContextRefs} Read by every agent in this department.</p>
-          {inv && <ListEditor label="Shared context refs" hint="Paths or URLs the agents should read." values={inv.sharedContextRefs} disabled={saving} onSave={(v) => save({ sharedContextRefs: v })} />}
-        </section>
       </div>
     </div>
   );

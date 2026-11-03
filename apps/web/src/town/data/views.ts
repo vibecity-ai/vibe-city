@@ -1,42 +1,27 @@
 /* Pure view logic and user-facing copy for the city panels: what a backend DTO means in words, which actions are
    allowed, what a form change sends. No React, no I/O: tested in views.test.ts. The wording rules come from the spec:
-   configured is never "guaranteed", a workspace is never "isolated", a requested cancel is never "cancelled". */
+   configured is never "guaranteed", a requested cancel is never "cancelled". */
 import type {
-  CancellationStatus, CapabilityEntry, DepartmentUpdate, DepartmentView, ProfilesView, ProvisioningStatus, TaskNode, WorkspaceView,
+  CancellationStatus, CapabilityEntry, DepartmentUpdate, DepartmentView, ProvisioningStatus, TaskNode,
 } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
 import type { StatusKey } from '../ui/kit.tsx';
 
 /* ---------- department settings ---------- */
 
-export const WORKSPACE_ADVISORY =
-  'Advisory only. The path is stored on the server and never sent back to the browser; afterwards only its last folder name is shown. ' +
-  'It is a configured working directory, not a sandbox: agents with file or terminal tools can still reach outside it.';
-
 export const RESET_WARNING =
-  'Changing the name, purpose, workspace, inventory or profiles can return a provisioned department to “Not provisioned”. ' +
+  'Changing the name, purpose, inventory or profiles can return a provisioned department to “Not provisioned”. ' +
   'Agents then get no new work until you provision again.';
 
-export function workspaceSummary(w: WorkspaceView): { label: string; isolation: string } {
-  return {
-    label: w.configured ? w.label ?? 'configured' : 'Not configured',
-    // `verified` is in the contract but nothing sets it yet; still, never claim more than the backend says.
-    isolation: w.isolation === 'verified' ? 'Isolation verified by the backend.' : 'Isolation unverified: not a sandbox.',
-  };
-}
+export interface SettingsForm { name: string; purpose: string }
 
-export type WorkspaceMode = 'keep' | 'set' | 'clear';
-export interface SettingsForm { name: string; purpose: string; workspaceMode: WorkspaceMode; workspacePath: string }
-
-export const settingsFormFrom = (d: Pick<DepartmentView, 'name' | 'purpose'>): SettingsForm => ({ name: d.name, purpose: d.purpose, workspaceMode: 'keep', workspacePath: '' });
+export const settingsFormFrom = (d: Pick<DepartmentView, 'name' | 'purpose'>): SettingsForm => ({ name: d.name, purpose: d.purpose });
 
 /** The PATCH body for a settings form: only fields that changed. Null when nothing would change. */
-export function settingsPatch(d: Pick<DepartmentView, 'name' | 'purpose' | 'workspace'>, f: SettingsForm): DepartmentUpdate | null {
+export function settingsPatch(d: Pick<DepartmentView, 'name' | 'purpose'>, f: SettingsForm): DepartmentUpdate | null {
   const out: DepartmentUpdate = {};
   if (f.name.trim() !== d.name) out.name = f.name.trim();
   if (f.purpose.trim() !== d.purpose) out.purpose = f.purpose.trim();
-  if (f.workspaceMode === 'set') out.workspace = f.workspacePath.trim();
-  if (f.workspaceMode === 'clear' && d.workspace.configured) out.workspace = null;
   return Object.keys(out).length ? out : null;
 }
 
@@ -51,8 +36,8 @@ export function fieldErrors(issues: FieldIssue[], fields: readonly string[], fal
   return out;
 }
 
-/** Workspace errors from the backend are plain messages (never the path); attach them to the workspace field. */
-export const workspaceErrorField = (message: string) => (/workspace/i.test(message) ? 'workspace' : /name/i.test(message) ? 'name' : 'form');
+/** Attaches a plain backend error message to the name field when it is about the name, else to the form. */
+export const settingsErrorField = (message: string) => (/name/i.test(message) ? 'name' : 'form');
 
 /* ---------- archive ---------- */
 
@@ -77,7 +62,6 @@ export const LIMIT_COPY = {
   maxConcurrentWorkers: 'Above 0 it is requested, host-limited: Hermes only has a host-wide per-profile cap, so it is not guaranteed per department.',
   maxTaskRuntimeSeconds: 'Applies to the quest task the chief receives. It does not propagate automatically to the tasks the chief creates for workers.',
   maxDelegationDepth: 'Fixed at 1 and instructed to the chief. Hermes cannot enforce it.',
-  sharedContextRefs: 'References written into the agents’ instructions (SOUL.md block). Agents are told about them; access is not granted or checked.',
 } as const;
 
 /** What to tell the user after an inventory save, based on the provisioning state before and after. */
@@ -130,33 +114,6 @@ export function provisioningActions(p: Pick<ProvisioningStatus, 'state' | 'error
 export const PROVISIONING_STATE_LABEL: Record<ProvisioningStatus['state'], string> = {
   unconfigured: 'Not provisioned', provisioning: 'Provisioning', ready: 'Ready (verified)', error: 'Provisioning failed', disconnected: 'Not verified (disconnected)',
 };
-
-type Resource = ProvisioningStatus['chief'];
-export function originText(r: Resource): string {
-  if (!r.origin) return r.ref ? 'Not created yet' : 'Will be created and managed by Vibe City';
-  if (r.origin === 'created') return 'Managed: created by Vibe City (no consent needed)';
-  if (r.modificationConfirmed) return 'Associated existing profile · you allowed Vibe City to modify it';
-  return 'Associated existing profile · modification NOT confirmed: provisioning stops before changing it';
-}
-
-export interface ProfileRow { role: 'chief' | 'worker'; ref: string; exists: string; model: string; description: string; origin: string; verified: string }
-
-export function profileRows(profiles: ProfilesView | null, prov: ProvisioningStatus | null, at: (iso: string | null) => string): ProfileRow[] {
-  return (['chief', 'worker'] as const).map((role) => {
-    const p = profiles?.[role];
-    const r = prov?.[role];
-    const exists = !profiles ? 'Not loaded' : !profiles.reachable ? 'Unknown (Hermes unreachable)' : p?.exists === null ? '—' : p?.exists ? 'Exists in Hermes' : 'Missing in Hermes';
-    return {
-      role,
-      ref: p?.ref ?? r?.ref ?? '(managed, not created yet)',
-      exists,
-      model: p?.model ?? '—',
-      description: p?.description ?? '—',
-      origin: r ? originText(r) : '—',
-      verified: r ? (r.verified ? `Verified ${at(r.verifiedAt)}` : 'Not verified') : '—',
-    };
-  });
-}
 
 /* ---------- quest tasks ---------- */
 

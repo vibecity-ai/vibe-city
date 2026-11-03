@@ -93,9 +93,9 @@ export class FakeHermes implements HermesRuntime {
     return [...this.boards.values()];
   }
 
-  async createBoard(slug: string, name: string, opts: { defaultWorkdir?: string }) {
+  async createBoard(slug: string, name: string) {
     this.enter('createBoard', [slug]);
-    if (!this.boards.has(slug)) this.boards.set(slug, { slug, name, archived: false, defaultWorkdir: opts.defaultWorkdir ?? null });
+    if (!this.boards.has(slug)) this.boards.set(slug, { slug, name, archived: false });
   }
 
   async getToolsets(profile: string) {

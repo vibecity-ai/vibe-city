@@ -33,7 +33,7 @@ export const iso = '2026-11-03T10:00:00.000Z';
 
 export const deptView = (o: Partial<DepartmentView> = {}): DepartmentView => ({
   id: DEPT_ID, name: 'Research', purpose: 'Find things', floorOrder: 1, floorPosition: 1, state: 'ready',
-  workspace: { configured: false, label: null, isolation: 'unverified' }, chiefProfileRef: 'vc-111111111111-chief', workerProfileRef: 'vc-111111111111-worker',
+  chiefProfileRef: 'vc-111111111111-chief', workerProfileRef: 'vc-111111111111-worker',
   hermesBoardSlug: `vc-${DEPT_ID}`, hermesBoardRef: `vc-${DEPT_ID}`, boardSyncState: 'synced', archivedAt: null, createdAt: iso, updatedAt: iso, ...o,
 });
 

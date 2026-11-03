@@ -69,21 +69,6 @@ export const InventoryPatchSchema = z.object({
 }).strict();
 export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
 
-// ---- workspace ------------------------------------------------------------
-
-/**
- * Input: an absolute host path (accepted only server-side, never echoed back).
- * Output: opaque summary. `isolation` is always 'unverified' until a verified sandbox exists
- * (workspace paths are advisory with Hermes' local backend: an agent with file tools can write outside them).
- */
-export const WorkspaceInputSchema = z.string().trim().max(1024).nullable();
-export const WorkspaceViewSchema = z.object({
-  configured: z.boolean(),
-  label: z.string().nullable(),
-  isolation: z.enum(['unverified', 'verified']),
-});
-export type WorkspaceView = z.infer<typeof WorkspaceViewSchema>;
-
 // ---- departments ----------------------------------------------------------
 
 export const DEPARTMENT_STATES = ['unconfigured', 'provisioning', 'ready', 'error', 'disconnected'] as const;
@@ -96,7 +81,6 @@ const profileRef = z.string().trim().regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, 'invali
 export const DepartmentCreateSchema = z.object({
   name,
   purpose: purpose.default(''),
-  workspace: WorkspaceInputSchema.optional(),
   inventory: InventoryPatchSchema.optional(),
 }).strict();
 export type DepartmentCreate = z.infer<typeof DepartmentCreateSchema>;
@@ -104,7 +88,6 @@ export type DepartmentCreate = z.infer<typeof DepartmentCreateSchema>;
 export const DepartmentUpdateSchema = z.object({
   name: name.optional(),
   purpose: purpose.optional(),
-  workspace: WorkspaceInputSchema.optional(),
   chiefProfileRef: profileRef.optional(),
   workerProfileRef: profileRef.optional(),
   /**
@@ -124,7 +107,6 @@ export const DepartmentViewSchema = z.object({
   /** Visual position among active departments: 1 = directly below the Executive Office. Null when archived. */
   floorPosition: z.number().int().min(1).nullable(),
   state: z.enum(DEPARTMENT_STATES),
-  workspace: WorkspaceViewSchema,
   chiefProfileRef: z.string().nullable(),
   workerProfileRef: z.string().nullable(),
   /** Deterministic slug derived from the immutable id; the board may not exist in Hermes yet. */
@@ -211,7 +193,7 @@ export const CapabilityEntrySchema = z.object({
   status: z.enum(CAPABILITY_STATUSES),
   /**
    * true ONLY when status is 'enforced'. UIs must not present anything with guarantee=false as a security control
-   * (workspace isolation and worker delegation depth are never guarantees).
+   * (file isolation and worker delegation depth are never guarantees).
    */
   guarantee: z.boolean(),
   detail: z.string(),
@@ -233,7 +215,7 @@ export const EffectiveInventorySchema = z.object({
   chief: RoleConfigSchema,
   /** Null when the department has no workers (maxConcurrentWorkers 0). */
   worker: RoleConfigSchema.nullable(),
-  /** Department-wide gaps that are not per-role (concurrency, workspace isolation, ...). */
+  /** Department-wide gaps that are not per-role (concurrency, file isolation, ...). */
   departmentWide: z.array(CapabilityEntrySchema),
 }).strict();
 export type EffectiveInventory = z.infer<typeof EffectiveInventorySchema>;

@@ -80,7 +80,7 @@ test('known gaps are always reported as unsupported/unverified, never enforced',
   assert.equal(entries.find((e) => e.capability === 'mcp.tools')!.status, 'unverified');
   assert.equal(entries.find((e) => e.capability === 'models.restriction')!.status, 'unsupported');
   const wide = buildDepartmentWideReport(inv({ limits: { maxConcurrentWorkers: 5 } }), 2);
-  for (const k of ['limits.maxConcurrentWorkers', 'workspace.isolation', 'limits.maxDelegationDepth']) {
+  for (const k of ['limits.maxConcurrentWorkers', 'files.isolation', 'limits.maxDelegationDepth']) {
     assert.equal(wide.find((e) => e.capability === k)!.status, 'unsupported', k);
   }
 });

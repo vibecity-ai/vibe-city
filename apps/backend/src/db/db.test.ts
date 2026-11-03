@@ -34,6 +34,18 @@ test('incremental migration upgrades an older database and keeps data', () => {
   assert.equal((v2.prepare('SELECT name, note FROM company').get() as { name: string; note: null }).note, null);
 });
 
+test('v5 drops the workspace columns from a v4 database and keeps the department', () => {
+  const path = join(tempDir(), 'w.sqlite');
+  const v4 = openDb(path, MIGRATIONS.slice(0, 4));
+  v4.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'X', 't')").run();
+  v4.prepare("INSERT INTO department (id, company_id, name, name_key, floor_order, workspace_path, workspace_isolation, created_at, updated_at) VALUES ('d', 'c', 'Eng', 'eng', 1, '/srv', 'unverified', 't', 't')").run();
+  v4.close();
+  const db = openDb(path);
+  const cols = (db.prepare('PRAGMA table_info(department)').all() as { name: string }[]).map((c) => c.name);
+  assert.ok(!cols.includes('workspace_path') && !cols.includes('workspace_isolation'));
+  assert.equal((db.prepare('SELECT name FROM department').get() as { name: string }).name, 'Eng');
+});
+
 test('failed migration rolls back and leaves the version unchanged', () => {
   const path = join(tempDir(), 'c.sqlite');
   openDb(path).close();
