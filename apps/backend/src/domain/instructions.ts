@@ -7,9 +7,12 @@ const clean = (s: string) => s.replace(/<!--|-->/g, '').trim();
 const beginMarker = (deptId: string, role: Role) => `<!-- vibe-city:begin dept=${deptId} role=${role} -->`;
 const END = '<!-- vibe-city:end -->';
 
-/** The managed block written into a profile's SOUL.md. Everything outside the markers is left untouched. */
+/**
+ * The managed block written into a profile's SOUL.md. Everything outside the markers is left untouched.
+ * `counterpart` is the other profile: the worker for a chief (null when the department has no workers), the chief for a worker.
+ */
 export function buildBlock(opts: {
-  deptId: string; deptName: string; purpose: string; role: Role; counterpart: string; inv: Inventory;
+  deptId: string; deptName: string; purpose: string; role: Role; counterpart: string | null; inv: Inventory;
 }): string {
   const { deptId, deptName, purpose, role, counterpart, inv } = opts;
   const lines = [
@@ -17,12 +20,18 @@ export function buildBlock(opts: {
     `# Department: ${clean(deptName)}`,
     purpose ? `Purpose: ${clean(purpose)}` : '',
     '',
-    role === 'chief'
+    role === 'chief' && counterpart === null
+      ? [
+        'You are the Chief Agent of this department. The department has no workers: do the work yourself.',
+        'Complete your task with a summary of what you did and attach any output files.',
+        'Do not create Kanban tasks for any other profile.',
+      ].join('\n')
+      : role === 'chief'
       ? [
         `You are the Chief Agent of this department. Your worker profile is "${counterpart}".`,
-        'Plan and delegate: do not do the work yourself. Create child Kanban tasks assigned to the worker profile',
-        '(parents = your current task) and complete your own task with a summary naming the child tasks.',
-        'Do not create tasks for any profile other than your worker, and do not create further levels of delegation.',
+        'Do the work yourself, or split it into child Kanban tasks assigned to the worker profile (parents = your',
+        'current task) when parts can run independently. Complete your own task with a summary of what you did and',
+        'which child tasks you created. Do not create tasks for any profile other than your worker.',
       ].join('\n')
       : [
         `You are a Worker Agent of this department. Your chief profile is "${counterpart}".`,

@@ -19,6 +19,11 @@ export async function createDept(app: ReturnType<typeof buildApp>, body: Record<
 }
 
 import { buildServices } from './app.ts';
+
+/** Most suites exercise the chief + worker flow, so their helpers ask for one worker unless the test says otherwise. */
+export function withWorker(inventory: Record<string, any> = {}) {
+  return { ...inventory, limits: { maxConcurrentWorkers: 1, ...(inventory.limits ?? {}) } };
+}
 import { FakeHermes } from './testing/fakeHermes.ts';
 
 /** App wired to an in-memory Hermes fake. */
@@ -27,7 +32,7 @@ export function provApp(opts: { fake?: FakeHermes } = {}) {
   const hermes = opts.fake ?? new FakeHermes();
   const { app, provisioning } = buildServices(db, hermes);
   const create = async (name: string, extra: Record<string, unknown> = {}) => {
-    const { res, json } = await createDept(app, { name, ...extra });
+    const { res, json } = await createDept(app, { name, ...extra, inventory: withWorker(extra.inventory as Record<string, any> | undefined) });
     if (res.statusCode !== 201) throw new Error(`create failed: ${res.body}`);
     return json as { id: string; hermesBoardSlug: string };
   };
@@ -48,7 +53,7 @@ export function questApp(extra: ServicesExtra = {}) {
   const services = buildServices(db, hermes, { kanban, ...extra });
   const { app } = services;
   const readyDept = async (name: string, inventory: Record<string, unknown> = {}) => {
-    const { res, json } = await createDept(app, { name, inventory });
+    const { res, json } = await createDept(app, { name, inventory: withWorker(inventory) });
     if (res.statusCode !== 201) throw new Error(res.body);
     const prov = await app.inject({ method: 'POST', url: `/api/departments/${json.id}/provision` });
     if (prov.json().state !== 'ready') throw new Error(`not ready: ${prov.body}`);

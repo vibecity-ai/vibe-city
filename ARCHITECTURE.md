@@ -114,7 +114,7 @@ Reconcile (background + `POST /api/runtime/reconcile`) only touches `ready`/`dis
 
 Policy is `Department ∩ Role` (task-level narrowing is Milestone 3), applied per profile and read back from Hermes:
 
-- **Toolsets**: every toolset Hermes lists is set explicitly (enabled iff effective). `kanban` is always on (required for task reporting). Chief = department allowance limited to coordination toolsets (`todo, memory, skills, session_search`); worker = allowance minus `delegation, cronjob`.
+- **Toolsets**: every toolset Hermes lists is set explicitly (enabled iff effective). `kanban` is always on (required for task reporting). Chief and worker both get the department allowance minus `delegation, cronjob` (sub-agents and cron jobs would run outside the department board). Workers are optional: `limits.maxConcurrentWorkers` defaults to 0, and then no worker profile is provisioned and the chief is instructed to do the work itself. The create-department form pre-fills toolsets, skills and model from Hermes' `default` profile (`GET /api/runtime/defaults`); the values are copied into the department inventory once, at creation.
 - **Skills**: installed skills not in `allowedSkillIds` are disabled (`skills.disabled`).
 - **Models**: if `allowedModelIds` is non-empty the profile default is set to an allowed model (kept if already allowed); empty = leave the profile alone.
 - **Instructions**: department purpose, role rules and shared-context *references* go into a delimited block in the profile's `SOUL.md`; everything else in the file is preserved.

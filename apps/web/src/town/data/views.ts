@@ -74,7 +74,7 @@ export const archivedNotice = (name: string, retained: boolean) =>
 /* ---------- inventory ---------- */
 
 export const LIMIT_COPY = {
-  maxConcurrentWorkers: 'Requested, host-limited. Hermes only has a host-wide per-profile cap, so this is not guaranteed per department.',
+  maxConcurrentWorkers: 'Above 0 it is requested, host-limited: Hermes only has a host-wide per-profile cap, so it is not guaranteed per department.',
   maxTaskRuntimeSeconds: 'Applies to the quest task the chief receives. It does not propagate automatically to the tasks the chief creates for workers.',
   maxDelegationDepth: 'Fixed at 1 and instructed to the chief. Hermes cannot enforce it.',
   sharedContextRefs: 'References written into the agents’ instructions (SOUL.md block). Agents are told about them; access is not granted or checked.',

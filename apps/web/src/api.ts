@@ -1,9 +1,9 @@
 import {
   AgentViewSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
-  HealthViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
+  HealthViewSchema, HermesDefaultsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
   QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
   type ActivityEvent, type AgentRole, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
-  type DepartmentView, type EffectiveInventory, type HealthView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
+  type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
   type ProvisioningStatus, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
@@ -88,6 +88,7 @@ export const api = {
   agent: (dept: string, role: AgentRole): Promise<AgentView> => request('GET', `${d(dept)}/agents/${role}`, AgentViewSchema),
   reconcile: async (): Promise<ProvisioningStatus[]> => (await request('POST', '/api/runtime/reconcile', ReconcileResultSchema)).departments,
   health: (): Promise<HealthView> => request('GET', '/api/runtime/health', HealthViewSchema),
+  hermesDefaults: (): Promise<HermesDefaultsView> => request('GET', '/api/runtime/defaults', HermesDefaultsViewSchema),
   quests: async (dept: string): Promise<QuestSummary[]> => (await request('GET', `${d(dept)}/quests`, QuestListSchema)).quests,
   createQuest: (dept: string, input: QuestCreate): Promise<QuestCreated> => request('POST', `${d(dept)}/quests`, QuestCreatedSchema, input),
   quest: (dept: string, quest: string): Promise<QuestDetail> => request('GET', q(dept, quest), QuestDetailSchema),

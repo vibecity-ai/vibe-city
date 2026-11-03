@@ -49,7 +49,7 @@ test('inventory is applied: toolsets, skills, instructions; other profiles and u
   const c = t.hermes.profiles.get(chief)!;
   const on = (p: typeof w) => Object.entries(p.toolsets).filter(([, v]) => v).map(([k]) => k).sort();
   assert.deepEqual(on(w), ['file', 'kanban', 'terminal', 'todo'], 'worker: allowed minus delegation, plus kanban');
-  assert.deepEqual(on(c), ['kanban', 'todo'], 'chief: coordination only');
+  assert.deepEqual(on(c), ['file', 'kanban', 'terminal', 'todo'], 'chief: same allowance as the worker');
   assert.deepEqual(Object.entries(w.skills).filter(([, v]) => v).map(([k]) => k), ['hermes-agent', 'pdf'], 'allowed + Hermes essential');
   assert.ok(w.soul.startsWith('# Soul\nBe helpful.\n'), 'existing instructions preserved');
   assert.ok(w.soul.includes('Worker Agent') && c.soul.includes('Chief Agent'));
@@ -436,7 +436,7 @@ test('effective inventory: honest statuses before and after provisioning', async
   assert.ok(eff.inSync && eff.observedAt);
   assert.equal(find(eff, 'worker', 'toolsets.behavior-tested').status, 'enforced');
   assert.deepEqual(find(eff, 'worker', 'toolsets.behavior-tested').effective, ['terminal']);
-  assert.deepEqual(find(eff, 'chief', 'toolsets.behavior-tested').effective, [], 'chief cannot use terminal');
+  assert.deepEqual(find(eff, 'chief', 'toolsets.behavior-tested').effective, ['terminal'], 'chief gets the department toolsets');
   assert.equal(find(eff, 'worker', 'mcp.tools').status, 'unverified');
   assert.equal(find(eff, 'worker', 'models.restriction').status, 'unsupported');
   const conc = eff.departmentWide.find((e: any) => e.capability === 'limits.maxConcurrentWorkers');

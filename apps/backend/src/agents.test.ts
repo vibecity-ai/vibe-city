@@ -31,8 +31,9 @@ test('after provisioning: installed skills with their enabled state, toolsets an
   assert.deepEqual(skill('pdf'), { name: 'pdf', enabled: true, essential: false });
   assert.deepEqual(skill('arxiv'), { name: 'arxiv', enabled: false, essential: false });
   assert.deepEqual(skill('hermes-agent'), { name: 'hermes-agent', enabled: true, essential: true });
-  // the chief is narrowed to coordination toolsets even though the department allows file/terminal
-  assert.equal(chief.toolsets.find((x) => x.name === 'file')?.enabled, false);
+  // the chief gets the department toolsets (minus delegation/cronjob), not a coordination-only subset
+  assert.equal(chief.toolsets.find((x) => x.name === 'file')?.enabled, true);
+  assert.equal(chief.toolsets.find((x) => x.name === 'delegation')?.enabled, false);
   assert.equal(chief.toolsets.find((x) => x.name === 'kanban')?.enabled, true);
 
   const worker = AgentViewSchema.parse((await agent(t, d.id, 'worker')).json());

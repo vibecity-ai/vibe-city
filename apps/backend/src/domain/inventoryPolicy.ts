@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import type { CapabilityEntry, Inventory } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, type CapabilityEntry, type Inventory } from '@vibe-city/shared';
 
 type Draft = Omit<CapabilityEntry, 'guarantee'>;
 /** A guarantee exists only where behavior was tested (status 'enforced'); everything else is explicitly not one. */
@@ -10,21 +10,21 @@ import type { Role } from './instructions.ts';
 export const REQUIRED_TOOLSETS = ['kanban'] as const;
 /** Hermes pins these skills on ("cannot be disabled from any surface", agent/skill_utils.py ESSENTIAL_SKILLS). */
 export const ESSENTIAL_SKILLS = ['hermes-agent'] as const;
-/** Toolsets a Chief may use at most (coordination only), even if the department allows more. */
-export const CHIEF_ROLE_TOOLSETS = ['todo', 'memory', 'skills', 'session_search'] as const;
-/** Never given to workers: they must not delegate (MVP depth 1) or schedule jobs. */
-export const WORKER_EXCLUDED_TOOLSETS = ['delegation', 'cronjob'] as const;
 /** Restrictions whose runtime effect was verified against real Hermes (HERMES_COMPATIBILITY.md section 3). */
 export const BEHAVIOR_TESTED_TOOLSETS = ['terminal', 'file', 'web', 'browser', 'code_execution'] as const;
 
-/** Effective = Department ∩ Role (task-level narrowing happens per task, Milestone 3), plus required toolsets. */
-export function effectiveToolsets(role: Role, inv: Inventory): string[] {
-  const dept = new Set<string>(inv.allowedToolsets);
-  let allowed: string[];
-  if (role === 'chief') allowed = CHIEF_ROLE_TOOLSETS.filter((t) => dept.has(t));
-  else allowed = [...dept].filter((t) => !(WORKER_EXCLUDED_TOOLSETS as readonly string[]).includes(t));
+/**
+ * Effective = the department allowance minus what no agent gets (delegation, cronjob), plus required toolsets.
+ * Chief and worker get the same set: the chief does the work itself when there are no workers, and may still work
+ * when there are.
+ */
+export function effectiveToolsets(_role: Role, inv: Inventory): string[] {
+  const allowed = inv.allowedToolsets.filter((t) => !(AGENT_EXCLUDED_TOOLSETS as readonly string[]).includes(t));
   return [...new Set([...allowed, ...REQUIRED_TOOLSETS])].sort();
 }
+
+/** A worker profile exists only when the department asks for workers. */
+export const hasWorkers = (inv: Inventory) => inv.limits.maxConcurrentWorkers > 0;
 
 /** Desired state for every toolset Hermes reports: enabled iff in the effective set. */
 export function desiredToolsetMap(universe: string[], effective: string[]): Record<string, boolean> {
@@ -72,7 +72,8 @@ export interface ObservedConfig {
   at: string;
   globalConcurrencyCap: number | null;
   chief: ObservedRole;
-  worker: ObservedRole;
+  /** Null when the department has no workers. */
+  worker: ObservedRole | null;
 }
 
 /** Differences between what the inventory demands and what Hermes reports (empty = in sync). */
@@ -112,7 +113,7 @@ export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | nu
     requested: inv.allowedToolsets.filter((t) => !tested.has(t)),
     effective: effTools.filter((t) => !tested.has(t)),
     status: toolsetOk ? 'configured' : 'unverified',
-    detail: `Applied and read back; runtime behavior not tested. Disabled in Hermes: ${notEffective.filter((t) => !tested.has(t)).join(', ') || 'none observed'}. "kanban" is always enabled (required for task reporting)${role === 'worker' ? '; workers never get delegation/cronjob' : '; chiefs are limited to coordination toolsets'}.`,
+    detail: `Applied and read back; runtime behavior not tested. Disabled in Hermes: ${notEffective.filter((t) => !tested.has(t)).join(', ') || 'none observed'}. "kanban" is always enabled (required for task reporting); delegation and cronjob are never enabled (sub-agents and cron jobs would run outside the department board).`,
   });
 
   const skillsOk = o !== null && !diffs!.some((d) => d.includes('skills'));
@@ -197,6 +198,15 @@ export function buildDepartmentWideReport(inv: Inventory, globalCap: number | nu
  * So a requested limit is only backed by Hermes when it equals the cap; any other value is not enforceable.
  */
 export function concurrencyEntry(requested: number, globalCap: number | null | undefined): Draft {
+  if (requested === 0) {
+    return {
+      capability: 'limits.maxConcurrentWorkers',
+      requested,
+      effective: 0,
+      status: 'configured',
+      detail: 'No workers: no worker profile is provisioned and the chief is instructed to do the work itself. Nothing in Hermes stops the chief from assigning tasks to other profiles; such tasks are reported as violations.',
+    };
+  }
   const matches = globalCap != null && globalCap === requested;
   return {
     capability: 'limits.maxConcurrentWorkers',
