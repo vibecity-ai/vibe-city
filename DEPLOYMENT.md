@@ -1,6 +1,6 @@
 # Deployment (Docker, CI/CD)
 
-Status: **the container has still not been built or run.** See "Verification record" below for exactly what was and was not executed. Treat the first CI run of `docker.yml` as the real test (see "Known risks").
+Status: **the container has still not been built or run.** See "Verification record" below for exactly what was and was not executed. Treat the first local `docker compose up --build` plus `scripts/docker-smoke.sh` as the real test (see "Known risks").
 
 ## What runs
 
@@ -53,22 +53,18 @@ Other providers: put their variables in `.env.hermes` (optional, read by compose
 
 ### Pinning Hermes
 
-`HERMES_IMAGE` is pinned by digest to `nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d` (Hermes 0.22.6, the image the container was tested with; it was `latest` on 2026-11-03). The pin is the default in the Dockerfile, `docker-compose.yml` and `docker.yml`. To move to a newer Hermes, update all three together (or set `HERMES_IMAGE` / the repository variable), then rebuild and run the smoke test.
+`HERMES_IMAGE` is pinned by digest to `nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d` (Hermes 0.22.6, the image the container was tested with; it was `latest` on 2026-11-03). The pin is the default in the Dockerfile and `docker-compose.yml`. To move to a newer Hermes, update both together (or set `HERMES_IMAGE`), then rebuild and run the smoke test.
 
 The runtime reuses the Node 26 that Hermes bundles (`/usr/local/bin/node` -> `/opt/hermes/tools/node-*`) instead of adding its own copy; the build fails if that Node is missing or is not Node 26.
 
 About 97% of the image (roughly 4.6 GB) is the Hermes base: bundled Chromium, ffmpeg, Python and Node, apt packages, and a `uv` cache. Vibe City adds about 35 MB.
 
-## CI/CD (`.github/workflows`)
+## CI (`.github/workflows`)
 
 - `ci.yml`: on every push to `main` and every PR: `npm ci`, typecheck, tests (backend against FakeHermes + web), web build. Needs no Hermes.
-- `docker.yml`: runs only when something that goes into the image changes (`Dockerfile`, `docker/`, `apps/`, `packages/`, lockfiles, the smoke script, the workflow itself), and always for `v*` tags. A newer run on the same ref cancels an older one.
-  - It pulls the pinned Hermes base and builds with the daemon's own BuildKit (`driver: docker`), so the 4.7 GB image is never exported from a builder container and re-imported.
-  - It runs `scripts/docker-smoke.sh` against that image (web served, dashboard reachable with the shared token, a department provisioned through the CLI and the shared volume).
-  - Only then does it tag and push that same image to `ghcr.io/<owner>/<repo>` (tags: `sha`, branch, semver for `v*` tags), without building it again. PRs build and smoke-test but never publish.
-  - There is no build cache across runs: Vibe City's own layers (npm install, web build) take about a minute to rebuild, and the Hermes base is pulled either way.
-- Deployment itself is not automated: no target (VM, Fly, Kubernetes) has been chosen. Publishing the image is the CD boundary; deploying is `docker compose pull && docker compose up -d` on the host.
-- The repository is on GitHub (`origin`); the workflows run there.
+- There is no Docker workflow: the image is not built, smoke-tested or published in CI until there is a deployment target. Build and test it locally with `docker compose up -d --build` and `VIBE_CITY_IMAGE=<image> ./scripts/docker-smoke.sh`.
+- Deployment is not automated: no target (VM, Fly, Kubernetes) has been chosen.
+- The repository is on GitHub (`origin`); the workflow runs there.
 
 ## Isolation: what Docker does and does not change
 
