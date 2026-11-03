@@ -16,6 +16,7 @@ import { clock, deriveDept, isLiveQuest } from './derive.ts';
 import { backoffDelays, createCoalescer, createGate } from './sched.ts';
 import { archivedNotice, inventorySavedNotice, newerCancellation } from './views.ts';
 import type { Dept } from './types.ts';
+import type { QuestSync } from './company.ts';
 
 interface Raw {
   depts: DepartmentView[];
@@ -23,10 +24,11 @@ interface Raw {
   inv: Record<string, Inventory | null>;
   quests: Record<string, QuestSummary[]>;
   live: Record<string, QuestDetail[]>;
+  sync: Record<string, QuestSync>;
   health: HealthView | null;
   companyName: string | null;
 }
-const raw: Raw = { depts: [], prov: {}, inv: {}, quests: {}, live: {}, health: null, companyName: null };
+const raw: Raw = { depts: [], prov: {}, inv: {}, quests: {}, live: {}, sync: {}, health: null, companyName: null };
 const slots = new Map<string, Map<string, number>>();
 /** Per-department state of the backend's own Hermes event stream. */
 const link = new Map<string, 'connected' | 'reconnecting' | 'dashboard_offline' | 'gateway_unavailable'>();
@@ -60,6 +62,8 @@ function commit() {
     return out.dept;
   });
   const quests: QuestItem[] = sorted.flatMap((v) => (raw.quests[v.id] ?? []).map((summary) => ({ deptId: v.id, summary })));
+  const questSync: Record<string, QuestSync> = {};
+  for (const v of sorted) questSync[v.id] = raw.sync[v.id] ?? 'not_loaded';
   const details: Record<string, QuestDetail> = { ...s.details };
   for (const v of sorted) for (const q of raw.live[v.id] ?? []) details[q.id] = q;
   const info: Record<string, DeptInfo> = {};
@@ -67,7 +71,7 @@ function commit() {
 
   if (s.loaded) emitFx(s.depts, depts, s.quests, quests);
   useStore.setState({
-    company: raw.companyName ? { name: raw.companyName } : s.company, depts, quests, details, info,
+    company: raw.companyName ? { name: raw.companyName } : s.company, depts, quests, questSync, details, info,
     conn: connState(), loaded: true, stale: staleDepts.size > 0,
   });
 }
@@ -114,16 +118,18 @@ async function loadLocal(v: DepartmentView) {
 
 /** Quests come from Hermes. On failure the previous quests stay rather than being cleared. */
 async function loadQuests(v: DepartmentView) {
-  if (!v.hermesBoardRef) { raw.quests[v.id] = []; raw.live[v.id] = []; staleDepts.delete(v.id); return; }
+  if (!v.hermesBoardRef) { raw.quests[v.id] = []; raw.live[v.id] = []; raw.sync[v.id] = 'no_board'; staleDepts.delete(v.id); return; }
   const t = gate.begin(`quests:${v.id}`);
   try {
     const list = await api.quests(v.id);
     const details = await Promise.all(list.filter(isLiveQuest).map((q) => api.quest(v.id, q.id)));
     if (!gate.current(`quests:${v.id}`, t)) return;
-    raw.quests[v.id] = list; raw.live[v.id] = details;
+    raw.quests[v.id] = list; raw.live[v.id] = details; raw.sync[v.id] = 'ok';
     staleDepts.delete(v.id);
   } catch (e) {
     if (!gate.current(`quests:${v.id}`, t)) return;
+    // Never loaded is different from loaded-then-failed: the company board must not show a missing list as empty.
+    raw.sync[v.id] = raw.quests[v.id] && raw.sync[v.id] !== 'no_board' ? 'out_of_date' : 'not_loaded';
     if (e instanceof ApiError && e.unreachable) throw e;
     // Hermes unavailable: the connection state already says so; anything else marks this floor's data out of date.
     if (!(e instanceof ApiError && e.hermesUnavailable)) staleDepts.add(v.id);
@@ -159,7 +165,7 @@ function forgetGone() {
   const active = new Set(raw.depts.filter((d) => !d.archivedAt).map((d) => d.id));
   for (const id of new Set([...Object.keys(raw.prov), ...Object.keys(raw.quests), ...slots.keys(), ...[...polls.values()].map((p) => p.dept)])) {
     if (active.has(id)) continue;
-    delete raw.prov[id]; delete raw.inv[id]; delete raw.quests[id]; delete raw.live[id];
+    delete raw.prov[id]; delete raw.inv[id]; delete raw.quests[id]; delete raw.live[id]; delete raw.sync[id];
     slots.delete(id); staleDepts.delete(id); hints.cancel(id);
     for (const k of ['local', 'quests', 'info', 'dept']) gate.forget(`${k}:${id}`);
     for (const p of [...polls.values()]) if (p.dept === id) p.stop();
@@ -373,7 +379,8 @@ export async function createQuest(deptId: string, input: { clientRequestId: stri
   if (!out) return null;
   await refreshDept(deptId);
   for (const w of out.warnings) st().toast(w, 'warn');
-  st().toast('Quest created and assigned to the chief.');
+  const d = st().depts.find((x) => x.id === deptId);
+  st().toast(`Quest created${d ? ` for ${d.name}` : ''} and assigned to ${d?.chief?.name ?? 'its chief'}.`);
   return out.questId;
 }
 

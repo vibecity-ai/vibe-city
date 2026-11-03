@@ -8,11 +8,15 @@ import {
 } from '../data/live';
 import { clock } from '../data/derive';
 import {
+  GATEWAY_WARNING, attentionCount, companyQuests, defaultTarget, filterColumns, filterQuests, missingDepts, questTargets,
+  type BoardQuest, type ColumnKey, type DeptOption,
+} from '../data/company';
+import {
   CANCEL_CONFIRM, CAP_STATUS_LABEL, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL, WORKSPACE_ADVISORY,
   archiveConsequences, assigneeWarning, cancellationView, capValue, fieldErrors, isGuaranteed, profileRows, provisioningActions,
   settingsFormFrom, settingsPatch, taskStatusView, workspaceErrorField, workspaceSummary, type SettingsForm,
 } from '../data/views';
-import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from '../../board/format.ts';
+import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 
 const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -24,6 +28,9 @@ export function TopBar() {
   const conn = useStore((s) => s.conn);
   const stale = useStore((s) => s.stale);
   const busy = useStore((s) => s.busy);
+  const attn = useStore((s) => attentionCount(s.quests));
+  const onBoard = useStore((s) => s.ui.panel === 'board');
+  const openPanel = useStore((s) => s.openPanel);
   const [open, setOpen] = useState(false);
   const menu = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -45,6 +52,9 @@ export function TopBar() {
     <header className="top">
       <div className="logo"><span className="wordmark" data-t="VIBE CITY">VIBE CITY</span><span className="tag-line">Build your AI empire</span></div>
       <span className="plate" title="Your company">{company?.name ?? '…'}</span>
+      <button className="btn secondary qb-btn" aria-pressed={onBoard} aria-label={`Quest board${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
+        <span className="qb-long" aria-hidden="true">Quest board</span><span className="qb-short" aria-hidden="true">Quests</span>{attn > 0 && <span className="count bad" title="Quests that need attention" aria-hidden="true">{attn}</span>}
+      </button>
       <span className="grow" />
       {stale && <span className="demo" title="The last refresh failed; floors show the last data received"><span>Out of date</span></span>}
       <div className="conn">{pill(conn.backend, 'Backend')}{pill(conn.hermes, 'Hermes')}{pill(conn.gateway, 'Gateway')}</div>
@@ -55,7 +65,6 @@ export function TopBar() {
           <div className="menu card" role="menu" ref={menu} onKeyDown={onMenuKey}>
             <button role="menuitem" className="menu-i" disabled={!!busy.reconcile} onClick={() => { close(); void reconcileNow(); }}>{busy.reconcile ? 'Reconciling…' : 'Reconcile with Hermes now'}</button>
             <button role="menuitem" className="menu-i" onClick={() => { close(); void refreshAll(); }}>Refresh</button>
-            <a role="menuitem" className="menu-i" href="#board">Classic quest board (diagnostic view)</a>
           </div>
         )}
       </div>
@@ -65,7 +74,7 @@ export function TopBar() {
 
 /* ============ A · executive office ============ */
 export function ExecPanel() {
-  const { company, depts, ui, ui$, openFloor, loaded } = useStore();
+  const { company, depts, ui, ui$, openFloor, openPanel, loaded } = useStore();
   const archived = useStore((s) => s.archived);
   const running = depts.reduce((n, d) => n + d.workers.filter((w) => w.status === 'running').length + (d.chief?.status === 'running' ? 1 : 0), 0);
   const attention = depts.filter((d) => d.state === 'attention' || d.state === 'offline');
@@ -79,6 +88,8 @@ export function ExecPanel() {
           <Where n="PH" tone="gold">Executive office</Where>
           <h1 className="display" tabIndex={-1}>{company?.name ?? 'Your company'}</h1>
           <p className="sub">{loaded ? 'Everything below is read from Hermes through the Vibe City backend.' : 'Connecting to the backend…'}</p>
+          <div className="actions"><Btn kind="secondary" onClick={() => openPanel('board', { composer: false, boardDept: null })}>Quest board</Btn>
+            <Btn kind="secondary" onClick={() => openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" sw={3} />New quest</Btn></div>
           <Tabs label="Departments" idBase="exec" value={view} onChange={(v) => ui$({ execView: v })}
             options={[{ key: 'active', label: 'Active floors' }, { key: 'archived', label: <>Archived{archived.list && <span className="count">{archived.list.length}</span>}</> }]} />
         </section>
@@ -178,7 +189,7 @@ export function DeptPanel() {
   const log = s.log.filter((l) => l.dept === d.id).slice(0, 8);
   const tab = s.ui.deptTab;
   const sel = s.ui.agent;
-  const canWork = s.conn.hermes && s.conn.gateway && d.provisioning === 'ready';
+  const canWork = s.conn.hermes && d.provisioning === 'ready';
   const running = d.workers.filter((w) => w.status === 'running').length;
   const busyProv = !!s.busy[`provision:${d.id}`];
   return (
@@ -189,12 +200,13 @@ export function DeptPanel() {
           <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={st.k} label={st.label} /></div>
           <p className="sub">{d.purpose}</p>
           <div className="actions">
-            <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs a provisioned department and a running Hermes gateway'} onClick={() => s.openPanel('board', { composer: true, boardFilter: 'all' })}><Icon n="plus" sw={3} />New quest</button>
-            <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false })}>Quest board</Btn>
+            <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs a provisioned department and a reachable Hermes'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New quest</button>
+            <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Quests on the board</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('inventory')}>Inventory</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings</Btn>
           </div>
-          {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New quests need a provisioned department.' : !s.conn.hermes ? 'New quests need Hermes to be reachable.' : 'New quests need the Hermes gateway to be running.'}</p>}
+          {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New quests need a provisioned department.' : 'New quests need Hermes to be reachable.'}</p>}
+          {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new quests wait in Queued until it starts.</p>}
           <Tabs label="Department sections" idBase="dept" value={tab} onChange={(t) => s.ui$({ deptTab: t })}
             options={(['overview', 'inventory', 'quests'] as const).map((t) => ({ key: t, label: <>{t[0]!.toUpperCase() + t.slice(1)}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
         </section>
@@ -252,7 +264,10 @@ export function DeptPanel() {
           {tab === 'inventory' && <InventorySummary d={d} />}
           {tab === 'quests' && (
             <section className="pane-sec">
-              <div className="stack">{quests.map((q) => <QuestMini key={q.summary.id} q={q} />)}{quests.length === 0 && <p className="muted">No quests yet.</p>}</div>
+              <p className="fine">You give and manage quests on the company quest board. This department’s own Hermes board belongs to its chief and workers; this list is read-only.</p>
+              {s.questSync[d.id] === 'not_loaded' && <p className="field-err"><Glyph k="disconnected" />Quests for this department are not loaded yet, so this list is incomplete.</p>}
+              <div className="stack">{quests.map((q) => <QuestMini key={q.summary.id} q={q} />)}{quests.length === 0 && s.questSync[d.id] !== 'not_loaded' && <p className="muted">No quests yet.</p>}</div>
+              <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Open on the quest board</Btn>
             </section>
           )}
         </div>
@@ -268,7 +283,7 @@ function QuestMini({ q }: { q: QuestItem }) {
   const openPanel = useStore((s) => s.openPanel);
   const x = q.summary;
   return (
-    <button className={`qmini ${x.status}`} onClick={() => openPanel('quest', { questId: x.id })}>
+    <button className={`qmini ${x.status}`} onClick={() => openPanel('quest', { questId: x.id, questFrom: 'dept' })}>
       <span className="qmini-top"><b>{x.title}</b></span>
       <span className="qmini-bot"><Chip k={questStatus(x.status)} label={STATUS[x.status].label} small /><span className="muted small">{x.counts.done}/{x.counts.tasks} tasks done · {clock(x.createdAt)}</span></span>
     </button>
@@ -652,65 +667,61 @@ export function InventorySheet() {
   );
 }
 
-/* ============ E · quest board ============ */
-const COLUMNS: { key: 'queued' | 'active' | 'attention' | 'finished'; k: StatusKey; title: string; has: (q: QuestStatus) => boolean }[] = [
-  { key: 'queued', k: 'todo', title: 'Queued', has: (q) => q === 'queued' },
-  { key: 'active', k: 'running', title: 'In progress', has: (q) => q === 'planning' || q === 'running' || q === 'cancelling' },
-  { key: 'attention', k: 'blocked', title: 'Needs attention', has: (q) => q === 'awaiting_input' || q === 'in_review' || q === 'failed' },
-  { key: 'finished', k: 'completed', title: 'Finished', has: (q) => q === 'completed' || q === 'cancelled' },
-];
+/* ============ E · company quest board ============ */
+/* The player's one board. Department boards belong to the agents: each quest still lives on its department's Hermes
+   board (assigned to that chief), and this view combines them. See data/company.ts for the rules. */
+const COL_GLYPH: Record<ColumnKey, StatusKey> = { queued: 'todo', active: 'running', attention: 'blocked', finished: 'completed' };
+
+/** Leaves the board (or a sheet opened from it) for the floor that is open, or the executive office. */
+const backToPlace = () => { const s = useStore.getState(); s.openPanel(s.ui.view === 'floor' && s.ui.floorId ? 'dept' : 'exec'); };
 
 export function QuestBoard() {
   const s = useStore();
-  const d = s.depts.find((x) => x.id === s.ui.floorId);
-  const [title, setTitle] = useState('');
-  const [obj, setObj] = useState('');
-  const [instr, setInstr] = useState('');
-  const reqId = useRef<{ fingerprint: string; id: string } | null>(null);
-  if (!d) return null;
-  const qs = s.quests.filter((q) => q.deptId === d.id);
+  const all = companyQuests(s.depts, s.quests);
   const f = s.ui.boardFilter;
-  const count = (key: typeof f) => key === 'all' ? qs.length : qs.filter((q) => COLUMNS.find((c) => c.key === key)!.has(q.summary.status)).length;
-  const canWork = s.conn.hermes && s.conn.gateway && d.provisioning === 'ready';
-  const busy = !!s.busy[`quest:${d.id}`];
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!title.trim() || !obj.trim()) return;
-    reqId.current = requestIdFor(JSON.stringify([d.id, title.trim(), obj.trim(), instr.trim()]), reqId.current, () => crypto.randomUUID());
-    const id = await createQuest(d.id, { clientRequestId: reqId.current.id, title: title.trim(), objective: obj.trim(), ...(instr.trim() && { instructions: instr.trim() }) });
-    if (id) { setTitle(''); setObj(''); setInstr(''); reqId.current = null; s.ui$({ composer: false }); }
-  };
+  const dept = s.ui.boardDept && s.depts.some((d) => d.id === s.ui.boardDept) ? s.ui.boardDept : null;
+  const shown = filterQuests(all, dept, f);
+  const missing = missingDepts(s.depts, s.questSync, s.conn.hermes, dept);
+  const targets = questTargets(s.depts, s.conn.hermes);
+  const canCreate = targets.some((t) => !t.disabled);
+  const withBoards = s.depts.filter((d) => s.questSync[d.id] !== 'no_board');
+  const count = (k: typeof f) => filterQuests(all, dept, k).length;
+  const deptName = dept ? s.depts.find((d) => d.id === dept)?.name : null;
   return (
     <div className="pane sheet">
       <div className="pane-scroll">
         <section className="pane-head">
           <div className="head-row">
-            <Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where>
-            <div className="head-actions"><button className="btn primary lg" disabled={!canWork} title={canWork ? '' : 'Needs a provisioned department and a running Hermes gateway'} onClick={() => s.ui$({ composer: true })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={() => s.openPanel('dept')} aria-label="Close quest board"><Icon n="x" /></button></div>
+            <Where n="PH" tone="gold">Company</Where>
+            <div className="head-actions"><button className="btn primary lg" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={backToPlace} aria-label="Close quest board"><Icon n="x" /></button></div>
           </div>
           <h1 className="display" tabIndex={-1}>Quest board</h1>
-          <p className="sync" aria-live="polite"><Icon n="refresh" size={14} />{s.conn.hermes && !s.stale ? <>Read from Hermes Kanban · board <span className="mono">vc-{d.id.slice(0, 8)}…</span></> : <span style={{ color: '#FF5C7A' }}>{s.conn.hermes ? 'The last refresh failed' : 'Hermes isn’t responding'} · showing the last data received</span>}</p>
-          <div className="filters" role="group" aria-label="Filter quests">
+          <p className="sync" aria-live="polite"><Icon n="refresh" size={14} />{withBoards.length === 0
+            ? 'No department has a Hermes board yet. Provision a department to give it quests.'
+            : <span>Every department’s quests, read from {withBoards.length === 1 ? 'its' : 'their'} Hermes boards{deptName ? <> · showing <b>{deptName}</b> only</> : ''}</span>}</p>
+          <div className="filters" role="group" aria-label="Filter by department">
+            <button aria-pressed={!dept} className={!dept ? 'on' : ''} onClick={() => s.ui$({ boardDept: null })}>All departments</button>
+            {withBoards.map((d) => <button key={d.id} aria-pressed={dept === d.id} className={dept === d.id ? 'on' : ''} onClick={() => s.ui$({ boardDept: d.id })}><FloorKey n={'F' + floorNum(s.depts, d.id)} />{d.name}</button>)}
+          </div>
+          <div className="filters" role="group" aria-label="Filter by status">
             {(['all', 'active', 'attention', 'finished'] as const).map((k) => <button key={k} aria-pressed={f === k} className={f === k ? 'on' : ''} onClick={() => s.ui$({ boardFilter: k })}>{{ all: 'All', active: 'Active', attention: 'Attention', finished: 'Finished' }[k]}<span className="count">{count(k)}</span></button>)}
           </div>
         </section>
+        <div aria-live="polite">
+          {missing.length > 0 && (
+            <div className={`banner ${missing.some((m) => m.sync === 'not_loaded') ? 'bad' : 'warn'}`} role="status"><Glyph k="disconnected" />
+              <div><b>{missing.some((m) => m.sync === 'not_loaded') ? 'Some quests are missing from this board' : 'Some quests may be out of date'}</b>{missing.map((m) => <p key={m.id}>{m.text}</p>)}</div></div>
+          )}
+        </div>
+        {s.ui.composer && <QuestComposer targets={targets} />}
         <div className="board">
-          {COLUMNS.filter((c) => f === 'all' || c.key === f || (f === 'active' && c.key === 'queued')).map((c) => {
-            const list = qs.filter((q) => c.has(q.summary.status));
+          {filterColumns(f).map((c) => {
+            const list = shown.filter((q) => c.has(q.summary.status));
             return (
               <div key={c.key} className="col">
-                <div className="col-h" style={{ color: statusColor(c.k), borderColor: statusColor(c.k) }}><Glyph k={c.k} /><b>{c.title}</b><span className="col-n">{list.length}</span></div>
-                {c.key === 'queued' && s.ui.composer && (
-                  <form className="composer" onSubmit={submit} aria-busy={busy}>
-                    <Field label="Quest title">{(p) => <input {...p} className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
-                    <Field label="Objective">{(p) => <textarea {...p} className="input" rows={3} maxLength={8000} value={obj} onChange={(e) => setObj(e.target.value)} />}</Field>
-                    <Field label="Extra instructions (optional)">{(p) => <textarea {...p} className="input" rows={2} maxLength={8000} value={instr} onChange={(e) => setInstr(e.target.value)} />}</Field>
-                    <small className="muted">Assigned to <b className="gold-n">{d.chief?.name ?? 'the chief'}</b></small>
-                    <div className="row"><button className="btn primary grow" type="submit" aria-busy={busy || undefined} disabled={busy || !title.trim() || !obj.trim()}>{busy ? 'Creating…' : 'Create quest'}</button><Btn onClick={() => s.ui$({ composer: false })}>Cancel</Btn></div>
-                  </form>
-                )}
+                <div className="col-h" style={{ color: statusColor(COL_GLYPH[c.key]), borderColor: statusColor(COL_GLYPH[c.key]) }}><Glyph k={COL_GLYPH[c.key]} /><b>{c.title}</b><span className="col-n">{list.length}</span></div>
                 {list.map((q) => <QuestCard key={q.summary.id} q={q} />)}
-                {list.length === 0 && !(c.key === 'queued' && s.ui.composer) && <div className="col-empty">Nothing here</div>}
+                {list.length === 0 && <div className="col-empty">Nothing here</div>}
               </div>
             );
           })}
@@ -720,13 +731,52 @@ export function QuestBoard() {
   );
 }
 
-function QuestCard({ q }: { q: QuestItem }) {
+function QuestComposer({ targets }: { targets: DeptOption[] }) {
+  const s = useStore();
+  const [title, setTitle] = useState('');
+  const [obj, setObj] = useState('');
+  const [instr, setInstr] = useState('');
+  const [dept, setDept] = useState<string | null>(() => defaultTarget(targets, s.ui.composerDept));
+  const reqId = useRef<{ fingerprint: string; id: string } | null>(null);
+  const target = targets.find((t) => t.id === dept && !t.disabled) ?? null;
+  const busy = !!(target && s.busy[`quest:${target.id}`]);
+  const close = () => s.ui$({ composer: false, composerDept: null });
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!target || !title.trim() || !obj.trim() || busy) return;
+    reqId.current = requestIdFor(JSON.stringify([target.id, title.trim(), obj.trim(), instr.trim()]), reqId.current, () => crypto.randomUUID());
+    const id = await createQuest(target.id, { clientRequestId: reqId.current.id, title: title.trim(), objective: obj.trim(), ...(instr.trim() && { instructions: instr.trim() }) });
+    if (id) { setTitle(''); setObj(''); setInstr(''); reqId.current = null; close(); }
+  };
+  return (
+    <form className="composer pane-sec" onSubmit={submit} aria-busy={busy} aria-labelledby="qc-h">
+      <h3 className="sec-t" id="qc-h">New quest</h3>
+      <Field label="Department" hint="The quest goes to this department’s chief, who plans it on the department’s own board.">
+        {(p) => (
+          <select {...p} className="input" value={dept ?? ''} onChange={(e) => setDept(e.target.value || null)} disabled={busy}>
+            <option value="">Choose a department…</option>
+            {targets.map((t) => <option key={t.id} value={t.id} disabled={!!t.disabled}>{t.label}{t.disabled ? ` (${t.disabled})` : ''}</option>)}
+          </select>
+        )}
+      </Field>
+      <Field label="Quest title">{(p) => <input {...p} className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
+      <Field label="Objective">{(p) => <textarea {...p} className="input" rows={3} maxLength={8000} value={obj} onChange={(e) => setObj(e.target.value)} />}</Field>
+      <Field label="Extra instructions (optional)">{(p) => <textarea {...p} className="input" rows={2} maxLength={8000} value={instr} onChange={(e) => setInstr(e.target.value)} />}</Field>
+      {target ? <small className="muted">Assigned to <b className="gold-n">{target.chief ?? 'the chief'}</b></small> : <small className="muted">Choose a department that is ready.</small>}
+      {target && !s.conn.gateway && <p className="field-err"><Glyph k="awaiting" />{GATEWAY_WARNING}</p>}
+      <div className="row"><button className="btn primary grow" type="submit" aria-busy={busy || undefined} disabled={busy || !target || !title.trim() || !obj.trim()}>{busy ? 'Creating…' : 'Create quest'}</button><Btn onClick={close} disabled={busy}>Cancel</Btn></div>
+    </form>
+  );
+}
+
+function QuestCard({ q }: { q: BoardQuest }) {
   const openPanel = useStore((s) => s.openPanel);
   const detail = useStore((s) => s.details[q.summary.id]);
   const x = q.summary;
   const workers = detail?.tasks.filter((t) => t.role === 'worker') ?? [];
   return (
-    <button className={`qcard ${x.status}`} onClick={() => openPanel('quest', { questId: x.id })}>
+    <button className={`qcard ${x.status}`} onClick={() => openPanel('quest', { questId: x.id, questFrom: 'board' })}>
+      <span className="qcard-dept"><FloorKey n={q.floor} />{q.deptName}</span>
       <span className="qcard-h"><b>{x.title}</b></span>
       <Chip k={questStatus(x.status)} label={STATUS[x.status].label} small />
       <span className="qcard-meta">
@@ -764,7 +814,9 @@ export function QuestDetail() {
     <div className="pane sheet">
       <div className="pane-scroll">
         <section className="pane-head">
-          <div className="head-row"><button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Quest board</button><span className="mono muted">{sum.id}</span></div>
+          <div className="head-row">{s.ui.questFrom === 'dept' && s.ui.floorId
+            ? <button className="link" onClick={() => s.openPanel('dept')}><Icon n="back" size={14} />{s.depts.find((x) => x.id === s.ui.floorId)?.name ?? 'Department'}</button>
+            : <button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Quest board</button>}<span className="mono muted">{sum.id}</span></div>
           <div className="title-row"><h1 className="display sm" tabIndex={-1}>{sum.title}</h1><Chip k={questStatus(sum.status)} label={STATUS[sum.status].label} /></div>
           <p className="meta"><span className="meta-f"><FloorKey n={'F' + floorNum(s.depts, item.deptId)} />{d?.name}</span><span>Chief <b className="gold-n">{d?.chief?.name ?? '—'}</b></span><span className="mono">{formatTime(sum.createdAt)}{sum.completedAt ? ` → ${formatTime(sum.completedAt)}` : ''}</span></p>
           <p className="fine">{STATUS[sum.status].hint}</p>

@@ -79,6 +79,37 @@ test('Hermes going away keeps the last quests; other failures mark data stale; b
   assert.equal(s.depts.length, 1, 'floors stay on screen');
 });
 
+test('company board sync: a department whose quests never loaded is not_loaded, a later failure is out_of_date', async () => {
+  const OTHER = '22222222-2222-4222-8222-222222222222';
+  const O = `/api/departments/${OTHER}`;
+  const { b, state } = backend();
+  state.depts = [deptView(), deptView({ id: OTHER, name: 'Ops', floorOrder: 2, floorPosition: 2, hermesBoardSlug: `vc-${OTHER}`, hermesBoardRef: `vc-${OTHER}` })];
+  b.on('GET', `${O}/inventory`, { body: inventory() })
+    .on('GET', `${O}/provisioning`, { body: provStatus({ state: 'ready' }) })
+    .on('GET', `${O}/quests`, { status: 500, body: { error: 'internal_error' } });
+  await refreshAll();
+  let s = useStore.getState();
+  assert.equal(s.questSync[DEPT_ID], 'ok');
+  assert.equal(s.questSync[OTHER], 'not_loaded', 'never loaded: the board must say quests are missing');
+  assert.equal(s.quests.filter((q) => q.deptId === OTHER).length, 0);
+
+  b.on('GET', `${O}/quests`, { body: { quests: [summary({ id: 't_ops1', status: 'completed' })] } });
+  await refreshAll();
+  s = useStore.getState();
+  assert.equal(s.questSync[OTHER], 'ok');
+  assert.deepEqual(s.quests.filter((q) => q.deptId === OTHER).map((q) => q.summary.id), ['t_ops1']);
+
+  b.on('GET', `${O}/quests`, { status: 503, body: { error: 'hermes_unavailable', message: 'Hermes is unreachable' } });
+  await refreshAll();
+  s = useStore.getState();
+  assert.equal(s.questSync[OTHER], 'out_of_date');
+  assert.equal(s.quests.filter((q) => q.deptId === OTHER).length, 1, 'the last quests stay on the board');
+
+  state.depts = [deptView()]; // Ops archived: its sync entry goes with it
+  await refreshAll();
+  assert.equal(useStore.getState().questSync[OTHER], undefined);
+});
+
 test('a burst of live events triggers one quest refresh, not one per event', async () => {
   mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { b } = backend();

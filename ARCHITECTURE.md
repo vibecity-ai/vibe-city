@@ -16,8 +16,7 @@ apps/backend         Fastify API, SQLite (node:sqlite), Hermes adapter
   src/testing        FakeHermes (in-memory, fault injection) used only by tests
   src/app.ts         routes + validation + error mapping
   scripts/           Phase 0 integration scripts (need live Hermes; NOT in `npm test`)
-apps/web             React + Vite. src/town = the city (imported from the vibeytown prototype, Canvas 2D, Zustand);
-                     src/board = the original Quest Board, reachable at #board
+apps/web             React + Vite. src/town = the city (imported from the vibeytown prototype, Canvas 2D, Zustand)
 ```
 
 ## Data ownership (Milestone 1)
@@ -213,9 +212,9 @@ The vibeytown prototype was copied in once (it is no longer synced from that rep
 
 ### UI merge (every backend route usable from the city)
 
-The city at `/` is the complete product surface; `#board` stays as a diagnostic view. Route-by-route coverage, states and tests are in `UI_COVERAGE.md`.
+The city at `/` is the complete product surface (the original `#board` view has been removed). Route-by-route coverage, states and tests are in `UI_COVERAGE.md`.
 
-- **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, workspace set/clear with advisory copy, the provisioning/profile inspector, archive); inventory sheet (all `InventorySchema` fields including `sharedContextRefs`; capability report grouped by status with role, detail, requested/effective and a guarantee badge, lock styling only for `enforced` + `guarantee`); quest board; quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
+- **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, workspace set/clear with advisory copy, the provisioning/profile inspector, archive); inventory sheet (all `InventorySchema` fields including `sharedContextRefs`; capability report grouped by status with role, detail, requested/effective and a guarantee badge, lock styling only for `enforced` + `guarantee`); the **company quest board** (top bar and Executive Office; the player's only board, combining every department's quests, see `data/company.ts`; department panels link to it with a department filter); quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
 - **Copy and rules** live in `data/views.ts` (pure, tested): what a status means in words, which provisioning action is allowed (retry only for a retryable error or `disconnected`), the settings PATCH diff, archive consequences, cancellation wording (a 202 `requested` is never shown as cancelled).
 - **Consistency** (`data/live.ts`, `data/sched.ts`): every fetch takes a ticket from a last-request-wins gate per key (department quests, local data, info, quest detail, cancellation), so an older response never overwrites newer state. Live events are coalesced per department (400 ms after the last event, at most 2 s after the first). Mutations refresh only the affected department (`GET /api/departments/:id` + its data); create and archive refresh everything because floor order changes. Archiving closes the floor's socket, pending refresh and cancellation polls. A cancellation status never regresses from `confirmed`.
 - **Cancellation polling**: after a `requested` answer the UI polls `GET .../cancellation` (1, 2, 4, 8, then 10 s; 2 min budget) until confirmed, the quest view closes, Hermes/the backend is unreachable, or the budget runs out. Live events refresh the same status in between.

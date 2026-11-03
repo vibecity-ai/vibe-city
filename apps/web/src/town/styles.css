@@ -502,3 +502,17 @@ details.arch[open] summary { margin-bottom: 6px; }
 /* headings receive focus programmatically after navigation (screen readers start there); no ring for that */
 h1[tabindex="-1"]:focus { outline: none; }
 ul.chips { list-style: none; padding: 0; }
+/* company quest board */
+.qb-btn { gap: 8px; }
+.qb-btn[aria-pressed="true"] { --fr: var(--fr-sel); }
+.count.bad { background: #5A1530; color: #FFB3C1; }
+.qcard-dept { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-dim); }
+.composer.pane-sec { margin: 12px 0; }
+.filters + .filters { margin-top: 8px; }
+.qb-short { display: none; }
+@media (max-width: 520px) {
+  .top { gap: 10px; }
+  .qb-long { display: none; }
+  .qb-short { display: inline; }
+  .qb-btn { padding-left: 10px; padding-right: 10px; }
+}

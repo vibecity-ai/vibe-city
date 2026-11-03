@@ -62,7 +62,7 @@ The CEO Menu is the primary way to move between company functions. The elevator 
 | **Org Chart** | CEO → departments → chiefs → active worker assignments | Company/departments/profiles and live worker-role tasks |
 | **Departments** | Active and archived department directory | Department APIs |
 | **Projects** | Hermes Project bindings, folders, boards and workspace mode | Planned Hermes Project integration; show an honest unavailable/setup state until implemented |
-| **Quest Board** | Company entry point into department-scoped Hermes quest boards | Current quest APIs; department selector required |
+| **Quest Board** | The player's only quest board: every department's quests in one view. Department boards belong to the agents. | Current per-department quest APIs, combined in the client; department chosen at creation |
 | **Results** | Recent quest results and authorized attachments by department | Current quest result APIs for data actually fetched |
 | **System** | Runtime health, reconciliation, refresh and deployment/version information | Runtime health and future safe build metadata |
 
@@ -239,7 +239,7 @@ Do not claim a complete company-wide history unless all department data has actu
 | Click floor | Department Control Center |
 | Click chief | Chief/profile inspector within department panel |
 | Click worker at desk | Worker task/run inspector, not a persistent employee profile |
-| Click Kanban wall or Quest Board action | Department quest board |
+| Click Kanban wall or Quest Board action | Company quest board filtered to that department |
 | Click server/inventory affordance | Department inventory/effective capability sheet |
 | Click decorative shelf | No action until an artifact-library backend exists |
 

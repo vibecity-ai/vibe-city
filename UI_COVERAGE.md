@@ -1,6 +1,6 @@
 # API-to-UI coverage (city UI)
 
-Every backend route in `apps/backend/src/app.ts` and where the default city UI (`/`) uses it. The classic board (`#board`) is a diagnostic view and is not needed for any row below. Code references are to `apps/web/src/town/ui/Panels.tsx` (UI) and `apps/web/src/town/data/live.ts` (data) unless noted. Every response is parsed with a strict schema from `packages/shared` (`apps/web/src/api.ts`); a malformed response becomes an `invalid_response` error, never partial data.
+Every backend route in `apps/backend/src/app.ts` and where the city UI (`/`) uses it. Code references are to `apps/web/src/town/ui/Panels.tsx` (UI) and `apps/web/src/town/data/live.ts` (data) unless noted. Every response is parsed with a strict schema from `packages/shared` (`apps/web/src/api.ts`); a malformed response becomes an `invalid_response` error, never partial data.
 
 Legend for the state columns: **L** loading, **E** empty, **X** error, **C** mutation confirmation/feedback, **T** tests.
 
@@ -35,8 +35,8 @@ Legend for the state columns: **L** loading, **E** empty, **X** error, **C** mut
 
 | Route | UI surface | L | E | X | C | T |
 |---|---|---|---|---|---|---|
-| `GET /api/departments/:id/quests` | Quest board columns, Department → Quests tab, active quests, floor animation | — | "Nothing here" / "No quests yet" | Hermes down: quests kept, sync line says so; other errors: "Out of date" | — | `live.test.ts` |
-| `POST /api/departments/:id/quests` | Quest board composer (idempotent `clientRequestId` per form content) | "Creating…" | — | toast; form kept | toast + Hermes warnings as toasts; department refresh | backend `quests.test.ts`, `format.test.ts` |
+| `GET /api/departments/:id/quests` | **Company quest board**: every department's lists combined (`data/company.ts`), filterable by department and status. Also the read-only Department → Quests tab, active quests and floor animation | — | "Nothing here" / "No quests yet" | per-department banner: *not loaded* ("missing, not zero") or *out of date* (`questSync`) | — | `company.test.ts`, `live.test.ts` |
+| `POST /api/departments/:id/quests` | Company quest board composer: department required (only `ready` ones, others disabled with the reason), gateway-down warning, idempotent `clientRequestId` per department + form content | "Creating…" | — | toast; form kept | toast names the department and chief; department refresh | `company.test.ts`, backend `quests.test.ts`, `format.test.ts` |
 | `GET /api/departments/:id/quests/:questId` | Quest detail → Overview: objective, counts, warnings, violations, truncation, expandable task rows (id, role, assignee, status, failure vs blocked, tree, times, summary, error, attachment count, runs), cancellation | "Loading…" | "No runs yet" | banner + Retry, last data kept | — | `views.test.ts`, `live.test.ts` |
 | `GET /api/departments/:id/quests/:questId/tasks` | **Covered indirectly** by quest detail: same `TaskNode[]`, `violations` and `truncated`, from the same backend call (`quests_.detail`). The UI does not fetch both. `api.tasks()` exists and is tested. | | | | | `api.test.ts`, backend `quests.test.ts` |
 | `GET /api/departments/:id/quests/:questId/activity` | Quest detail → Activity: time, label, task title, kind, scrubbed detail | "Loading…" | "No events yet." | banner, last events kept | live hint line | backend tests |

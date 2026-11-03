@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TaskNode } from '@vibe-city/shared';
-import { STATUS, canCancel, connectionBanner, formatBytes, planningNote, requestIdFor, treeRows } from './format.ts';
+import { STATUS, canCancel, formatBytes, planningNote, requestIdFor, treeRows } from './format.ts';
 
 const node = (id: string, depth: number, childIds: string[] = [], o: Partial<TaskNode> = {}): TaskNode => ({
   id, title: id, role: depth ? 'worker' : 'chief', assignee: 'p', status: 'done', parentIds: [], childIds, depth, failed: false,
@@ -24,14 +24,6 @@ test('cancel is offered only while something can still run', () => {
   assert.equal(canCancel('cancelling'), true);
   assert.equal(canCancel('completed'), false);
   assert.equal(canCancel('cancelled'), false);
-});
-
-test('connection banner distinguishes link loss, dashboard offline and gateway unavailable', () => {
-  assert.equal(connectionBanner(true, 'connected'), null);
-  assert.match(connectionBanner(false, null)!.text, /backend/);
-  assert.match(connectionBanner(true, 'dashboard_offline')!.text, /dashboard is offline/);
-  assert.match(connectionBanner(true, 'gateway_unavailable')!.text, /gateway is not running/);
-  assert.equal(connectionBanner(true, 'dashboard_offline')!.tone, 'bad');
 });
 
 test('treeRows nests descendants depth-first and shows shared children once', () => {

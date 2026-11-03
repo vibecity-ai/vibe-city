@@ -15,7 +15,7 @@ Evidence used to reconcile this version:
 - `apps/backend/src/app.ts` — HTTP and WebSocket surface
 - `apps/backend/src/domain/*` — domain behavior
 - `apps/backend/src/hermes/*` — supported Hermes adapter boundary
-- `apps/web/src/town/*` and `apps/web/src/board/*` — current UI behavior
+- `apps/web/src/town/*` — current UI behavior
 - `ARCHITECTURE.md` — implementation decisions through Milestone 3
 - `HERMES_COMPATIBILITY.md` — behavior verified against Hermes
 - `/home/urataps/.hermes/hermes-agent` — locally installed Hermes contracts used to specify future Project and heartbeat integration
@@ -45,7 +45,7 @@ Vibe City is a truthful visual client for an AI-native company run by Hermes Age
 - Inventory represents requested and observed Hermes capabilities; it is not cosmetic equipment.
 - Animation follows backend and Hermes state. It must never invent activity, completion, earnings, isolation, or safety.
 
-The city UI is the default web experience. The original Quest Board remains available at `#board`.
+The city UI is the only web experience.
 
 ## 3. Non-negotiable product invariants
 
@@ -73,9 +73,8 @@ The project is an npm workspace monorepo:
 |---|---|
 | `packages/shared` | Strict Zod schemas and shared TypeScript types |
 | `apps/backend` | Fastify API, SQLite metadata, Hermes adapter, reconciliation, quest aggregation, live relay |
-| `apps/web` | React/Vite city and Quest Board |
+| `apps/web` | React/Vite city |
 | `apps/web/src/town` | Canvas city renderer, store, backend-to-world derivation, city UI |
-| `apps/web/src/board` | Original data-oriented Quest Board |
 
 ### 4.2 Runtime dependencies
 
@@ -200,6 +199,15 @@ Properties:
 | Cancellation intent | Durable root comment by `vibe-city` |
 
 A valid quest must be on the department board, have no parent, and be assigned to the verified chief profile.
+
+**Board ownership.** The player manages quests only on the **company quest board**. Department boards belong to the agents: the chief plans and delegates there. The company board is a client-side view over every active department's quest list. It has no Hermes board or store of its own, so invariant 1 still holds. Rules:
+
+- Every quest belongs to exactly one department, chosen when the quest is created. There is no unassigned company backlog yet.
+- A department whose quest list was never loaded is reported as **missing**, never as having zero quests. A list that loaded once and then failed to refresh is shown as **out of date**.
+- Only `ready` departments can receive a quest while Hermes is reachable. A stopped gateway is a warning, not a block: the quest is created and waits in Queued.
+- Department panels list their quests read-only and link to the company board.
+
+A real Hermes company board, for a backlog, Executive Office routing or quests spanning departments, is deferred. It would need Hermes to support links between boards; see §15.
 
 ### 8.2 Creation
 
@@ -480,6 +488,8 @@ A live gate must record the Hermes version tested. Unsupported behavior must be 
 | P0 | Hermes Project discovery spike across chief and worker profiles | Planned |
 | P1 | Project provisioning, verification, reconciliation, and task linkage | Blocked on spike |
 | P1 | Update stale architecture language now that the city renderer is integrated | Partially addressed by this spec |
+| P1 | Per-department worker settings: how many ephemeral chief-copies a chief may use, and permanent specialized workers (hiring process to be designed) | Next, design required |
+| P2 | Real Hermes company board (backlog, Executive Office routing, quests spanning departments): spike on links between boards first | Deferred |
 | P1 | Add automated contract/drift checks for public routes and schemas | Planned |
 | P2 | Decide whether persistent worker rosters, hiring approvals, and an organization chart belong in the product model | Decision required |
 | P2 | Decide whether to add a department artifact library over authorized quest attachments | Decision required |

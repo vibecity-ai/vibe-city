@@ -3,6 +3,7 @@ import type {
   ActivityEvent, CancellationStatus, DepartmentView, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
 } from '@vibe-city/shared';
 import type { AgentStatus, Connection, Dept } from './data/types';
+import type { QuestSync } from './data/company';
 
 /* World effects: one-shot cues the renderer plays. They are only emitted after the backend reports the change they
    illustrate (data/live.ts diffs consecutive snapshots), so animation may lag the truth but never leads it. */
@@ -41,6 +42,10 @@ export interface DeptInfo {
 interface UI {
   view: View; floorId: string | null; panel: Panel; deptTab: DeptTab; questId: string | null;
   modal: 'create' | 'archive' | null; composer: boolean; agent: string | null; boardFilter: 'all' | 'active' | 'attention' | 'finished';
+  /** Company quest board: department filter (null = every department) and the department the composer starts with. */
+  boardDept: string | null; composerDept: string | null;
+  /** Where quest detail returns to: the company board, or the floor it was opened from. */
+  questFrom: 'board' | 'dept';
   /** Executive Office list: active floors or the read-only archived list. */
   execView: 'active' | 'archived';
 }
@@ -49,6 +54,8 @@ export interface State {
   company: { name: string } | null;
   depts: Dept[];
   quests: QuestItem[];
+  /** Per department: whether its quest list is current, out of date, never loaded, or absent (no board yet). */
+  questSync: Record<string, QuestSync>;
   /** Task trees of quests that are in flight, plus any quest the user opened. */
   details: Record<string, QuestDetail>;
   extra: Record<string, QuestExtra>;
@@ -82,6 +89,7 @@ export const useStore = create<State>((set) => ({
   company: null,
   depts: [],
   quests: [],
+  questSync: {},
   details: {},
   extra: {},
   info: {},
@@ -91,7 +99,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   archived: { list: null, error: null, loading: false },
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', execView: 'active' },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', execView: 'active', boardDept: null, composerDept: null, questFrom: 'board' },
   toasts: [], fx: [], log: [],
 
   ui$: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),
