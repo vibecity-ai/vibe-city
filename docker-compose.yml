@@ -11,7 +11,7 @@ services:
     build:
       context: .
       args:
-        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d}
     image: ${VIBE_CITY_IMAGE:-vibe-city:local}
     restart: unless-stopped
     command: ["gateway", "run"]
