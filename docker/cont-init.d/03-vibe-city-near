@@ -5,6 +5,8 @@
 #   NEAR_AI_API_KEY   required to enable it; never written to disk (Hermes reads it via key_env at call time)
 #   NEAR_AI_BASE_URL  default https://cloud-api.near.ai/v1
 #   NEAR_AI_MODEL     default model for a fresh Hermes home, default deepseek/deepseek-v4.1-flash
+#   NEAR_AI_REASONING_EFFORT  default high. Hermes' built-in "medium" is rejected by DeepSeek V4.x on NEAR
+#                     (HTTP 400: must be low, high, xhigh, max or 1-100), so it is replaced wherever it is in effect
 #
 # Runs after Hermes' own setup (01/015/02) and before any service. Idempotent:
 #   - the providers.near-ai block is (re)written in the main config and in every existing profile, so profiles
@@ -20,6 +22,7 @@ fi
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 base_url="${NEAR_AI_BASE_URL:-https://cloud-api.near.ai/v1}"
 model="${NEAR_AI_MODEL:-deepseek/deepseek-v4.1-flash}"
+effort="${NEAR_AI_REASONING_EFFORT:-high}"
 
 # Hermes CLI as the hermes user, against the shared volume. $1 = profile ("" = main config).
 h() {
@@ -40,7 +43,16 @@ configure_provider() {
     echo "[vibe-city] NEAR AI Cloud provider configured${1:+ for profile $1}."
 }
 
+# `config get` prints Hermes' built-in "medium" when agent.reasoning_effort is unset.
+configure_reasoning() {
+    if [ "$(get "$1" agent.reasoning_effort)" = medium ]; then
+        h "$1" config set agent.reasoning_effort "$effort" >/dev/null 2>&1 &&
+        echo "[vibe-city] Reasoning effort set to $effort${1:+ for profile $1}."
+    fi
+}
+
 configure_provider ""
+configure_reasoning ""
 case "$(get "" model.provider)" in
     ""|auto|null|None)
         h "" config set model.provider near-ai >/dev/null &&
@@ -52,5 +64,6 @@ esac
 for dir in "$HERMES_HOME"/profiles/*/; do
     [ -d "$dir" ] || continue
     configure_provider "$(basename "$dir")"
+    configure_reasoning "$(basename "$dir")"
 done
 exit 0

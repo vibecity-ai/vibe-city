@@ -35,6 +35,7 @@ NEAR_AI_API_KEY=...
 # optional
 NEAR_AI_MODEL=deepseek/deepseek-v4.1-flash
 NEAR_AI_BASE_URL=https://cloud-api.near.ai/v1
+NEAR_AI_REASONING_EFFORT=high
 ```
 
 On every start, `docker/cont-init.d/03-vibe-city-near` does three things before any Hermes service runs:
@@ -42,6 +43,7 @@ On every start, `docker/cont-init.d/03-vibe-city-near` does three things before 
 - It writes a `providers.near-ai` block (name, `api`, `key_env: NEAR_AI_API_KEY`, `transport: chat_completions`) into the Hermes config.
 - It writes the same block into every existing profile, so department profiles created before the key was set can use it too.
 - While no provider has been chosen yet (`model.provider` unset or `auto`), it makes `near-ai` with `NEAR_AI_MODEL` the default. A provider chosen later is never overwritten.
+- Where `agent.reasoning_effort` is unset (Hermes then uses `medium`), it sets `NEAR_AI_REASONING_EFFORT` (default `high`), in the main config and every profile. DeepSeek V4.x on NEAR rejects `medium` with HTTP 400 ("reasoning_effort must be low, high, xhigh, max …"). Departments created later inherit the setting, because their profiles are cloned from `default`.
 
 The key itself is never written to disk; Hermes reads it from the environment when it calls the model. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
 
