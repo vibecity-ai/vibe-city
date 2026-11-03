@@ -1,0 +1,16 @@
+{
+  "name": "vibe-city",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:backend": "npm run dev -w @vibe-city/backend",
+    "dev:web": "npm run dev -w @vibe-city/web",
+    "build": "npm run build -w @vibe-city/web"
+  }
+}

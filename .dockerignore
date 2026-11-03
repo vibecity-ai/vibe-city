@@ -1,0 +1,11 @@
+**/node_modules
+**/dist
+apps/backend/data
+**/*.sqlite
+**/*.test.ts
+.git
+.github
+.env
+.env.*
+!.env.example
+*.md

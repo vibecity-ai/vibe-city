@@ -1,0 +1,32 @@
+# Vibe City + Hermes in one container (see Dockerfile).
+#
+#   cp .env.example .env     # set HERMES_DASHBOARD_SESSION_TOKEN (openssl rand -hex 24)
+#   docker compose up -d --build
+#   open http://127.0.0.1:4100
+#
+# The API has no login. It is published on loopback only; to reach it remotely use an SSH tunnel or a reverse
+# proxy that authenticates. Model/provider credentials go in .env.hermes (optional, never baked into the image).
+services:
+  vibe-city:
+    build:
+      context: .
+      args:
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent:latest}
+    image: ${VIBE_CITY_IMAGE:-vibe-city:local}
+    restart: unless-stopped
+    command: ["gateway", "run"]
+    ports:
+      - "127.0.0.1:${VIBE_CITY_PORT:-4100}:4100"
+    environment:
+      HERMES_UID: ${HERMES_UID:-10000}
+      HERMES_GID: ${HERMES_GID:-10000}
+      HERMES_DASHBOARD_SESSION_TOKEN: ${HERMES_DASHBOARD_SESSION_TOKEN:?set HERMES_DASHBOARD_SESSION_TOKEN in .env (openssl rand -hex 24)}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:4100,http://localhost:4100}
+    env_file:
+      - path: .env.hermes
+        required: false
+    volumes:
+      - hermes_data:/opt/data
+
+volumes:
+  hermes_data:

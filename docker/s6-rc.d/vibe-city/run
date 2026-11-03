@@ -1,0 +1,14 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Vibe City backend (API + web app). Runs as the `hermes` user so the Hermes CLI and the volume agree on ownership.
+export HOME=/opt/data
+mkdir -p "$(dirname "$VIBE_CITY_DB")"
+cd /opt/vibe-city
+
+if [ -z "${HERMES_DASHBOARD_SESSION_TOKEN:-}" ]; then
+    echo "[vibe-city] HERMES_DASHBOARD_SESSION_TOKEN is not set; Hermes calls will be rejected." >&2
+fi
+
+[ "$(id -u)" = 0 ] && chown hermes:hermes "$(dirname "$VIBE_CITY_DB")" 2>/dev/null
+[ "$(id -u)" = 0 ] || exec node --experimental-strip-types apps/backend/src/server.ts
+exec s6-setuidgid hermes node --experimental-strip-types apps/backend/src/server.ts
