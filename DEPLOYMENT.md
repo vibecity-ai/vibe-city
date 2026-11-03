@@ -26,7 +26,28 @@ open http://127.0.0.1:4100
 
 The Vibe City API has **no login**. It is published on loopback only. For remote use, tunnel (`ssh -L 4100:127.0.0.1:4100`) or put an authenticating reverse proxy in front, and set `ALLOWED_ORIGINS` to the public origin.
 
-Model/provider credentials: put them in `.env.hermes` (optional file, read by compose, never baked into the image) using the variable names Hermes documents for your provider. Not configured yet; without them Hermes cannot run quests but provisioning and the UI work.
+### Models: NEAR AI Cloud (default)
+
+The container uses [NEAR AI Cloud](https://cloud.near.ai) as its model provider. NEAR AI Cloud is an OpenAI-compatible endpoint (`https://cloud-api.near.ai/v1`). Set the key in `.env`:
+
+```
+NEAR_AI_API_KEY=...
+# optional
+NEAR_AI_MODEL=deepseek/deepseek-v4.1-flash
+NEAR_AI_BASE_URL=https://cloud-api.near.ai/v1
+```
+
+On every start, `docker/cont-init.d/03-vibe-city-near` does three things before any Hermes service runs:
+
+- It writes a `providers.near-ai` block (name, `api`, `key_env: NEAR_AI_API_KEY`, `transport: chat_completions`) into the Hermes config.
+- It writes the same block into every existing profile, so department profiles created before the key was set can use it too.
+- While no provider has been chosen yet (`model.provider` unset or `auto`), it makes `near-ai` with `NEAR_AI_MODEL` the default. A provider chosen later is never overwritten.
+
+The key itself is never written to disk; Hermes reads it from the environment when it calls the model. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
+
+The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
+
+Other providers: put their variables in `.env.hermes` (optional, read by compose, never baked into the image), using the names Hermes documents for that provider.
 
 ### Pinning Hermes
 

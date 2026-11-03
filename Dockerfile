@@ -53,6 +53,8 @@ COPY --from=web /src/apps/web/dist apps/web/dist
 
 # s6 service: declared next to Hermes' own (dashboard, main-hermes) and enabled in the "user" bundle.
 COPY --chmod=0755 docker/s6-rc.d/vibe-city/run /etc/s6-overlay/s6-rc.d/vibe-city/run
+# NEAR AI Cloud as the default provider when NEAR_AI_API_KEY is set (runs after Hermes' own cont-init scripts).
+COPY --chmod=0755 docker/cont-init.d/03-vibe-city-near /etc/cont-init.d/03-vibe-city-near
 RUN echo longrun > /etc/s6-overlay/s6-rc.d/vibe-city/type \
  && mkdir -p /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d \
  && touch /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d/base /etc/s6-overlay/s6-rc.d/user/contents.d/vibe-city
