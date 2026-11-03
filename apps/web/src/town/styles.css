@@ -446,3 +446,59 @@ select.input { cursor: pointer; }
 .consent { display: flex; gap: 8px; align-items: flex-start; padding: 8px; border: 1px solid rgba(255,181,71,.5); font-size: 13px; }
 .steps-list { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0; font-size: 12px; }
 .fine { font-size: 12px; color: #9A94B8; }
+
+/* ---- UI merge: settings, inspector, archive, task details, cancellation ---- */
+.chief-card { display: block; width: 100%; text-align: left; color: inherit; font: inherit; border: 0; }
+.chief-card .chief-top > span, .chief-card .chief-name, .chief-card .chief-badges + * { display: block; }
+.chief-card .chief-badges { display: flex; }
+.chief-card .chief-act { display: flex; }
+.kv-card.block { display: block; }
+.kv { display: grid; gap: 4px 12px; margin: 6px 0 0; font-size: 13px; }
+.kv > div { display: grid; grid-template-columns: minmax(110px, 34%) minmax(0, 1fr); gap: 12px; padding: 3px 0; border-bottom: 1px dotted rgba(179,172,221,.15); }
+.kv dt { color: var(--ink-mute); }
+.kv dd { margin: 0; overflow-wrap: anywhere; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.field-err { display: flex; gap: 6px; align-items: center; color: #FFB3C1; font-size: 12px; }
+.input[aria-invalid="true"] { --fr: var(--fr-red); }
+fieldset.plain { border: 0; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.banner.inline-b { margin: 10px 0; }
+.banner.good { border: 2px solid rgba(124,245,180,.45); background: rgba(124,245,180,.06); }
+.row.wrap { flex-wrap: wrap; }
+.prov-state { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
+.danger { border-top: 2px dashed rgba(255,92,122,.4); }
+.conseq { margin: 6px 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-dim); }
+details.arch summary { display: flex; gap: 10px; align-items: center; cursor: pointer; flex-wrap: wrap; }
+details.arch[open] summary { margin-bottom: 6px; }
+.tasks { list-style: none; padding: 0; margin: 0; }
+.trow-w { list-style: none; }
+.trow-w .trow { width: 100%; color: inherit; font: inherit; text-align: left; border: 0; cursor: pointer; flex-wrap: wrap; }
+.trow-w.other .trow { box-shadow: inset 3px 0 0 var(--amber); }
+.trow .err.small { font-size: 11px; color: var(--amber); display: inline-flex; gap: 4px; align-items: center; }
+.task-x { padding: 8px 12px 12px; background: rgba(11,7,22,.5); }
+.mini-h { margin: 10px 0 4px; font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--lav); }
+.runs { width: 100%; border-collapse: collapse; font-size: 12px; display: block; overflow-x: auto; }
+.runs th, .runs td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px dotted rgba(179,172,221,.2); white-space: nowrap; }
+.runs th { color: var(--ink-mute); font-weight: 600; }
+.ids { margin: 2px 0 6px; padding-left: 18px; font-size: 12px; }
+.cancel-sec { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.cancel-sec > div { width: 100%; }
+.confirm { width: 100%; padding: 12px; border: 2px dashed rgba(255,92,122,.55); background: rgba(255,92,122,.06); }
+.cap-h { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cap-g { margin-left: auto; font-size: 11px; color: var(--ink-mute); border: 1px dashed var(--n500); padding: 0 6px; }
+.cap-g.on { color: var(--mint); border: 1px solid var(--mint); }
+.cap.locked { box-shadow: inset 3px 0 0 var(--mint); padding-left: 8px; }
+.capgroup.configured > h4, .capgroup.unverified > h4 { color: var(--amber); }
+.capgroup.unsupported > h4 { color: var(--ash); }
+/* the prototype's inventory side nav was not ported: without it the main column must take the full width */
+.inv-body { grid-template-columns: minmax(0, 1fr); }
+/* in the narrow stage of the sheet layouts the alert sits under the breadcrumb instead of next to the HQ card */
+.mode-inv .stage-alert, .mode-board .stage-alert, .mode-quest .stage-alert { left: 10px; right: 10px; top: 70px; width: auto; max-width: none; margin: 0; }
+@media (max-width: 900px) {
+  .kv > div { grid-template-columns: 1fr; gap: 0; }
+  .cap-g { margin-left: 0; }
+  .trow-w { margin-left: 0 !important; }
+  .modal .row.end { flex-wrap: wrap; }
+}
+/* headings receive focus programmatically after navigation (screen readers start there); no ring for that */
+h1[tabindex="-1"]:focus { outline: none; }
+ul.chips { list-style: none; padding: 0; }

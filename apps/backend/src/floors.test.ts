@@ -76,3 +76,21 @@ test('floors are identical after reloading the database', async () => {
   assert.deepEqual((await app.inject('/api/departments?includeArchived=true')).json(), before.list);
   assert.deepEqual(await names(app), ['D', 'B', 'A']);
 });
+
+test('archive and list responses match the strict shared schemas the browser validates', async () => {
+  const { DepartmentArchivedSchema, DepartmentListSchema, ReconcileResultSchema } = await import('@vibe-city/shared');
+  const { app } = memApp();
+  const a = (await createDept(app, { name: 'A' })).json;
+  const out = await app.inject({ method: 'DELETE', url: `/api/departments/${a.id}` });
+  assert.equal(out.statusCode, 200);
+  const body = DepartmentArchivedSchema.parse(out.json());
+  assert.equal(body.hermesResourcesRetained, false, 'never provisioned: nothing retained in Hermes');
+  assert.ok(body.department.archivedAt);
+  assert.equal(body.department.floorPosition, null);
+  const all = DepartmentListSchema.parse((await app.inject('/api/departments?includeArchived=true')).json());
+  assert.equal(all.departments.length, 1);
+  assert.equal(DepartmentListSchema.parse((await app.inject('/api/departments')).json()).departments.length, 0);
+  assert.equal((await app.inject({ method: 'DELETE', url: `/api/departments/${a.id}` })).statusCode, 404, 'archiving twice is not found');
+  assert.equal((await app.inject({ method: 'PATCH', url: `/api/departments/${a.id}`, payload: { name: 'X' } })).statusCode, 409, 'archived is read-only');
+  assert.ok(ReconcileResultSchema.safeParse({ departments: [] }).success);
+});

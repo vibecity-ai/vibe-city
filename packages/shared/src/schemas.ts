@@ -424,6 +424,34 @@ export const QuestCreatedSchema = z.object({
 }).strict();
 export type QuestCreated = z.infer<typeof QuestCreatedSchema>;
 
+// ---- response envelopes -----------------------------------------------------
+// Every list/wrapper response has a strict schema so the backend and the browser validate the same shape.
+
+export const DepartmentListSchema = z.object({ departments: z.array(DepartmentViewSchema) }).strict();
+export type DepartmentList = z.infer<typeof DepartmentListSchema>;
+
+/** DELETE /api/departments/:id. Archiving never deletes anything in Hermes. */
+export const DepartmentArchivedSchema = z.object({
+  department: DepartmentViewSchema,
+  /** true when the department had a board or profile refs: those Hermes resources still exist and were not touched. */
+  hermesResourcesRetained: z.boolean(),
+}).strict();
+export type DepartmentArchived = z.infer<typeof DepartmentArchivedSchema>;
+
+export const ReconcileResultSchema = z.object({ departments: z.array(ProvisioningStatusSchema) }).strict();
+export const QuestListSchema = z.object({ quests: z.array(QuestSummarySchema) }).strict();
+
+export const QuestTasksSchema = z.object({
+  questId: z.string(),
+  tasks: z.array(TaskNodeSchema),
+  violations: z.array(z.string()),
+  truncated: z.boolean(),
+}).strict();
+export type QuestTasks = z.infer<typeof QuestTasksSchema>;
+
+export const QuestActivitySchema = z.object({ questId: z.string(), events: z.array(ActivityEventSchema) }).strict();
+export type QuestActivity = z.infer<typeof QuestActivitySchema>;
+
 // ---- live events relayed to the frontend ------------------------------------
 
 export const LiveMessageSchema = z.discriminatedUnion('type', [

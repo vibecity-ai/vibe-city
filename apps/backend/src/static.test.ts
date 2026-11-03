@@ -18,6 +18,9 @@ test('serves the web app and falls back to the shell for client routes, but API 
   assert.match((await app.inject('/')).body, /shell/);
   assert.equal((await app.inject('/app.js')).statusCode, 200);
   assert.match((await app.inject('/some/client/route')).body, /shell/);
+  const chunk = await app.inject('/assets/main-stale123.js');
+  assert.equal(chunk.statusCode, 404, 'a missing script is a 404, not the HTML shell');
+  assert.doesNotMatch(chunk.body, /shell/);
   const missing = await app.inject('/api/nope');
   assert.equal(missing.statusCode, 404);
   assert.equal(missing.json().error, 'not_found');

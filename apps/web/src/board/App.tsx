@@ -48,7 +48,7 @@ export function App() {
       {departments.error && <div role="alert" className="banner bad">Could not load departments: {departments.error.message}</div>}
 
       {!departments.loading && !departments.error && !depts.length && (
-        <Empty title="No departments yet" text="Create and provision a department first (Milestones 1–2 API). Quests run inside a provisioned department." />
+        <Empty title="No departments yet" text="Create and provision a department in the city view (the main app, at /) first. Quests run inside a provisioned department." />
       )}
 
       {selected && !selected.hermesBoardRef && (

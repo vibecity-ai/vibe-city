@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type {
-  ActivityEvent, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
+  ActivityEvent, CancellationStatus, DepartmentView, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
 } from '@vibe-city/shared';
 import type { AgentStatus, Connection, Dept } from './data/types';
 
@@ -17,21 +17,32 @@ export type Fx =
   | { k: 'workerJoined'; dept: string; worker: string };
 
 export type View = 'tower' | 'floor';
-export type Panel = 'exec' | 'dept' | 'inventory' | 'board' | 'quest';
+export type Panel = 'exec' | 'dept' | 'settings' | 'inventory' | 'board' | 'quest';
 export type DeptTab = 'overview' | 'inventory' | 'quests';
 
 export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
 export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string }
 export interface QuestItem { deptId: string; summary: QuestSummary }
-export interface QuestExtra { activity: ActivityEvent[]; results: QuestResults | null; error: string | null; loading: boolean }
+/** `poll` tracks the explicit cancellation polling after a cancel request (see live.ts pollCancellation). */
+export type CancelPoll = 'idle' | 'polling' | 'timeout' | 'hermes_down';
+export interface QuestExtra {
+  activity: ActivityEvent[]; results: QuestResults | null; error: string | null; loading: boolean;
+  /** Newest cancellation status seen (from quest detail or polling); never regresses from confirmed. */
+  cancellation: CancellationStatus | null; poll: CancelPoll;
+}
+export const emptyExtra = (): QuestExtra => ({ activity: [], results: null, error: null, loading: false, cancellation: null, poll: 'idle' });
 export interface DeptInfo {
   inventory: Inventory | null; provisioning: ProvisioningStatus | null;
   effective: EffectiveInventory | null; profiles: ProfilesView | null;
+  /** Last error loading effective inventory / profiles (the previous values are kept). */
+  infoError?: string | null;
 }
 
 interface UI {
   view: View; floorId: string | null; panel: Panel; deptTab: DeptTab; questId: string | null;
-  modal: 'create' | null; composer: boolean; agent: string | null; boardFilter: 'all' | 'active' | 'attention' | 'finished';
+  modal: 'create' | 'archive' | null; composer: boolean; agent: string | null; boardFilter: 'all' | 'active' | 'attention' | 'finished';
+  /** Executive Office list: active floors or the read-only archived list. */
+  execView: 'active' | 'archived';
 }
 
 export interface State {
@@ -47,6 +58,10 @@ export interface State {
   loaded: boolean;
   /** The latest refresh failed: what is on screen is the last good data. */
   stale: boolean;
+  /** Archived departments (read-only), loaded on demand with includeArchived=true. */
+  archived: { list: DepartmentView[] | null; error: string | null; loading: boolean };
+  /** Departments whose live socket to the backend is down (REST polling still runs). */
+  liveDown: Record<string, true>;
   /** In-flight mutations, keyed e.g. `provision:<deptId>`. */
   busy: Record<string, true>;
   ui: UI;
@@ -74,7 +89,9 @@ export const useStore = create<State>((set) => ({
   loaded: false,
   stale: false,
   busy: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all' },
+  archived: { list: null, error: null, loading: false },
+  liveDown: {},
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', execView: 'active' },
   toasts: [], fx: [], log: [],
 
   ui$: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),

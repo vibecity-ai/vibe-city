@@ -1,4 +1,4 @@
-# Vibe City: Architecture (as of Milestone 3)
+# Vibe City: Architecture (through Milestone 3 and the city UI merge)
 
 Normative product spec: `VIBE_CITY_SPEC.md`. Hermes facts and limits: `HERMES_COMPATIBILITY.md`.
 
@@ -210,3 +210,15 @@ The vibeytown prototype was copied in once (it is no longer synced from that rep
 - Types come from `@vibe-city/shared` (zod-validated in `src/api.ts`). The inventory UI follows the guarantee rules above: enforced, configured, unverified and unsupported are separate groups with their `detail` text; workspace and delegation depth are labelled advisory.
 - The department setup panel provisions (managed profiles by default; existing profiles require the explicit consent checkbox, sent as `confirmModifyProfiles`).
 - `apps/web/tsconfig.json` turns off `noUncheckedIndexedAccess` because the imported renderer indexes arrays freely.
+
+### UI merge (every backend route usable from the city)
+
+The city at `/` is the complete product surface; `#board` stays as a diagnostic view. Route-by-route coverage, states and tests are in `UI_COVERAGE.md`.
+
+- **Panels** (`ui/Panels.tsx`): Executive Office with an Active/Archived switch (archived departments are read-only, fetched with `includeArchived=true`); department panel; **Settings** sheet (name, purpose, workspace set/clear with advisory copy, the provisioning/profile inspector, archive); inventory sheet (all `InventorySchema` fields including `sharedContextRefs`; capability report grouped by status with role, detail, requested/effective and a guarantee badge, lock styling only for `enforced` + `guarantee`); quest board; quest detail with expandable task rows (run history included), a cancellation panel and results/activity.
+- **Copy and rules** live in `data/views.ts` (pure, tested): what a status means in words, which provisioning action is allowed (retry only for a retryable error or `disconnected`), the settings PATCH diff, archive consequences, cancellation wording (a 202 `requested` is never shown as cancelled).
+- **Consistency** (`data/live.ts`, `data/sched.ts`): every fetch takes a ticket from a last-request-wins gate per key (department quests, local data, info, quest detail, cancellation), so an older response never overwrites newer state. Live events are coalesced per department (400 ms after the last event, at most 2 s after the first). Mutations refresh only the affected department (`GET /api/departments/:id` + its data); create and archive refresh everything because floor order changes. Archiving closes the floor's socket, pending refresh and cancellation polls. A cancellation status never regresses from `confirmed`.
+- **Cancellation polling**: after a `requested` answer the UI polls `GET .../cancellation` (1, 2, 4, 8, then 10 s; 2 min budget) until confirmed, the quest view closes, Hermes/the backend is unreachable, or the budget runs out. Live events refresh the same status in between.
+- **API client** (`src/api.ts`): every response, including list envelopes and the archive response (`DepartmentArchivedSchema`, `QuestTasksSchema`, ... in `packages/shared`), is parsed with a strict schema; the backend parses its responses with the same schemas. Error messages come only from the documented `message`/`issues` fields; non-JSON error bodies are never shown.
+- **Accessibility**: tabs with arrow/Home/End keys, modal dialogs trap focus, close on Escape (without also leaving the floor) and restore focus; after navigation focus moves to the new panel's heading; connection, provisioning, cancellation and errors are announced through `aria-live`/`role=alert`; status always has a glyph and a word as well as a color.
+- **Static serving**: unknown non-API paths fall back to the app shell only when they have no file extension; a missing `*.js`/`*.css` is a 404. (`@fastify/static` with `wildcard: false` registers the files present at startup, so a running backend does not see a later rebuild's new hashed chunks; restart it after rebuilding.)

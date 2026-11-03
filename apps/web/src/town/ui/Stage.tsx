@@ -50,7 +50,7 @@ export function StageOverlay({ city }: { city: City | null }) {
   }, [city]);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !useStore.getState().ui.modal) { const s = useStore.getState(); if (s.ui.panel === 'quest') s.openPanel('board'); else if (s.ui.panel === 'board' || s.ui.panel === 'inventory') s.openPanel('dept'); else if (s.ui.view === 'floor') s.closeFloor(); } };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !useStore.getState().ui.modal) { const s = useStore.getState(); if (s.ui.panel === 'quest') s.openPanel('board'); else if (s.ui.panel === 'board' || s.ui.panel === 'inventory' || s.ui.panel === 'settings') s.openPanel('dept'); else if (s.ui.view === 'floor') s.closeFloor(); } };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, []);
 
