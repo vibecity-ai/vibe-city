@@ -40,6 +40,9 @@ export class ProvisioningService {
   private hermes: HermesRuntime;
   private inflight = new Map<string, Promise<ProvisioningStatus>>();
 
+  /** Runs after a successful provisioning, before the department is marked ready. Errors are swallowed. */
+  afterProvision: ((departmentId: string, chiefProfile: string) => Promise<void>) | null = null;
+
   constructor(db: DatabaseSync, depts: DepartmentService, hermes: HermesRuntime) {
     this.db = db;
     this.depts = depts;
@@ -218,6 +221,9 @@ export class ProvisioningService {
     });
     try {
       await this.steps(id);
+      // Best effort extras (e.g. the Vibe City MCP server on the chief). Never fails provisioning.
+      const chief = this.depts.getRow(id).chief_profile_ref;
+      if (chief && this.afterProvision) { try { await this.afterProvision(id, chief); } catch { /* reported by the hook */ } }
       this.depts.patchRow(id, { provisioning_state: 'ready', provisioning_error_json: null, last_reconciled_at: now() });
     } catch (e) {
       this.fail(id, e);

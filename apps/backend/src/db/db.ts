@@ -71,6 +71,104 @@ export const MIGRATIONS: readonly string[] = [
   // v5: departments no longer have a workspace path; Hermes gives every task its own folder.
   `ALTER TABLE department DROP COLUMN workspace_path;
    ALTER TABLE department DROP COLUMN workspace_isolation;`,
+  // v6: characters (persona per agent seat) and dialogue-window chat history. Personas never grant capabilities.
+  `CREATE TABLE agent_character (
+     department_id TEXT NOT NULL REFERENCES department(id),
+     agent_key TEXT NOT NULL,
+     character_json TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (department_id, agent_key)
+   );
+   CREATE TABLE chat_message (
+     id TEXT PRIMARY KEY,
+     department_id TEXT NOT NULL REFERENCES department(id),
+     agent_key TEXT NOT NULL,
+     seq INTEGER NOT NULL,
+     message_json TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );
+   CREATE INDEX chat_message_thread_idx ON chat_message(department_id, agent_key, seq);`,
+  // v7: AR hiring requests and their candidates (feature spec 7.1). A request changes nothing in Hermes until the offer.
+  `CREATE TABLE hiring_request (
+     id TEXT PRIMARY KEY,
+     state TEXT NOT NULL,
+     trigger_json TEXT NOT NULL,
+     department_id TEXT,
+     brief_json TEXT,
+     messages_json TEXT NOT NULL DEFAULT '[]',
+     scouting_until TEXT,
+     hired_candidate_id TEXT,
+     applied_json TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE TABLE hiring_candidate (
+     id TEXT PRIMARY KEY,
+     request_id TEXT NOT NULL REFERENCES hiring_request(id),
+     idx INTEGER NOT NULL,
+     candidate_json TEXT NOT NULL,
+     interview_json TEXT NOT NULL DEFAULT '[]'
+   );
+   CREATE INDEX hiring_candidate_req_idx ON hiring_candidate(request_id, idx);`,
+  // v8: quests between departments (feature spec 2.4): requests, quest origins, per-department policy, MCP tokens.
+  `CREATE TABLE quest_request (
+     id TEXT PRIMARY KEY,
+     from_department_id TEXT NOT NULL REFERENCES department(id),
+     to_department_id TEXT REFERENCES department(id),
+     to_label TEXT NOT NULL,
+     title TEXT NOT NULL,
+     objective TEXT NOT NULL,
+     reason TEXT NOT NULL,
+     state TEXT NOT NULL,
+     note TEXT,
+     quest_id TEXT,
+     created_at TEXT NOT NULL,
+     decided_at TEXT
+   );
+   CREATE INDEX quest_request_from_idx ON quest_request(from_department_id, created_at);
+   CREATE TABLE quest_origin (
+     quest_id TEXT NOT NULL,
+     department_id TEXT NOT NULL REFERENCES department(id),
+     origin TEXT NOT NULL,
+     from_department_id TEXT,
+     request_id TEXT,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (department_id, quest_id)
+   );
+   CREATE TABLE quest_policy (
+     department_id TEXT PRIMARY KEY REFERENCES department(id),
+     policy_json TEXT NOT NULL
+   );
+   CREATE TABLE agent_token (
+     department_id TEXT PRIMARY KEY REFERENCES department(id),
+     token_hash TEXT NOT NULL UNIQUE,
+     created_at TEXT NOT NULL
+   );`,
+  // v9: schedules (feature spec 8). One row per fire makes firing idempotent across restarts.
+  `CREATE TABLE schedule (
+     id TEXT PRIMARY KEY,
+     department_id TEXT NOT NULL REFERENCES department(id),
+     name TEXT NOT NULL,
+     cron TEXT NOT NULL,
+     timezone TEXT NOT NULL,
+     title TEXT NOT NULL,
+     objective TEXT NOT NULL,
+     instructions TEXT NOT NULL,
+     enabled INTEGER NOT NULL,
+     next_run_at TEXT,
+     last_run_at TEXT,
+     last_quest_id TEXT,
+     last_error TEXT,
+     created_at TEXT NOT NULL,
+     deleted_at TEXT
+   );
+   CREATE TABLE schedule_fire (
+     schedule_id TEXT NOT NULL REFERENCES schedule(id),
+     fire_at TEXT NOT NULL,
+     quest_id TEXT,
+     error TEXT,
+     PRIMARY KEY (schedule_id, fire_at)
+   );`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

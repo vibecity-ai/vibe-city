@@ -29,6 +29,22 @@ import { ProvisioningService } from './domain/provisioningService.ts';
 import { CompanyService } from './domain/companyService.ts';
 import { DepartmentService } from './domain/departmentService.ts';
 import { ConflictError, InvalidInputError, NotFoundError } from './domain/errors.ts';
+import { AGENT_KEY_RE, CharacterSchema, ChatHistorySchema, ChatReplySchema, ChatSendSchema } from '@vibe-city/shared';
+import { CharacterService } from './domain/characters.ts';
+import { ChatService } from './domain/chatService.ts';
+import { ModelFailedError, ModelUnavailableError, type ChatModel } from './model/chatModel.ts';
+import { HiringService } from './domain/hiringService.ts';
+import { AssistantService } from './domain/assistantService.ts';
+import { QuestRequestService } from './domain/questRequests.ts';
+import { MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
+import { ScheduleService } from './domain/scheduleService.ts';
+import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
+import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
+import { AssistantViewSchema, DeptDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
+import {
+  HiringBriefConfirmSchema, HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringSendSchema, HiringStartSchema,
+  InterviewReplySchema, InterviewSendSchema,
+} from '@vibe-city/shared';
 
 const parse = <T>(schema: ZodType<T>, v: unknown): T => schema.parse(v);
 
@@ -37,6 +53,8 @@ export interface AppServices {
   provisioning: ProvisioningService;
   quests: QuestService;
   hub: LiveHub | null;
+  /** Call tick() periodically (the server does every 30 s) to fire due schedules. */
+  schedules: ScheduleService;
 }
 
 export interface ServicesExtra {
@@ -47,6 +65,12 @@ export interface ServicesExtra {
   allowedOrigins?: string[];
   /** Built web app (apps/web/dist). When set, the backend serves it on the same origin as the API. */
   webDist?: string;
+  /** Chat model for the dialogue window (NEAR AI Cloud in the container). Omit: chat answers 503 model_unavailable. */
+  chatModel?: ChatModel;
+  /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned chief gets it in its config. */
+  mcpUrl?: string;
+  /** AR scouting time before the shortlist shows (ms). Default 45 s. */
+  hiringScoutMs?: number;
 }
 
 /** `hermes` is optional so Milestone 1 callers (and tests) keep working: Hermes routes then answer 503. */
@@ -87,6 +111,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     if (err instanceof HermesAuthError) return reply.code(502).send({ error: 'hermes_auth', message: err.message });
     if (err instanceof HermesRejectedError) return reply.code(502).send({ error: 'hermes_rejected', message: err.message });
     if (err instanceof ConflictError) return reply.code(409).send({ error: 'conflict', message: err.message });
+    if (err instanceof ModelUnavailableError) return reply.code(503).send({ error: 'model_unavailable', message: err.message });
+    if (err instanceof ModelFailedError) return reply.code(502).send({ error: 'model_failed', message: err.message });
     const fe = err as { statusCode?: number; message?: string };
     if (fe.statusCode && fe.statusCode < 500) return reply.code(fe.statusCode).send({ error: 'bad_request', message: fe.message });
     app.log.error(err);
@@ -163,6 +189,111 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(AgentViewSchema, await provisioning.agent(id, role));
   });
 
+  // ---- Characters and dialogue-window chat (feature spec 2.1, 2.2, 2.5) ----
+  const noModel: ChatModel = { ready: false, complete: async () => { throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.'); } };
+  const characters = new CharacterService(db);
+  const chat = new ChatService({
+    db, departments, characters, model: extra.chatModel ?? noModel, hermes: runtime,
+    quests: (id) => quests_.list(id), companyName: () => company.view().name,
+  });
+  const agentKeyOf = (params: unknown): string => {
+    const key = (params as { agentKey?: string }).agentKey ?? '';
+    if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
+    return key;
+  };
+  app.get('/api/departments/:id/characters/:agentKey', async (req) =>
+    parse(CharacterSchema, chat.character(idOf(req.params), agentKeyOf(req.params))));
+  app.get('/api/departments/:id/characters/:agentKey/chat', async (req) =>
+    parse(ChatHistorySchema, chat.history(idOf(req.params), agentKeyOf(req.params))));
+  app.post('/api/departments/:id/characters/:agentKey/chat', async (req) =>
+    parse(ChatReplySchema, await chat.send(idOf(req.params), agentKeyOf(req.params), parse(ChatSendSchema, req.body))));
+
+  // ---- AR: scouting and hiring (feature spec 7.1) ----
+  const hiring = new HiringService({
+    db, departments, provisioning, quests: (id) => quests_.list(id), model: extra.chatModel ?? noModel,
+    companyId: () => company.view().id, companyName: () => company.view().name,
+    savePersona: (d, k, c) => characters.save(d, k, c),
+    ...(extra.hiringScoutMs !== undefined ? { scoutMs: extra.hiringScoutMs } : {}),
+  });
+  const reqId = (params: unknown) => (params as { reqId: string }).reqId;
+  app.get('/api/hiring/current', async () => parse(HiringCurrentSchema, { request: await hiring.current() }));
+  app.post('/api/hiring/requests', async (req, reply) => {
+    const body = parse(HiringStartSchema, req.body ?? {});
+    if (body.departmentId) idOf({ id: body.departmentId });
+    return reply.code(201).send(parse(HiringRequestViewSchema, hiring.start(body.departmentId)));
+  });
+  app.get('/api/hiring/requests/:reqId', async (req) => parse(HiringRequestViewSchema, hiring.get(reqId(req.params))));
+  app.post('/api/hiring/requests/:reqId/answer', async (req) => parse(HiringRequestViewSchema, hiring.answer(reqId(req.params))));
+  app.post('/api/hiring/requests/:reqId/decline', async (req) => parse(HiringRequestViewSchema, hiring.decline(reqId(req.params))));
+  app.post('/api/hiring/requests/:reqId/chat', async (req) =>
+    parse(HiringRequestViewSchema, await hiring.send(reqId(req.params), parse(HiringSendSchema, req.body).message)));
+  app.post('/api/hiring/requests/:reqId/brief', async (req) => {
+    const body = parse(HiringBriefConfirmSchema, req.body ?? {});
+    if (body.brief) idOf({ id: body.brief.departmentId });
+    return parse(HiringRequestViewSchema, await hiring.confirmBrief(reqId(req.params), body.brief));
+  });
+  app.get('/api/hiring/requests/:reqId/candidates/:candId/interview', async (req) => {
+    const p = req.params as { candId: string };
+    return hiring.candidateHistory(reqId(req.params), p.candId).messages;
+  });
+  app.post('/api/hiring/requests/:reqId/candidates/:candId/interview', async (req) => {
+    const p = req.params as { candId: string };
+    return parse(InterviewReplySchema, await hiring.interview(reqId(req.params), p.candId, parse(InterviewSendSchema, req.body).message));
+  });
+  app.post('/api/hiring/requests/:reqId/offer', async (req) => {
+    const body = parse(HiringOfferSchema, req.body);
+    return parse(HiringRequestViewSchema, await hiring.offer(reqId(req.params), body.candidateId, body.acceptConcerns));
+  });
+
+  // ---- executive assistant: draft a new floor in the dialogue window (feature spec 4.3) ----
+  const assistant = new AssistantService({
+    departments, provisioning, model: extra.chatModel ?? noModel,
+    companyId: () => company.view().id, companyName: () => company.view().name,
+  });
+  app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
+  app.post('/api/assistant/department-draft', async (req) =>
+    parse(DeptDraftReplySchema, await assistant.draftDepartment(parse(DeptDraftRequestSchema, req.body).messages)));
+
+  // ---- quests between departments + the Vibe City MCP server (feature spec 2.4) ----
+  const questRequests = new QuestRequestService({
+    db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
+  });
+  registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q) });
+  if (extra.mcpUrl && hermes?.setMcpServer) {
+    const url = extra.mcpUrl, rt = hermes;
+    provisioning.afterProvision = async (deptId, chief) => {
+      const token = questRequests.issueToken(deptId);
+      await rt.setMcpServer!(chief, MCP_SERVER_NAME, { url, headers: { Authorization: `Bearer ${token}` }, tools: { include: [...MCP_TOOLS] } });
+    };
+  }
+  // ---- schedules (feature spec 8): the backend creates the quests, Hermes cron stays off ----
+  const schedules = new ScheduleService({
+    db, departments, createQuest: (id, input) => quests_.create(id, input),
+    recordOrigin: (deptId, questId, scheduleId) => questRequests.recordOrigin(deptId, questId, 'schedule', { departmentId: deptId, requestId: scheduleId }),
+  });
+  const schedId = (params: unknown) => (params as { schedId: string }).schedId;
+  app.get('/api/schedules', async (req) => {
+    const q = req.query as { departmentId?: string };
+    return parse(ScheduleListSchema, { schedules: schedules.list(q.departmentId) });
+  });
+  app.post('/api/departments/:id/schedules', async (req, reply) => reply.code(201).send(parse(ScheduleSchema, schedules.create(idOf(req.params), parse(ScheduleCreateSchema, req.body)))));
+  app.patch('/api/schedules/:schedId', async (req) => parse(ScheduleSchema, schedules.update(schedId(req.params), parse(SchedulePatchSchema, req.body))));
+  app.delete('/api/schedules/:schedId', async (req, reply) => { schedules.remove(schedId(req.params)); return reply.code(204).send(); });
+  app.post('/api/schedules/:schedId/run', async (req) => parse(ScheduleSchema, await schedules.runNow(schedId(req.params))));
+
+  app.get('/api/quest-requests', async () => parse(QuestRequestListSchema, { requests: questRequests.list() }));
+  /** For the CEO (and tests): file a request on behalf of a department's chief, through the same guardrails. */
+  app.post('/api/quest-requests', async (req, reply) => {
+    const b = parse(QuestRequestCreateSchema, req.body);
+    idOf({ id: b.fromDepartmentId });
+    return reply.code(201).send(parse(QuestRequestViewSchema, await questRequests.request(b)));
+  });
+  app.post('/api/quest-requests/:reqId/approve', async (req) => parse(QuestRequestViewSchema, await questRequests.approve((req.params as { reqId: string }).reqId)));
+  app.post('/api/quest-requests/:reqId/reject', async (req) => parse(QuestRequestViewSchema, questRequests.reject((req.params as { reqId: string }).reqId)));
+  app.get('/api/quest-origins', async () => parse(QuestOriginListSchema, { origins: questRequests.origins() }));
+  app.get('/api/departments/:id/quest-policy', async (req) => parse(QuestPolicySchema, questRequests.policy(idOf(req.params))));
+  app.patch('/api/departments/:id/quest-policy', async (req) => parse(QuestPolicySchema, questRequests.setPolicy(idOf(req.params), parse(QuestPolicyPatchSchema, req.body))));
+
   app.get('/api/departments/:id/effective-inventory', async (req) => {
     const id = idOf(req.params);
     return parse(EffectiveInventorySchema, provisioning.effectiveInventory(id));
@@ -177,7 +308,9 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
 
   app.post('/api/departments/:id/quests', async (req, reply) => {
-    const created = await quests_.create(idOf(req.params), parse(QuestCreateSchema, req.body));
+    const id = idOf(req.params);
+    const created = await quests_.create(id, parse(QuestCreateSchema, req.body));
+    questRequests.recordOrigin(id, created.questId, 'user');
     return reply.code(201).send(parse(QuestCreatedSchema, created));
   });
 
@@ -271,5 +404,5 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     });
   }
 
-  return { app, provisioning, quests: quests_, hub };
+  return { app, provisioning, quests: quests_, hub, schedules };
 }

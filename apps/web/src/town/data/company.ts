@@ -3,7 +3,7 @@
    Pure rules only, so they are testable without a browser:
    - a department whose quests could not be loaded is reported as missing, never shown as "no quests";
    - only ready departments can receive a quest; a stopped gateway is a warning (the quest queues), not a block. */
-import type { QuestStatus } from '@vibe-city/shared';
+import type { QuestStatus, TaskNode } from '@vibe-city/shared';
 import type { Dept } from './types.ts';
 import type { QuestItem } from '../store.ts';
 
@@ -82,3 +82,40 @@ export const GATEWAY_WARNING = 'The Hermes gateway is not running: the quest wil
 
 /** Badge for the top bar: quests in the Needs attention column (from data actually loaded). */
 export const attentionCount = (quests: QuestItem[]) => quests.filter((q) => columnOf(q.summary.status) === 'attention').length;
+
+export type BoardSort = 'newest' | 'oldest' | 'title';
+
+/** Search (title or department, any order of words) and sort, applied after the department/status filters. */
+export function searchSort(list: BoardQuest[], query: string, sort: BoardSort): BoardQuest[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const hit = (q: BoardQuest) => { const hay = `${q.summary.title} ${q.deptName}`.toLowerCase(); return words.every((w) => hay.includes(w)); };
+  const out = words.length ? list.filter(hit) : [...list];
+  if (sort === 'oldest') out.reverse();
+  if (sort === 'title') out.sort((a, b) => a.summary.title.localeCompare(b.summary.title));
+  return out;
+}
+
+/** Compact age for a card: "now", "5m", "3h", "2d". */
+export function age(iso: string | null, now = Date.now()): string {
+  if (!iso) return '';
+  const m = Math.max(0, Math.floor((now - Date.parse(iso)) / 60_000));
+  return m < 1 ? 'now' : m < 60 ? `${m}m` : m < 1440 ? `${Math.floor(m / 60)}h` : `${Math.floor(m / 1440)}d`;
+}
+
+export interface CardLines { plan: string | null; latest: { k: 'failed' | 'running' | 'completed' | 'todo'; text: string } | null }
+
+/** The two lines a card shows when expanded: the chief's plan and the latest task, from the loaded task tree only. */
+export function cardLines(tasks: readonly TaskNode[] | undefined): CardLines {
+  if (!tasks?.length) return { plan: null, latest: null };
+  const root = tasks.find((t) => t.role === 'chief' && t.depth === 0) ?? tasks[0]!;
+  const plan = root.summary?.trim().replace(/^plan\s*[:\-]\s*/i, '') || null;
+  const workers = tasks.filter((t) => t !== root);
+  const by = (t: TaskNode) => t.completedAt ?? t.startedAt ?? t.createdAt ?? '';
+  const failed = workers.filter((t) => t.failed).sort((a, b) => by(b).localeCompare(by(a)))[0];
+  if (failed) return { plan, latest: { k: 'failed', text: `${failed.title}${failed.error ? `: ${failed.error}` : ' failed'}` } };
+  const running = workers.filter((t) => t.status === 'running').sort((a, b) => by(b).localeCompare(by(a)))[0];
+  if (running) return { plan, latest: { k: 'running', text: `Working on: ${running.title}` } };
+  const done = workers.filter((t) => t.status === 'done').sort((a, b) => by(b).localeCompare(by(a)))[0];
+  if (done) return { plan, latest: { k: 'completed', text: `Last done: ${done.title}` } };
+  return { plan, latest: workers.length ? { k: 'todo', text: `${workers.length} task${workers.length > 1 ? 's' : ''} waiting` } : null };
+}

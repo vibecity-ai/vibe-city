@@ -8,8 +8,8 @@ import {
 } from '../data/live';
 import { clock } from '../data/derive';
 import {
-  GATEWAY_WARNING, attentionCount, companyQuests, defaultTarget, filterColumns, filterQuests, missingDepts, questTargets,
-  type BoardQuest, type ColumnKey, type DeptOption,
+  GATEWAY_WARNING, age, attentionCount, cardLines, companyQuests, defaultTarget, filterColumns, filterQuests, missingDepts, questTargets, searchSort,
+  type BoardQuest, type BoardSort, type ColumnKey, type DeptOption,
 } from '../data/company';
 import {
   CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL,
@@ -17,7 +17,11 @@ import {
   settingsFormFrom, settingsPatch, taskStatusView, settingsErrorField, type SettingsForm,
 } from '../data/views';
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
-import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
+import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
+import { callAr } from './Hiring';
+import { PendingRequests, QuestPolicyEditor } from './Requests';
+import { AgentPortrait, AgentRecord, ChatTranscript, PersonaLine } from './AgentView';
+import { SchedulesView } from './Schedules';
 
 const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -89,13 +93,15 @@ export function ExecPanel() {
           <h1 className="display" tabIndex={-1}>{company?.name ?? 'Your company'}</h1>
           <p className="sub">{loaded ? 'Everything below is read from Hermes through the Vibe City backend.' : 'Connecting to the backend…'}</p>
           <div className="actions"><Btn kind="secondary" onClick={() => openPanel('board', { composer: false, boardDept: null })}>Quest board</Btn>
-            <Btn kind="secondary" onClick={() => openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" sw={3} />New quest</Btn></div>
+            <Btn kind="secondary" onClick={() => openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" sw={3} />New quest</Btn>
+            <Btn kind="secondary" onClick={() => void callAr()}><Icon n="phone" size={14} />Call AR</Btn></div>
           <Tabs label="Departments" idBase="exec" value={view} onChange={(v) => ui$({ execView: v })}
             options={[{ key: 'active', label: 'Active floors' }, { key: 'archived', label: <>Archived{archived.list && <span className="count">{archived.list.length}</span>}</> }]} />
         </section>
         <div id="exec-panel" role="tabpanel" aria-labelledby={`exec-tab-${view}`}>
           {view === 'active' && (
             <>
+              <PendingRequests />
               <section className="pane-sec">
                 <h3 className="sec-t">Company status</h3>
                 <div className="tiles">
@@ -141,7 +147,7 @@ export function ExecPanel() {
           {view === 'archived' && <ArchivedList />}
         </div>
       </div>
-      {view === 'active' && <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add department</button></div>}
+      {view === 'active' && <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ newDept: true })}><Icon n="plus" sw={3} />Add department</button></div>}
     </div>
   );
 }
@@ -202,6 +208,8 @@ export function DeptPanel() {
             <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Quests on the board</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('inventory')}>Inventory</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings</Btn>
+            <Btn kind="secondary" onClick={() => void callAr(d.id)}><Icon n="phone" size={14} />Hire</Btn>
+            <Btn kind="secondary" onClick={() => s.ui$({ execModal: 'calendar', scheduleDept: d.id })}>Schedules</Btn>
           </div>
           {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New quests need a provisioned department.' : 'New quests need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new quests wait in Queued until it starts.</p>}
@@ -394,6 +402,10 @@ export function SettingsSheet() {
           <p className="sub">Edit the department, inspect what Vibe City created or linked in Hermes, or archive the floor.</p>
         </section>
         <SettingsForm key={`${d.id}|${d.name}|${d.purpose}`} d={d} />
+        <section className="pane-sec">
+          <h3 className="sec-t">Work from other floors</h3>
+          <QuestPolicyEditor deptId={d.id} />
+        </section>
         <ProvisioningInspector d={d} />
         <section className="pane-sec danger">
           <h3 className="sec-t">Archive</h3>
@@ -546,21 +558,18 @@ function ModelPicker({ label, hint, models, error, onRetry, value, onChange, dis
     <Field label={label} hint={hint} error={error ? `${error}` : !offered ? `${value!.id} (${value!.provider}) is not in Hermes’ list anymore. Choose another model.` : null}>
       {(p) => (
         <div className="row model-pick">
-          <select {...p} className="input mono" disabled={disabled || !models} value={modelKey(value)}
-            onChange={(e) => {
-              if (!e.target.value) return onChange(null);
-              const [provider, id] = e.target.value.split('\u0000');
+          <PixelSelect {...p} mono disabled={disabled || !models} value={modelKey(value)}
+            placeholder={error ? 'Model list unavailable' : 'Loading models from Hermes…'}
+            onChange={(v) => {
+              if (!v) return onChange(null);
+              const [provider, id] = v.split('\u0000');
               onChange({ provider: provider!, id: id! });
-            }}>
-            {!models && <option value={modelKey(value)}>{error ? 'Model list unavailable' : 'Loading models from Hermes…'}</option>}
-            {models && <option value="">Keep the profile’s own model</option>}
-            {models && !offered && <option value={modelKey(value)}>{value!.id} · {value!.provider} (not offered)</option>}
-            {models?.providers.map((pr) => (
-              <optgroup key={pr.slug} label={`${pr.name}${pr.current ? ' · current provider' : ''}`}>
-                {pr.models.map((m) => <option key={m} value={modelKey({ provider: pr.slug, id: m })}>{m}</option>)}
-              </optgroup>
-            ))}
-          </select>
+            }}
+            options={!models ? [] : [
+              { value: '', label: 'Keep the profile’s own model' },
+              ...(!offered ? [{ value: modelKey(value), label: `${value!.id} · ${value!.provider}`, note: 'not offered' }] : []),
+              ...models.providers.flatMap((pr) => pr.models.map((m) => ({ value: modelKey({ provider: pr.slug, id: m }), label: m, group: `${pr.name}${pr.current ? ' · current provider' : ''}` }))),
+            ]} />
           {error && <button type="button" className="link" onClick={onRetry}>Retry</button>}
         </div>
       )}
@@ -652,6 +661,9 @@ export function AgentPanel() {
   const id = d?.id;
   useEffect(() => { if (id) void loadAgent(id, role); }, [id, role, d?.provisioning]);
   useEffect(() => { if (id) void loadDeptInfo(id); }, [id]);
+  const [tab, setTab] = useState<'now' | 'chat' | 'loadout' | 'record' | 'schedule'>('now');
+  const agentKey = sel === 'chief' ? 'chief' : worker?.id ?? null;
+  const hermesModels = useHermesModels();
   if (!d) return null;
   const a = s.agents[`${d.id}:${role}`];
   const view = a?.view ?? null;
@@ -672,18 +684,19 @@ export function AgentPanel() {
   const allowed = new Set(inv?.allowedSkillIds ?? []);
   const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
   const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
-  const hermesModels = useHermesModels();
   return (
     <div className="pane">
       <div className="pane-scroll">
         <section className="pane-head">
           <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where><button className="x" onClick={() => s.openPanel('dept')} aria-label="Close agent"><Icon n="x" /></button></div>
           <div className="agent-head">
-            <Portrait shirt={worker?.shirt ?? '#fff'} chief={role === 'chief'} size={56} />
+            {agentKey ? <AgentPortrait deptId={d.id} agentKey={agentKey} shirt={worker?.shirt ?? '#FFFFFF'} status={status} /> : <Portrait shirt={worker?.shirt ?? '#fff'} chief={role === 'chief'} size={56} />}
             <div>
               <div className="title-row"><h1 className="display sm" tabIndex={-1}>{name}</h1><Chip k={status} /></div>
+              {agentKey && <PersonaLine deptId={d.id} agentKey={agentKey} />}
               <p className="mono muted small">{role === 'chief' ? 'Chief' : 'Worker'} · Hermes profile {view?.profileRef ?? (role === 'chief' ? d.chiefProfileRef : d.workerProfileRef) ?? '— (not provisioned)'}</p>
               <p className="mono small">model · {view?.model ?? '—'}{view?.observedAt && <span className="muted"> · read from Hermes {formatTime(view.observedAt)}</span>}</p>
+              {(role === 'chief' ? !!d.chief : !!worker) && <button className="btn primary small" style={{ marginTop: 8 }} onClick={() => s.ui$({ talk: { deptId: d.id, agentKey: role === 'chief' ? 'chief' : worker!.id } })}>Talk</button>}
             </div>
           </div>
         </section>
@@ -692,6 +705,21 @@ export function AgentPanel() {
           {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs provisioning again</b><p>Saved changes are not in Hermes yet. The agent keeps its previous skills and model until you provision again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
         </div>
 
+        <div className="pane-sec agent-tabs-wrap">
+          <Tabs label="Agent sections" idBase="agent" value={tab} onChange={setTab}
+            options={[{ key: 'now', label: 'Now' }, { key: 'chat', label: 'Chat' }, { key: 'loadout', label: 'Loadout' }, { key: 'record', label: 'Record' }, { key: 'schedule', label: 'Schedule' }]} />
+        </div>
+        <div id="agent-panel" role="tabpanel" aria-labelledby={`agent-tab-${tab}`}>
+        {tab === 'chat' && (agentKey ? <ChatTranscript deptId={d.id} agentKey={agentKey} onTalk={() => s.ui$({ talk: { deptId: d.id, agentKey } })} /> : <section className="pane-sec"><p className="muted">Pick a worker desk to see its conversations.</p></section>)}
+        {tab === 'record' && <AgentRecord d={d} role={role} />}
+        {tab === 'schedule' && (
+          <section className="pane-sec">
+            <h3 className="sec-t">Schedule</h3>
+            <p className="fine">This floor's recurring quests. Each one lands on the chief's desk at its time, like a quest you create.</p>
+            <SchedulesView deptId={d.id} />
+          </section>
+        )}
+        {tab === 'now' && <>
         <section className="pane-sec">
           <h3 className="sec-t">Now</h3>
           {role === 'chief' && d.chief && <p>{d.chief.activity} <span className="mono muted small">since {d.chief.since}</span></p>}
@@ -722,6 +750,8 @@ export function AgentPanel() {
           ))}</ul>
         </section>
 
+        </>}
+        {tab === 'loadout' && <>
         <section className="pane-sec">
           <h3 className="sec-t">Skills</h3>
           <p className="fine">Shared by the chief and workers of this department. Changes apply when you provision again.</p>
@@ -777,6 +807,8 @@ export function AgentPanel() {
             })}
           </div>
         </section>
+        </>}
+        </div>
 
       </div>
     </div>
@@ -793,39 +825,49 @@ const backToPlace = () => { const s = useStore.getState(); s.openPanel(s.ui.view
 
 export function QuestBoard() {
   const s = useStore();
+  const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<BoardSort>('newest');
   const all = companyQuests(s.depts, s.quests);
   const f = s.ui.boardFilter;
   const dept = s.ui.boardDept && s.depts.some((d) => d.id === s.ui.boardDept) ? s.ui.boardDept : null;
-  const shown = filterQuests(all, dept, f);
+  const by = s.ui.boardBy;
+  const byOk = (q: BoardQuest) => { const o = s.origins[q.summary.id]?.origin ?? 'user'; return by === 'anyone' || o === by || (by === 'user' && o === 'market'); };
+  const shown = searchSort(filterQuests(all, dept, f), query, sort).filter(byOk);
   const missing = missingDepts(s.depts, s.questSync, s.conn.hermes, dept);
   const targets = questTargets(s.depts, s.conn.hermes);
   const canCreate = targets.some((t) => !t.disabled);
   const withBoards = s.depts.filter((d) => s.questSync[d.id] !== 'no_board');
-  const count = (k: typeof f) => filterQuests(all, dept, k).length;
-  const deptName = dept ? s.depts.find((d) => d.id === dept)?.name : null;
+  const count = (k: typeof f) => searchSort(filterQuests(all, dept, k), query, sort).filter(byOk).length;
+  const open = s.ui.boardQuest && s.quests.some((q) => q.summary.id === s.ui.boardQuest) ? s.ui.boardQuest : null;
+  const leave = () => { s.ui$({ boardQuest: null }); backToPlace(); };
   return (
-    <div className="pane sheet">
+    <div className="pane sheet qb">
       <div className="pane-scroll">
-        <section className="pane-head">
-          <div className="head-row">
+        <section className="qb-head">
+          <div className="qb-title">
             <Where n="PH" tone="gold">Company</Where>
-            <div className="head-actions"><button className="btn primary lg" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={backToPlace} aria-label="Close quest board"><Icon n="x" /></button></div>
+            <h1 className="display" tabIndex={-1}>Quest board</h1>
+            <p className="sync" aria-live="polite"><Icon n="refresh" size={12} />{withBoards.length === 0
+              ? 'No department has a Hermes board yet. Provision a department to give it quests.'
+              : `Read from ${withBoards.length} Hermes board${withBoards.length === 1 ? '' : 's'}`}</p>
+            <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={leave} aria-label="Close quest board"><Icon n="x" /></button></div>
           </div>
-          <h1 className="display" tabIndex={-1}>Quest board</h1>
-          <p className="sync" aria-live="polite"><Icon n="refresh" size={14} />{withBoards.length === 0
-            ? 'No department has a Hermes board yet. Provision a department to give it quests.'
-            : <span>Every department’s quests, read from {withBoards.length === 1 ? 'its' : 'their'} Hermes boards{deptName ? <> · showing <b>{deptName}</b> only</> : ''}</span>}</p>
-          <div className="filters" role="group" aria-label="Filter by department">
-            <button aria-pressed={!dept} className={!dept ? 'on' : ''} onClick={() => s.ui$({ boardDept: null })}>All departments</button>
-            {withBoards.map((d) => <button key={d.id} aria-pressed={dept === d.id} className={dept === d.id ? 'on' : ''} onClick={() => s.ui$({ boardDept: d.id })}><FloorKey n={'F' + floorNum(s.depts, d.id)} />{d.name}</button>)}
-          </div>
-          <div className="filters" role="group" aria-label="Filter by status">
-            {(['all', 'active', 'attention', 'finished'] as const).map((k) => <button key={k} aria-pressed={f === k} className={f === k ? 'on' : ''} onClick={() => s.ui$({ boardFilter: k })}>{{ all: 'All', active: 'Active', attention: 'Attention', finished: 'Finished' }[k]}<span className="count">{count(k)}</span></button>)}
+          <div className="qb-tools" role="toolbar" aria-label="Filter, search and sort quests">
+            <div className="qb-dept"><PixelSelect value={dept ?? ''} onChange={(v) => s.ui$({ boardDept: v || null })} aria-describedby={undefined}
+              options={[{ value: '', label: 'All departments' }, ...withBoards.map((d) => ({ value: d.id, label: `F${floorNum(s.depts, d.id)} · ${d.name}` }))]} /></div>
+            <div className="seg-row" role="group" aria-label="Filter by status">
+              {(['all', 'active', 'attention', 'finished'] as const).map((k) => <button key={k} aria-pressed={f === k} className={f === k ? 'on' : ''} onClick={() => s.ui$({ boardFilter: k })}>{{ all: 'All', active: 'Active', attention: 'Attention', finished: 'Finished' }[k]}<span className="count">{count(k)}</span></button>)}
+            </div>
+            <label className="qb-search"><Icon n="search" size={14} /><input className="input" type="search" placeholder="Search quests" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search quests by title or department" /></label>
+            <div className="qb-by"><PixelSelect value={by} onChange={(v) => s.ui$({ boardBy: v as typeof by })} aria-describedby={undefined}
+              options={[{ value: 'anyone', label: 'Assigned by anyone' }, { value: 'user', label: 'Assigned by you' }, { value: 'agent', label: 'Assigned by agents' }, { value: 'schedule', label: 'From schedules' }]} /></div>
+            <div className="qb-sort"><PixelSelect value={sort} onChange={(v) => setSort(v as BoardSort)} aria-describedby={undefined}
+              options={[{ value: 'newest', label: 'Newest first' }, { value: 'oldest', label: 'Oldest first' }, { value: 'title', label: 'Title A–Z' }]} /></div>
           </div>
         </section>
         <div aria-live="polite">
           {missing.length > 0 && (
-            <div className={`banner ${missing.some((m) => m.sync === 'not_loaded') ? 'bad' : 'warn'}`} role="status"><Glyph k="disconnected" />
+            <div className={`banner qb-banner ${missing.some((m) => m.sync === 'not_loaded') ? 'bad' : 'warn'}`} role="status"><Glyph k="disconnected" />
               <div><b>{missing.some((m) => m.sync === 'not_loaded') ? 'Some quests are missing from this board' : 'Some quests may be out of date'}</b>{missing.map((m) => <p key={m.id}>{m.text}</p>)}</div></div>
           )}
         </div>
@@ -833,16 +875,23 @@ export function QuestBoard() {
         <div className="board">
           {filterColumns(f).map((c) => {
             const list = shown.filter((q) => c.has(q.summary.status));
+            const color = statusColor(COL_GLYPH[c.key]);
             return (
-              <div key={c.key} className="col">
-                <div className="col-h" style={{ color: statusColor(COL_GLYPH[c.key]), borderColor: statusColor(COL_GLYPH[c.key]) }}><Glyph k={COL_GLYPH[c.key]} /><b>{c.title}</b><span className="col-n">{list.length}</span></div>
-                {list.map((q) => <QuestCard key={q.summary.id} q={q} />)}
-                {list.length === 0 && <div className="col-empty">Nothing here</div>}
-              </div>
+              <section key={c.key} className={`col${list.length ? '' : ' empty'}`} aria-label={`${c.title}: ${list.length}`} style={{ ['--col' as string]: color }}>
+                <h2 className="col-h"><Glyph k={COL_GLYPH[c.key]} /><b>{c.title}</b><span className="col-n">{list.length}</span></h2>
+                <div className="col-list">{list.map((q) => <QuestCard key={q.summary.id} q={q} open={open === q.summary.id} />)}</div>
+                {list.length === 0 && <div className="col-empty">{query ? 'No match' : 'Nothing here'}</div>}
+              </section>
             );
           })}
         </div>
       </div>
+      {open && (
+        <div className="qb-drawer-wrap">
+          <button className="qb-scrim" aria-label="Close quest details" onClick={() => s.ui$({ boardQuest: null })} />
+          <div className="qb-drawer"><QuestDetail id={open} drawer /></div>
+        </div>
+      )}
     </div>
   );
 }
@@ -869,10 +918,8 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
       <h3 className="sec-t" id="qc-h">New quest</h3>
       <Field label="Department" hint="The quest goes to this department’s chief, who plans it on the department’s own board.">
         {(p) => (
-          <select {...p} className="input" value={dept ?? ''} onChange={(e) => setDept(e.target.value || null)} disabled={busy}>
-            <option value="">Choose a department…</option>
-            {targets.map((t) => <option key={t.id} value={t.id} disabled={!!t.disabled}>{t.label}{t.disabled ? ` (${t.disabled})` : ''}</option>)}
-          </select>
+          <PixelSelect {...p} value={dept ?? ''} onChange={(v) => setDept(v || null)} disabled={busy} placeholder="Choose a department…"
+            options={targets.map((t) => ({ value: t.id, label: t.label, disabled: !!t.disabled, ...(t.disabled ? { note: t.disabled } : {}) }))} />
         )}
       </Field>
       <Field label="Quest title">{(p) => <input {...p} className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
@@ -885,31 +932,40 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
   );
 }
 
-function QuestCard({ q }: { q: BoardQuest }) {
-  const openPanel = useStore((s) => s.openPanel);
+function QuestCard({ q, open }: { q: BoardQuest; open: boolean }) {
+  const ui$ = useStore((s) => s.ui$);
   const detail = useStore((s) => s.details[q.summary.id]);
   const x = q.summary;
   const workers = detail?.tasks.filter((t) => t.role === 'worker') ?? [];
+  const lines = cardLines(detail?.tasks);
+  const k = questStatus(x.status);
+  const origin = useStore((s) => s.origins[x.id]);
   return (
-    <button className={`qcard ${x.status}`} onClick={() => openPanel('quest', { questId: x.id, questFrom: 'board' })}>
-      <span className="qcard-dept"><FloorKey n={q.floor} />{q.deptName}</span>
-      <span className="qcard-h"><b>{x.title}</b></span>
-      <Chip k={questStatus(x.status)} label={STATUS[x.status].label} small />
-      <span className="qcard-meta">
-        <span><i>Tasks</i>{x.counts.tasks ? <>{workers.length > 0 && <span className="pips" aria-hidden="true">{workers.map((t) => <Glyph key={t.id} k={taskStatusView(t).k} />)}</span>}{x.counts.done} of {x.counts.tasks} done</> : 'None yet'}</span>
+    <button className={`qcard ${x.status}${open ? ' sel' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
+      onClick={() => ui$({ boardQuest: x.id })} aria-label={`${x.title}, ${STATUS[x.status].label}, ${q.deptName}`}>
+      <span className="qcard-h"><Glyph k={k} /><b>{x.title}</b></span>
+      <span className="qcard-row">
+        <span className="qcard-dept"><FloorKey n={q.floor} />{q.deptName}</span>
+        {origin?.origin === 'agent' && origin.fromName && <span className="qcard-from" title={`Requested by the ${origin.fromName} chief`}>from {origin.fromName}</span>}
+        {origin?.origin === 'schedule' && <span className="qcard-from sched" title="Created by a schedule">scheduled</span>}
+        {x.counts.tasks > 0 && <span className="qcard-tasks">{workers.length > 0 && <span className="pips" aria-hidden="true">{workers.slice(0, 8).map((t) => <Glyph key={t.id} k={taskStatusView(t).k} size={8} />)}</span>}{x.counts.done}/{x.counts.tasks}</span>}
+        <span className="qcard-age mono" title={formatTime(x.createdAt)}>{age(x.createdAt)}</span>
       </span>
-      {x.status === 'running' && <span className="note">Stays in progress until every task is done.</span>}
-      {x.flags.hasFailures && <span className="err"><Glyph k="failed" />A task failed</span>}
-      {x.flags.unauthorizedAssignees && <span className="err"><Glyph k="awaiting" />Task outside this department</span>}
-      <span className="mono muted small">created {clock(x.createdAt)}</span>
+      <span className="qcard-more" aria-hidden={!lines.plan && !lines.latest}>
+        <span className="qcard-st">{STATUS[x.status].label}</span>
+        {lines.plan && <span className="qcard-line"><i>Plan</i>{lines.plan}</span>}
+        {lines.latest && <span className={`qcard-line ${lines.latest.k}`}><Glyph k={lines.latest.k} size={8} />{lines.latest.text}</span>}
+        {!lines.plan && !lines.latest && <span className="qcard-line muted">Open for the task tree and activity.</span>}
+        {x.flags.unauthorizedAssignees && <span className="qcard-line failed"><Glyph k="awaiting" size={8} />Task outside this department</span>}
+      </span>
     </button>
   );
 }
 
 /* ============ F · quest details ============ */
-export function QuestDetail() {
+export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = {}) {
   const s = useStore();
-  const qid = s.ui.questId;
+  const qid = id ?? s.ui.questId;
   const item = s.quests.find((x) => x.summary.id === qid);
   const detail = qid ? s.details[qid] : undefined;
   const extra = qid ? s.extra[qid] : undefined;
@@ -930,7 +986,9 @@ export function QuestDetail() {
     <div className="pane sheet">
       <div className="pane-scroll">
         <section className="pane-head">
-          <div className="head-row">{s.ui.questFrom === 'dept' && s.ui.floorId
+          <div className="head-row">{drawer
+            ? <button className="link" onClick={() => s.ui$({ boardQuest: null })}><Icon n="x" size={14} />Close</button>
+            : s.ui.questFrom === 'dept' && s.ui.floorId
             ? <button className="link" onClick={() => s.openPanel('dept')}><Icon n="back" size={14} />{s.depts.find((x) => x.id === s.ui.floorId)?.name ?? 'Department'}</button>
             : <button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Quest board</button>}<span className="mono muted">{sum.id}</span></div>
           <div className="title-row"><h1 className="display sm" tabIndex={-1}>{sum.title}</h1><Chip k={questStatus(sum.status)} label={STATUS[sum.status].label} /></div>

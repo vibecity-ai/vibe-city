@@ -1,4 +1,5 @@
-import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import type { QuestStatus } from '@vibe-city/shared';
 import type { AgentStatus, DeptState } from '../data/types';
 
@@ -66,7 +67,7 @@ const P: Record<string, ReactNode> = {
   file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /></>, download: <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />, ext: <path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" />,
   refresh: <path d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6" />, lock: <><rect x="5" y="11" width="14" height="9" rx="1" /><path d="M8 11V8a4 4 0 018 0v3" /></>,
   more: <><circle cx="6" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18" cy="12" r="1.2" /></>, fit: <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />,
-  minus: <path d="M5 12h14" />, building: <path d="M5 21V5l7-3 7 3v16M9 9h1M14 9h1M9 13h1M14 13h1M10 21v-4h4v4" />,
+  minus: <path d="M5 12h14" />, search: <><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></>, bell: <path d="M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0" />, phone: <path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a1 1 0 01-1 1A16 16 0 014 5a1 1 0 011-1z" />, building: <path d="M5 21V5l7-3 7 3v16M9 9h1M14 9h1M9 13h1M14 13h1M10 21v-4h4v4" />,
 };
 export function Icon({ n, size = 16, sw = 2 }: { n: keyof typeof P | string; size?: number; sw?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{P[n]}</svg>;
@@ -154,4 +155,103 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
 /** Definition list of label/value rows (inspectors). */
 export function KV({ rows }: { rows: [ReactNode, ReactNode][] }) {
   return <dl className="kv">{rows.map(([k, v], i) => <div key={i}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>;
+}
+
+/* ---------- PixelSelect: the game's dropdown (native <select> menus render as OS widgets, white on Windows). ----------
+   A button that opens a framed listbox in a portal: below the trigger (above when there is no room), a bottom sheet
+   on phones. Keyboard: arrows/Home/End move, Enter/Space choose, Esc closes, typing jumps to a matching option. */
+export interface SelectOption { value: string; label: string; group?: string; disabled?: boolean; note?: string }
+
+export function PixelSelect({ id, value, options, onChange, disabled, placeholder = 'Choose…', mono, ...aria }: {
+  id?: string; value: string; options: readonly SelectOption[]; onChange: (v: string) => void; disabled?: boolean;
+  placeholder?: string; mono?: boolean; 'aria-describedby'?: string; 'aria-invalid'?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [active, setActive] = useState(-1);
+  const [pos, setPos] = useState<{ left: number; width: number; top?: number; bottom?: number; maxH: number } | null>(null);
+  const btn = useRef<HTMLButtonElement>(null);
+  const list = useRef<HTMLUListElement>(null);
+  const typed = useRef({ s: '', t: 0 });
+  const lid = useId();
+  const cur = options.find((o) => o.value === value);
+  const sheet = typeof window !== 'undefined' && window.innerWidth <= 760;
+
+  const place = useCallback(() => {
+    const r = btn.current?.getBoundingClientRect(); if (!r) return;
+    const below = window.innerHeight - r.bottom - 12, above = r.top - 12;
+    const up = below < 220 && above > below;
+    setPos({ left: r.left, width: r.width, ...(up ? { bottom: window.innerHeight - r.top + 4 } : { top: r.bottom + 4 }), maxH: Math.min(360, up ? above : below) });
+  }, []);
+  const show = () => { if (disabled) return; place(); setActive(Math.max(0, options.findIndex((o) => o.value === value))); setOpen(true); };
+  const hide = (focus = true) => { setOpen(false); if (focus) btn.current?.focus(); };
+  const choose = (i: number) => { const o = options[i]; if (!o || o.disabled) return; onChange(o.value); hide(); };
+  const step = (from: number, d: number) => {
+    for (let i = from + d, n = 0; n < options.length; i += d, n++) {
+      const j = (i + options.length) % options.length; if (!options[j]!.disabled) return j;
+    }
+    return from;
+  };
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const el = list.current?.querySelector<HTMLElement>(`[data-i="${active}"]`); el?.scrollIntoView({ block: 'nearest' });
+  }, [open, active]);
+  useEffect(() => {
+    if (!open) return;
+    list.current?.focus();
+    const away = (e: PointerEvent) => { if (!list.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) hide(false); };
+    const move = () => { if (!sheet) place(); };
+    window.addEventListener('pointerdown', away, true); window.addEventListener('resize', move); window.addEventListener('scroll', move, true);
+    return () => { window.removeEventListener('pointerdown', away, true); window.removeEventListener('resize', move); window.removeEventListener('scroll', move, true); };
+  }, [open, sheet, place]);
+
+  const onKey = (e: React.KeyboardEvent) => {
+    if (!open) {
+      if (['ArrowDown', 'ArrowUp', 'Enter', ' '].includes(e.key)) { e.preventDefault(); show(); }
+      return;
+    }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); hide(); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => step(a, 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => step(a, -1)); }
+    else if (e.key === 'Home') { e.preventDefault(); setActive(step(-1, 1)); }
+    else if (e.key === 'End') { e.preventDefault(); setActive(step(options.length, -1)); }
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); choose(active); }
+    else if (e.key === 'Tab') hide(false);
+    else if (e.key.length === 1) {
+      const now = performance.now(); typed.current = { s: (now - typed.current.t > 700 ? '' : typed.current.s) + e.key.toLowerCase(), t: now };
+      const i = options.findIndex((o) => !o.disabled && o.label.toLowerCase().startsWith(typed.current.s)); if (i >= 0) setActive(i);
+    }
+  };
+
+  let lastGroup: string | undefined;
+  const menu = open && pos && createPortal(
+    <>
+      {sheet && <div className="psel-scrim" onPointerDown={() => hide(false)} />}
+      <ul ref={list} id={lid} role="listbox" tabIndex={-1} aria-activedescendant={active >= 0 ? `${lid}-${active}` : undefined}
+        className={`psel-list${sheet ? ' sheet' : ''}${mono ? ' mono' : ''}`} onKeyDown={onKey}
+        style={sheet ? undefined : { left: pos.left, width: Math.max(pos.width, 220), top: pos.top, bottom: pos.bottom, maxHeight: pos.maxH }}>
+        {options.map((o, i) => {
+          const head = o.group && o.group !== lastGroup ? <li key={`g-${o.group}`} role="presentation" className="psel-group">{o.group}</li> : null;
+          lastGroup = o.group;
+          return [head,
+            <li key={o.value || '_empty'} id={`${lid}-${i}`} data-i={i} role="option" aria-selected={o.value === value} aria-disabled={o.disabled || undefined}
+              className={`psel-opt${i === active ? ' on' : ''}${o.value === value ? ' sel' : ''}`}
+              onPointerEnter={() => !o.disabled && setActive(i)} onClick={() => choose(i)}>
+              <span>{o.label}</span>{o.note && <small>{o.note}</small>}
+            </li>];
+        })}
+      </ul>
+    </>, document.body);
+
+  return (
+    <>
+      <button ref={btn} type="button" id={id} className={`input psel${mono ? ' mono' : ''}${open ? ' open' : ''}`} disabled={disabled}
+        aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? lid : undefined} {...aria}
+        onClick={() => (open ? hide() : show())} onKeyDown={onKey}>
+        <span className={cur ? '' : 'muted'}>{cur?.label ?? placeholder}</span>
+        <svg width="12" height="8" viewBox="0 0 6 4" aria-hidden="true" shapeRendering="crispEdges"><path d="M0 0h6L3 4z" fill="currentColor" /></svg>
+      </button>
+      {menu}
+    </>
+  );
 }

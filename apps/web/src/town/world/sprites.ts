@@ -4,12 +4,14 @@
    colour it wraps), which is what makes small sprites read as "hand-pixelled". */
 export const SW = 20, SH = 34, AX = 10, AY = 33;
 
-const SKIN = ['#F7D7B8', '#EBB58E', '#CC8D62', '#9C6544', '#6F4430'];
-const HAIR = ['#2B1D18', '#5B3424', '#E0AE4E', '#17151F', '#8A2E45', '#43306E', '#D6D0E6'];
+export const SKIN = ['#F7D7B8', '#EBB58E', '#CC8D62', '#9C6544', '#6F4430'];
+export const HAIR = ['#2B1D18', '#5B3424', '#E0AE4E', '#17151F', '#8A2E45', '#43306E', '#D6D0E6'];
 const PANTS = ['#2D2A52', '#383250', '#22304E', '#3B2A44'];
 const EYE = '#1A1226';
 
-export interface Look { key: string; skin: number; hair: number; style: number; acc: number; shirt: string; pants: string; chief: boolean }
+export interface Look { key: string; skin: number; hair: number; style: number; acc: number; shirt: string; pants: string; chief: boolean;
+  /** A visible quirk from the agent's persona (feature spec 2.5). */
+  prop?: 'shades' | 'coffee' | null }
 export function lookFor(id: string, shirt: string, chief: boolean): Look {
   let h = 2166136261; for (const ch of id) { h ^= ch.charCodeAt(0); h = Math.imul(h, 16777619) >>> 0; }
   const acc = (h >>> 9) % 5;
@@ -35,7 +37,7 @@ export function mix(a: string, b: string, t: number) {
 }
 
 export function getSprite(L: Look, p: Pose): Sprite {
-  const k = `${L.key}|${L.shirt}|${p.dir}${p.frame}${p.seated ? 's' : ''}${p.type}`;
+  const k = `${L.key}|${L.shirt}|${L.prop ?? ''}|${p.dir}${p.frame}${p.seated ? 's' : ''}${p.type}`;
   let s = cache.get(k); if (s) return s;
   s = build(L, p); cache.set(k, s); return s;
 }
@@ -100,6 +102,8 @@ function build(L: Look, p: Pose, ghost = false): Sprite {
     R(3, T + 8 + sw, 2, 2, skin); P(4, T + 9 + sw, skS);
     R(15, T + 1, 2, 7 - sw, cS); R(16, T + 2, 1, 5 - sw, cD);
     R(15, T + 8 - sw, 2, 2, skS);
+    // quirk: the coffee that never leaves their hand
+    if (L.prop === 'coffee') { R(15, T + 5 - sw, 3, 3, '#EDE8FF'); R(15, T + 5 - sw, 3, 1, '#7A4A2A'); P(18, T + 6 - sw, '#C9C3EA'); }
   } else {
     if (chief) { R(7, T, 6, 1, '#F1ECFF'); R(10, T + 3, 1, 6, cS); }
     else { R(7, T, 6, 2, cS); R(8, T, 4, 1, cD); P(7, T + 2, cS); P(12, T + 2, cS); R(6, T + 3, 1, 3, cS); }
@@ -127,6 +131,8 @@ function build(L: Look, p: Pose, ghost = false): Sprite {
     P(7, 11 + H, mix(skin, '#FF6F8E', 0.3)); P(13, 11 + H, mix(skS, '#FF6F8E', 0.3));
     P(11, 12 + H, skD);
     P(10, 10 + H, skS); // nose shadow
+    // quirk: sunglasses indoors
+    if (L.prop === 'shades') { R(7, 9 + H, 7, 2, '#0B0714'); P(8, 9 + H, '#7A5CFF'); P(12, 9 + H, '#FF3EA5'); P(14, 9 + H, '#0B0714'); }
   } else {
     P(4, 9 + H, skin); P(4, 10 + H, skS); P(15, 9 + H, skS); P(15, 10 + H, skD);
   }
@@ -199,3 +205,7 @@ function build(L: Look, p: Pose, ghost = false): Sprite {
   g.putImageData(id, 0, 0); gs.putImageData(is, 0, 0);
   return { img, sil };
 }
+
+/** Quirks from an agent's persona that the sprites and portraits can show (feature spec 2.5). */
+export const quirkProp = (quirk: string | undefined): 'shades' | 'coffee' | null =>
+  !quirk ? null : /sunglasses/i.test(quirk) ? 'shades' : /coffee/i.test(quirk) ? 'coffee' : null;

@@ -3,6 +3,11 @@ import { useStore } from './store';
 import { City } from './world/City';
 import { startLive } from './data/live';
 import { StageOverlay } from './ui/Stage';
+import { DialogueWindow } from './ui/Dialogue';
+import { HiringLayer } from './ui/Hiring';
+import { NewDeptWindow } from './ui/NewDept';
+import { RequestsPoll } from './ui/Requests';
+import { ExecRoomModal } from './ui/ExecRoom';
 import { TopBar, ExecPanel, DeptPanel, SettingsSheet, InventorySheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
@@ -62,6 +67,11 @@ export default function App() {
       </main>
       <CreateDeptModal />
       <ArchiveModal />
+      <DialogueWindow />
+      <HiringLayer />
+      <NewDeptWindow />
+      <RequestsPoll />
+      <ExecRoomModal />
     </div>
   );
 }

@@ -1,10 +1,19 @@
 import {
   AgentViewSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
+  CharacterSchema, ChatHistorySchema, ChatReplySchema, type Character, type ChatHistory, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
   QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
   type ActivityEvent, type AgentRole, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
   type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
   type ProvisioningStatus, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
+} from '@vibe-city/shared';
+import {
+  InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
+  type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
+  AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply,
+  QuestOriginListSchema, QuestPolicySchema, QuestRequestListSchema, QuestRequestViewSchema,
+  type QuestOrigin, type QuestPolicy, type QuestRequestView,
+  ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
 
@@ -67,6 +76,7 @@ async function request<T>(method: string, path: string, schema: z.ZodType<T>, bo
 }
 
 const d = (id: string) => `/api/departments/${encodeURIComponent(id)}`;
+const h = (id: string) => `/api/hiring/requests/${encodeURIComponent(id)}`;
 const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURIComponent(quest)}`;
 
 export const api = {
@@ -98,6 +108,35 @@ export const api = {
   activity: async (dept: string, quest: string): Promise<ActivityEvent[]> => (await request('GET', `${q(dept, quest)}/activity`, QuestActivitySchema)).events,
   results: (dept: string, quest: string): Promise<QuestResults> => request('GET', `${q(dept, quest)}/results`, QuestResultsSchema),
   cancel: (dept: string, quest: string): Promise<CancellationStatus> => request('POST', `${q(dept, quest)}/cancel`, CancellationStatusSchema),
+  character: (dept: string, agentKey: string): Promise<Character> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}`, CharacterSchema),
+  chatHistory: (dept: string, agentKey: string): Promise<ChatHistory> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatHistorySchema),
+  schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
+  createSchedule: (dept: string, input: Partial<ScheduleCreate> & Pick<ScheduleCreate, 'name' | 'cron' | 'title' | 'objective'>): Promise<Schedule> => request('POST', `${d(dept)}/schedules`, ScheduleSchema, input),
+  patchSchedule: (id: string, patch: SchedulePatch): Promise<Schedule> => request('PATCH', `/api/schedules/${encodeURIComponent(id)}`, ScheduleSchema, patch),
+  deleteSchedule: async (id: string): Promise<void> => {
+    const r = await fetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
+    if (!r || !r.ok) throw new ApiError(r?.status ?? 0, 'error', 'Could not delete the schedule.');
+  },
+  runSchedule: (id: string): Promise<Schedule> => request('POST', `/api/schedules/${encodeURIComponent(id)}/run`, ScheduleSchema),
+  questRequests: async (): Promise<QuestRequestView[]> => (await request('GET', '/api/quest-requests', QuestRequestListSchema)).requests,
+  approveRequest: (id: string): Promise<QuestRequestView> => request('POST', `/api/quest-requests/${encodeURIComponent(id)}/approve`, QuestRequestViewSchema),
+  rejectRequest: (id: string): Promise<QuestRequestView> => request('POST', `/api/quest-requests/${encodeURIComponent(id)}/reject`, QuestRequestViewSchema),
+  questOrigins: async (): Promise<QuestOrigin[]> => (await request('GET', '/api/quest-origins', QuestOriginListSchema)).origins,
+  questPolicy: (dept: string): Promise<QuestPolicy> => request('GET', `${d(dept)}/quest-policy`, QuestPolicySchema),
+  setQuestPolicy: (dept: string, patch: Partial<QuestPolicy>): Promise<QuestPolicy> => request('PATCH', `${d(dept)}/quest-policy`, QuestPolicySchema, patch),
+  assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
+  departmentDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> => request('POST', '/api/assistant/department-draft', DeptDraftReplySchema, { messages }),
+  hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
+  hiringStart: (departmentId?: string): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, departmentId ? { departmentId } : {}),
+  hiring: (id: string): Promise<HiringRequestView> => request('GET', h(id), HiringRequestViewSchema),
+  hiringAnswer: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/answer`, HiringRequestViewSchema),
+  hiringDecline: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/decline`, HiringRequestViewSchema),
+  hiringChat: (id: string, message: string): Promise<HiringRequestView> => request('POST', `${h(id)}/chat`, HiringRequestViewSchema, { message }),
+  hiringBrief: (id: string, brief?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', `${h(id)}/brief`, HiringRequestViewSchema, brief ? { brief } : {}),
+  interviewHistory: (id: string, cand: string): Promise<ChatMessage[]> => request('GET', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewHistorySchema),
+  interview: (id: string, cand: string, message: string): Promise<InterviewReply> => request('POST', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewReplySchema, { message }),
+  hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
+  chat: (dept: string, agentKey: string, input: ChatSend): Promise<ChatReply> => request('POST', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatReplySchema, input),
   cancellation: (dept: string, quest: string): Promise<CancellationStatus> => request('GET', `${q(dept, quest)}/cancellation`, CancellationStatusSchema),
 };
 

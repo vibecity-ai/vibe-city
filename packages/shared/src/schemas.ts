@@ -541,3 +541,262 @@ export const LiveMessageSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('resync'), departmentId: z.string() }).strict(),
 ]);
 export type LiveMessage = z.infer<typeof LiveMessageSchema>;
+
+// ---- characters and agent chat (feature spec 2.1, 2.2, 2.5) ------------------
+// A character is the persona of one agent seat (the chief, or a worker desk W-01…). It shapes how the agent talks in
+// the dialogue window and never what it may do. Chat is a conversation with the model the department runs on; work
+// only starts when the user accepts a proposal, which creates an ordinary quest.
+
+export const AGENT_KEY_RE = /^(chief|W-\d{2,3})$/;
+export const MOODS = ['neutral', 'happy', 'focused', 'worried', 'smug', 'annoyed'] as const;
+export type Mood = (typeof MOODS)[number];
+
+export const CharacterSchema = z.object({
+  departmentId: z.string(),
+  agentKey: z.string(),
+  role: z.enum(AGENT_ROLES),
+  name: z.string(),
+  /** Job title shown under the name, e.g. "Research chief". */
+  title: z.string(),
+  traits: z.array(z.string()),
+  speechStyle: z.string(),
+  quirk: z.string(),
+  /** Signature colour (hex) for the portrait panel and name tag. */
+  color: z.string(),
+  /** Typewriter blip pitch in Hz. */
+  voice: z.number(),
+}).strict();
+export type Character = z.infer<typeof CharacterSchema>;
+
+export const ChatProposalSchema = z.object({
+  kind: z.literal('quest'),
+  title: z.string().trim().min(1).max(200),
+  objective: z.string().trim().min(1).max(8000),
+}).strict();
+export type ChatProposal = z.infer<typeof ChatProposalSchema>;
+
+export const ChatMessageSchema = z.object({
+  id: z.string(),
+  from: z.enum(['user', 'agent']),
+  text: z.string(),
+  mood: z.enum(MOODS).nullable(),
+  /** Suggested next things the user might say (agent messages only). */
+  replies: z.array(z.string()),
+  proposal: ChatProposalSchema.nullable(),
+  at: z.string(),
+}).strict();
+export type ChatMessage = z.infer<typeof ChatMessageSchema>;
+
+export const ChatHistorySchema = z.object({
+  character: CharacterSchema,
+  messages: z.array(ChatMessageSchema),
+  /** False when no chat model is configured (NEAR_AI_API_KEY unset): the window shows why instead of a chat box. */
+  modelReady: z.boolean(),
+}).strict();
+export type ChatHistory = z.infer<typeof ChatHistorySchema>;
+
+export const ChatSendSchema = z.object({
+  message: z.string().trim().min(1, 'say something').max(2000),
+  /** The worker desk's current task title, as context for the persona (workers only). */
+  taskTitle: z.string().trim().max(300).optional(),
+}).strict();
+export type ChatSend = z.infer<typeof ChatSendSchema>;
+
+export const ChatReplySchema = z.object({ user: ChatMessageSchema, agent: ChatMessageSchema }).strict();
+export type ChatReply = z.infer<typeof ChatReplySchema>;
+
+// ---- AR: scouting and hiring (feature spec 7.1) -------------------------------------------------------------------
+// AR (Agent Resources) notices when a floor needs people and calls the CEO. The intake is a chat with AR's head, which
+// ends in a brief; AR then scouts four candidates (two serious, two joke) and the CEO hires one. Nothing changes in
+// Hermes until the offer: a hire adds a worker seat and the candidate's skills/model to the department's inventory.
+
+export const HIRING_STATES = ['ringing', 'intake', 'scouting', 'shortlist', 'hired', 'closed'] as const;
+export type HiringState = (typeof HIRING_STATES)[number];
+export const HIRING_TRIGGERS = ['manual', 'no_workers', 'queue', 'failures'] as const;
+
+export const HiringTriggerSchema = z.object({
+  kind: z.enum(HIRING_TRIGGERS),
+  departmentId: z.string().nullable(),
+  /** What AR says when it calls, built from real board numbers. */
+  reason: z.string(),
+}).strict();
+export type HiringTrigger = z.infer<typeof HiringTriggerSchema>;
+
+export const HiringBriefSchema = z.object({
+  departmentId: z.string(),
+  departmentName: z.string(),
+  focus: z.string().trim().min(1).max(200),
+  skills: z.array(z.string().trim().min(1).max(100)).max(10),
+  /** Daily budget in credits (an estimate unit, see candidate cost). */
+  budgetPerDay: z.number().int().min(1).max(100_000),
+  notes: z.string().max(500),
+}).strict();
+export type HiringBrief = z.infer<typeof HiringBriefSchema>;
+
+export const HiringMessageSchema = z.object({
+  id: z.string(),
+  from: z.enum(['user', 'agent']),
+  text: z.string(),
+  mood: z.enum(MOODS).nullable(),
+  replies: z.array(z.string()),
+  brief: HiringBriefSchema.nullable(),
+  at: z.string(),
+}).strict();
+export type HiringMessage = z.infer<typeof HiringMessageSchema>;
+
+export const GAGS = ['shades', 'frazzled', 'intern', 'guru'] as const;
+export const CandidateSchema = z.object({
+  id: z.string(),
+  /** False for the two joke candidates. Their numbers are honestly bad too. */
+  serious: z.boolean(),
+  character: CharacterSchema,
+  pitch: z.string(),
+  /** Exaggerated portrait parts for joke candidates. */
+  gag: z.enum(GAGS).nullable(),
+  loadout: z.object({ model: ModelChoiceSchema.nullable(), skills: z.array(z.string()), toolsets: z.array(z.string()) }).strict(),
+  /** Model size class guessed from the model name: 1 small, 2 balanced, 3 large. */
+  tier: z.number().int().min(1).max(3),
+  /** Estimated credits per day. An estimate from the model tier, not a price quote. */
+  costPerDay: z.number().int().min(0),
+  fitScore: z.number().int().min(0).max(100),
+  /** AR's honest remark about this candidate. */
+  note: z.string(),
+}).strict();
+export type Candidate = z.infer<typeof CandidateSchema>;
+
+export const HiringRequestViewSchema = z.object({
+  id: z.string(),
+  state: z.enum(HIRING_STATES),
+  trigger: HiringTriggerSchema,
+  ar: CharacterSchema,
+  messages: z.array(HiringMessageSchema),
+  brief: HiringBriefSchema.nullable(),
+  scoutingUntil: z.string().nullable(),
+  /** Visible once scouting is over. */
+  candidates: z.array(CandidateSchema),
+  hiredCandidateId: z.string().nullable(),
+  /** What the offer changed, once hired. */
+  applied: z.object({ departmentId: z.string(), seat: z.string(), workersBefore: z.number().int(), workersAfter: z.number().int(), skillsAdded: z.array(z.string()), model: ModelChoiceSchema.nullable(), provisioning: z.string() }).strict().nullable(),
+  modelReady: z.boolean(),
+  createdAt: z.string(),
+}).strict();
+export type HiringRequestView = z.infer<typeof HiringRequestViewSchema>;
+
+export const HiringCurrentSchema = z.object({ request: HiringRequestViewSchema.nullable() }).strict();
+export const HiringStartSchema = z.object({ departmentId: z.string().optional() }).strict();
+export const HiringSendSchema = z.object({ message: z.string().trim().min(1).max(2000) }).strict();
+export const HiringBriefConfirmSchema = z.object({ brief: HiringBriefSchema.omit({ departmentName: true }).optional() }).strict();
+export const HiringOfferSchema = z.object({ candidateId: z.string(), acceptConcerns: z.boolean().optional() }).strict();
+export const InterviewSendSchema = z.object({ message: z.string().trim().min(1).max(1000) }).strict();
+export const InterviewReplySchema = z.object({
+  user: ChatMessageSchema, agent: ChatMessageSchema,
+  stats: z.object({ ms: z.number().int(), tokens: z.number().int().nullable(), model: z.string(), costNote: z.string() }).strict(),
+}).strict();
+export type InterviewReply = z.infer<typeof InterviewReplySchema>;
+export const InterviewHistorySchema = z.array(ChatMessageSchema);
+
+// ---- executive assistant: new departments through the dialogue window (feature spec 4.3) ---------------------------
+// The assistant drafts a floor (name, purpose, starter inventory) from a short chat. The backend keeps only what Hermes
+// really has (installed skills, manageable toolsets, offered models). Nothing is created until the user confirms, and
+// then through the normal POST /api/departments.
+
+export const DeptDraftSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  purpose: z.string().trim().max(2000),
+  skills: z.array(z.string()),
+  toolsets: z.array(ToolsetSchema),
+  model: ModelChoiceSchema.nullable(),
+  workers: z.number().int().min(0).max(4),
+  /** Estimate from the model size class and the number of agents. Not a price quote. */
+  creditsPerDay: z.number().int().min(0),
+  /** Anything the assistant asked for that Hermes does not have, said plainly. */
+  dropped: z.array(z.string()),
+}).strict();
+export type DeptDraft = z.infer<typeof DeptDraftSchema>;
+
+export const AssistantTurnSchema = z.object({ from: z.enum(['user', 'agent']), text: z.string().max(4000) }).strict();
+export const DeptDraftRequestSchema = z.object({ messages: z.array(AssistantTurnSchema).min(1).max(40) }).strict();
+export const DeptDraftReplySchema = z.object({
+  say: z.string(), mood: z.enum(MOODS), replies: z.array(z.string()), draft: DeptDraftSchema.nullable(),
+}).strict();
+export type DeptDraftReply = z.infer<typeof DeptDraftReplySchema>;
+export const AssistantViewSchema = z.object({ character: CharacterSchema, modelReady: z.boolean() }).strict();
+export type AssistantView = z.infer<typeof AssistantViewSchema>;
+
+// ---- quests between departments (feature spec 2.4) ----------------------------------------------------------------
+// A chief can hand work to another department through the Vibe City MCP tool `request_quest`. The request becomes an
+// ordinary quest on the target department's board (assigned to its chief), with guardrails: the target's allowlist,
+// no handing work back along an open chain, and a daily cap per requesting department (over the cap the CEO decides).
+
+export const QUEST_ORIGINS = ['user', 'agent', 'schedule', 'market'] as const;
+export const QUEST_REQUEST_STATES = ['created', 'pending_approval', 'rejected', 'failed'] as const;
+
+export const QuestRequestViewSchema = z.object({
+  id: z.string(),
+  fromDepartmentId: z.string(), fromName: z.string(),
+  toDepartmentId: z.string().nullable(), toName: z.string(),
+  title: z.string(), objective: z.string(), reason: z.string(),
+  state: z.enum(QUEST_REQUEST_STATES),
+  /** Why it was rejected, failed, or is waiting for approval. */
+  note: z.string().nullable(),
+  questId: z.string().nullable(),
+  createdAt: z.string(), decidedAt: z.string().nullable(),
+}).strict();
+export type QuestRequestView = z.infer<typeof QuestRequestViewSchema>;
+export const QuestRequestListSchema = z.object({ requests: z.array(QuestRequestViewSchema) }).strict();
+
+export const QuestOriginSchema = z.object({
+  questId: z.string(), departmentId: z.string(), origin: z.enum(QUEST_ORIGINS),
+  fromDepartmentId: z.string().nullable(), fromName: z.string().nullable(), requestId: z.string().nullable(),
+}).strict();
+export type QuestOrigin = z.infer<typeof QuestOriginSchema>;
+export const QuestOriginListSchema = z.object({ origins: z.array(QuestOriginSchema) }).strict();
+
+export const QuestPolicySchema = z.object({
+  /** Departments allowed to give this department work: '*' for every department, or a list of department ids. */
+  allowFrom: z.union([z.literal('*'), z.array(z.string()).max(50)]),
+  /** Quests this department's chief may request per 24 h before each one needs the CEO's approval. */
+  dailyCap: z.number().int().min(0).max(100),
+}).strict();
+export type QuestPolicy = z.infer<typeof QuestPolicySchema>;
+export const QuestPolicyPatchSchema = QuestPolicySchema.partial().strict();
+export const QuestRequestCreateSchema = z.object({
+  fromDepartmentId: z.string(), department: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(200), objective: z.string().trim().min(1).max(8000), reason: z.string().trim().max(1000).default(''),
+}).strict();
+
+// ---- schedules (feature spec 8) ----------------------------------------------------------------------------------
+// Recurring quests. The Vibe City backend is the scheduler (Hermes' cronjob toolset stays off for department agents):
+// at each fire time it creates an ordinary quest on the department's board, with origin 'schedule' and one
+// idempotency key per fire, so a restart never fires twice.
+
+export const ScheduleSchema = z.object({
+  id: z.string(),
+  departmentId: z.string(),
+  name: z.string(),
+  cron: z.string(),
+  timezone: z.string(),
+  title: z.string(),
+  objective: z.string(),
+  instructions: z.string(),
+  enabled: z.boolean(),
+  nextRunAt: z.string().nullable(),
+  lastRunAt: z.string().nullable(),
+  lastQuestId: z.string().nullable(),
+  lastError: z.string().nullable(),
+  createdAt: z.string(),
+}).strict();
+export type Schedule = z.infer<typeof ScheduleSchema>;
+export const ScheduleListSchema = z.object({ schedules: z.array(ScheduleSchema) }).strict();
+export const ScheduleCreateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  cron: z.string().trim().min(9).max(100),
+  timezone: z.string().trim().min(1).max(64).default('UTC'),
+  title: z.string().trim().min(1).max(200),
+  objective: z.string().trim().min(1).max(8000),
+  instructions: z.string().trim().max(8000).default(''),
+  enabled: z.boolean().default(true),
+}).strict();
+export type ScheduleCreate = z.infer<typeof ScheduleCreateSchema>;
+export const SchedulePatchSchema = ScheduleCreateSchema.partial().strict();
+export type SchedulePatch = z.infer<typeof SchedulePatchSchema>;

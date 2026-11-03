@@ -161,6 +161,10 @@ export class FakeHermes implements HermesRuntime {
     return (this.sessions.get(profile) ?? []).slice(0, limit);
   }
 
+  mcpServers = new Map<string, Record<string, { url: string; headers: Record<string, string>; tools: { include: string[] } }>>();
+  async setMcpServer(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void> {
+    this.mcpServers.set(profile, { ...(this.mcpServers.get(profile) ?? {}), [name]: config });
+  }
   async getConcurrencyCap() {
     this.enter('getConcurrencyCap');
     return this.concurrencyCap;

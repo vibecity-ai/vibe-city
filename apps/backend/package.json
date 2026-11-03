@@ -9,7 +9,8 @@
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "gate0": "node --experimental-strip-types scripts/gate0.ts",
     "m2:integration": "node --experimental-strip-types scripts/m2-integration.ts",
-    "m3:integration": "node --experimental-strip-types scripts/m3-integration.ts"
+    "m3:integration": "node --experimental-strip-types scripts/m3-integration.ts",
+    "demo": "node --experimental-strip-types scripts/demo-server.ts"
   },
   "dependencies": {
     "@fastify/static": "^10.1.8",

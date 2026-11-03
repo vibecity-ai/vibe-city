@@ -2,6 +2,9 @@ import type { Inventory } from '@vibe-city/shared';
 
 export type Role = 'chief' | 'worker';
 
+/** Chiefs only: the one sanctioned way to involve another department (the Vibe City MCP server, feature spec 2.4). */
+const CROSS_DEPT = 'If part of the work belongs to another department, ask it with the Vibe City tool request_quest (see list_departments first), then check_request for the result. Never create tasks on another department\'s board yourself.';
+
 const clean = (s: string) => s.replace(/<!--|-->/g, '').trim();
 
 const beginMarker = (deptId: string, role: Role) => `<!-- vibe-city:begin dept=${deptId} role=${role} -->`;
@@ -25,6 +28,7 @@ export function buildBlock(opts: {
         'You are the Chief Agent of this department. The department has no workers: do the work yourself.',
         'Complete your task with a summary of what you did and attach any output files.',
         'Do not create Kanban tasks for any other profile.',
+        CROSS_DEPT,
       ].join('\n')
       : role === 'chief'
       ? [
@@ -32,6 +36,7 @@ export function buildBlock(opts: {
         'Do the work yourself, or split it into child Kanban tasks assigned to the worker profile (parents = your',
         'current task) when parts can run independently. Complete your own task with a summary of what you did and',
         'which child tasks you created. Do not create tasks for any profile other than your worker.',
+        CROSS_DEPT,
       ].join('\n')
       : [
         `You are a Worker Agent of this department. Your chief profile is "${counterpart}".`,

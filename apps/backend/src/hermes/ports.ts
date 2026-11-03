@@ -88,4 +88,6 @@ export interface HermesRuntime {
 
   /** Host-wide `kanban.max_in_progress_per_profile`, or null when unset/unlimited. */
   getConcurrencyCap(): Promise<number | null>;
+  /** Adds (or replaces) one MCP server in a profile's config (`mcp_servers.<name>`). Optional: not every runtime has it. */
+  setMcpServer?(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void>;
 }

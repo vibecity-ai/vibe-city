@@ -223,6 +223,11 @@ export class RealHermesRuntime implements HermesRuntime {
     }
   }
 
+  async setMcpServer(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void> {
+    // Same mechanism as skills.disabled: a JSON value under a dotted key of the profile's config.yaml.
+    await this.cli(['config', 'set', `mcp_servers.${name}`, JSON.stringify(config), '--force'], profile);
+  }
+
   async getConcurrencyCap(): Promise<number | null> {
     try {
       const out = (await this.cli(['config', 'get', 'kanban.max_in_progress_per_profile'])).trim().split('\n').pop() ?? '';
