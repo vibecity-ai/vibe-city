@@ -2,7 +2,7 @@
 //
 // Requirements: `hermes` on PATH, the Hermes gateway running, model credentials in the default profile.
 // Starts its OWN dashboard on port M3_PORT (default 9139) with a random token so it can stop/restart it, provisions a
-// throwaway department, runs two real quests (multi-worker, then a long-running one that is cancelled) and removes
+// throwaway department, runs two real quests (spread across teammates, then a long-running one that is cancelled) and removes
 // every board/profile it created. It makes real model calls (about 6 agent runs) and takes several minutes.
 //
 //   npm run m3:integration -w @vibe-city/backend
@@ -72,15 +72,16 @@ try {
   // ---- department ----
   const dept = (await j('POST', '/api/departments', {
     name: 'M3 Live', purpose: 'Milestone 3 integration',
-    inventory: { allowedToolsets: ['file', 'terminal'], limits: { maxConcurrentWorkers: 3 } },
+    inventory: { allowedToolsets: ['file', 'terminal'] }, teammates: 3,
   })).body;
   created.boards.add(dept.hermesBoardSlug);
-  let chief = '', worker = '';
-  await check('department provisioned and ready (worker may use file + terminal)', async () => {
+  let chief = '';
+  let teammates: string[] = [];
+  await check('department provisioned and ready (a lead and three teammates, each its own profile, with file + terminal)', async () => {
     const r = await j('POST', `/api/departments/${dept.id}/provision`);
     assert(r.body.state === 'ready', JSON.stringify(r.body.error));
-    chief = r.body.chief.ref; worker = r.body.worker.ref;
-    created.profiles.add(chief); created.profiles.add(worker);
+    [chief, ...teammates] = r.body.agents.map((a: any) => a.ref);
+    for (const p of [chief, ...teammates]) created.profiles.add(p);
   });
   if (!chief) throw new Error('provisioning failed; cannot continue');
 
@@ -88,17 +89,17 @@ try {
   const live: LiveMessage[] = [];
   const unsubscribe = hub!.subscribe(dept.id, dept.hermesBoardSlug, (m) => live.push(m));
 
-  // ---- quest 1: chief delegates multiple workers ----
+  // ---- quest 1: the lead spreads the work across teammates ----
   const clientRequestId = randomUUID();
   const Q = (id: string) => `/api/departments/${dept.id}/quests/${id}`;
   let q1 = '';
   const statusTrail: string[] = [];
   let sawChiefDoneButNotComplete = false;
 
-  await check('quest 1: creating a quest makes a real Hermes task for the chief; retry is idempotent', async () => {
+  await check('quest 1: creating a quest makes a real Hermes task for the lead; retry is idempotent', async () => {
     const body = {
       clientRequestId, title: 'Three files',
-      objective: 'Produce three independent text files: alpha.txt containing the word alpha, beta.txt containing the word beta, and gamma.txt containing the word gamma. Each file must be produced by its own separate worker task.',
+      objective: 'Produce three independent text files: alpha.txt containing the word alpha, beta.txt containing the word beta, and gamma.txt containing the word gamma. Each file must be produced by its own separate teammate task.',
     };
     const r1 = await j('POST', `/api/departments/${dept.id}/quests`, body);
     assert(r1.code === 201 && /^t_/.test(r1.body.questId), r1.raw);
@@ -118,25 +119,28 @@ try {
     while (Date.now() < deadline) {
       last = (await j('GET', Q(q1))).body;
       if (statusTrail.at(-1) !== last.status) statusTrail.push(last.status);
-      const root = last.tasks.find((t: any) => t.role === 'chief');
+      const root = last.tasks.find((t: any) => t.depth === 0);
       if (root?.status === 'done' && last.status !== 'completed') sawChiefDoneButNotComplete = true;
       if (last.status === 'completed' || last.status === 'failed') break;
       await sleep(3000);
     }
     assert(last.status === 'completed', `final status ${last.status}; trail ${statusTrail.join('>')}`);
-    const workers = last.tasks.filter((t: any) => t.role === 'worker');
-    assert(workers.length >= 3, `expected >=3 worker tasks, got ${workers.length}`);
-    assert(workers.every((t: any) => t.assignee === worker && t.status === 'done'), 'worker tasks not all done/assigned to the department worker');
+    const workers = last.tasks.filter((t: any) => t.depth > 0);
+    assert(workers.length >= 3, `expected >=3 teammate tasks, got ${workers.length}`);
+    assert(workers.every((t: any) => teammates.includes(t.assignee) && t.status === 'done'), 'teammate tasks not all done/assigned to the department\'s teammates');
+    const spread = new Set(workers.map((t: any) => t.assignee)).size;
+    if (spread < 2) notes.push(`NOTE: the lead gave every task to one teammate (${spread} of ${teammates.length} used)`);
     assert(last.violations.length === 0, last.violations.join('; '));
     assert(!last.flags.hasFailures, 'unexpected failures');
-    if (!sawChiefDoneButNotComplete) notes.push('NOTE: never observed "chief done, quest not complete" (workers finished between polls)');
-    return `trail ${statusTrail.join(' > ')}; ${workers.length} worker tasks; chief-done-but-incomplete observed: ${sawChiefDoneButNotComplete}`;
+    if (!sawChiefDoneButNotComplete) notes.push('NOTE: never observed "lead done, quest not complete" (teammates finished between polls)');
+    return `trail ${statusTrail.join(' > ')}; ${workers.length} tasks across ${spread} teammate(s); lead-done-but-incomplete observed: ${sawChiefDoneButNotComplete}`;
   });
 
-  await check('quest 1: run references match the department chief/worker profiles', async () => {
+  await check('quest 1: every run used the profile of the agent the task is assigned to', async () => {
     const detail = (await j('GET', Q(q1))).body;
     for (const t of detail.tasks) {
-      const want = t.role === 'chief' ? chief : worker;
+      const want = t.assignee;
+      assert(t.agentKey !== null, `task ${t.id} is not assigned to one of the department's agents`);
       assert(t.runs.length > 0, `task ${t.id} has no run`);
       assert(t.runs.every((r: any) => r.profile === want), `task ${t.id} ran as ${t.runs.map((r: any) => r.profile)}, expected ${want}`);
       assert(t.runs.every((r: any) => r.state === 'completed'), `task ${t.id} run states ${t.runs.map((r: any) => r.state)}`);
@@ -145,7 +149,7 @@ try {
 
   await check('quest 1: results include summaries and attachments; downloads work through the backend; no host paths leak', async () => {
     const res = await j('GET', `${Q(q1)}/results`);
-    assert(res.body.chiefSummary, 'no chief summary');
+    assert(res.body.leadSummary, 'no lead summary');
     const files = res.body.tasks.flatMap((t: any) => t.attachments);
     const names = files.map((f: any) => f.filename).sort();
     assert(['alpha.txt', 'beta.txt', 'gamma.txt'].every((n) => names.includes(n)), `attachments: ${names}`);
@@ -171,21 +175,21 @@ try {
 
   // ---- quest 2: cancellation of a controllable long-running task ----
   let q2 = '';
-  await check('quest 2: a long-running worker task is started (controllable: sleeps)', async () => {
+  await check('quest 2: a long-running teammate task is started (controllable: sleeps)', async () => {
     const r = await j('POST', `/api/departments/${dept.id}/quests`, {
       clientRequestId: randomUUID(), title: 'Long job',
-      objective: `Create exactly ONE worker task that uses the terminal tool to run the exact shell command \`${SLEEP_MARK}\` and waits for it to finish, then completes with the summary "slept".`,
+      objective: `Create exactly ONE teammate task that uses the terminal tool to run the exact shell command \`${SLEEP_MARK}\` and waits for it to finish, then completes with the summary "slept".`,
     });
     assert(r.code === 201, r.raw);
     q2 = r.body.questId;
     const deadline = Date.now() + 6 * 60_000;
     while (Date.now() < deadline) {
       const d = (await j('GET', Q(q2))).body;
-      if (d.tasks.some((t: any) => t.role === 'worker' && t.status === 'running') && pgrep() > 0) return `worker running; ${pgrep()} "${SLEEP_MARK}" process(es)`;
+      if (d.tasks.some((t: any) => t.depth > 0 && t.status === 'running') && pgrep() > 0) return `teammate running; ${pgrep()} "${SLEEP_MARK}" process(es)`;
       if (d.status === 'failed') throw new Error('quest 2 failed before it could be cancelled');
       await sleep(3000);
     }
-    throw new Error('worker never started the sleep command');
+    throw new Error('no teammate ever started the sleep command');
   });
 
   let claimedBefore = 0;
@@ -220,7 +224,7 @@ try {
     assert(d.status === 'cancelled' && d.tasks.every((t: any) => t.status === 'done' || t.status === 'archived'), `status ${d.status}`);
   });
 
-  await check('quest 2: the worker\'s shell command was terminated with it (no orphaned process)', async () => {
+  await check('quest 2: the teammate\'s shell command was terminated with it (no orphaned process)', async () => {
     await sleep(2000);
     const left = pgrep();
     if (left > 0) {

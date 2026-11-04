@@ -27,12 +27,12 @@ test('card age is compact', () => {
 });
 
 const t = (o: Partial<TaskNode> & { id: string; title: string }): TaskNode => ({
-  role: 'worker', assignee: null, status: 'todo', parentIds: [], childIds: [], depth: 1, failed: false,
+  agentKey: 'W-01', assignee: null, status: 'todo', parentIds: [], childIds: [], depth: 1, failed: false,
   createdAt: '2026-11-03T10:00:00Z', startedAt: null, completedAt: null, summary: null, error: null, attachmentCount: 0, runs: [], ...o,
 });
 
-test('card lines: the plan from the chief, then a failure beats running beats done; nothing invented', () => {
-  const root = t({ id: 'r', title: 'Quest', role: 'chief', depth: 0, status: 'done', summary: 'Plan: split into 3 tasks' });
+test('card lines: the plan from the lead, then a failure beats running beats done; nothing invented', () => {
+  const root = t({ id: 'r', title: 'Quest', agentKey: 'chief', depth: 0, status: 'done', summary: 'Plan: split into 3 tasks' });
   assert.deepEqual(cardLines(undefined), { plan: null, latest: null });
   assert.equal(cardLines([root]).plan, 'split into 3 tasks');
   assert.equal(cardLines([root]).latest, null);

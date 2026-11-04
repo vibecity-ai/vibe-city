@@ -20,7 +20,7 @@ test('characters are deterministic per seat and stored on first use', async () =
   const b = (await app.inject(`/api/departments/${json.id}/characters/chief`)).json();
   assert.deepEqual(a, b);
   assert.equal(a.role, 'chief');
-  assert.equal(a.title, 'Research chief');
+  assert.equal(a.title, 'Research lead');
   const w = (await app.inject(`/api/departments/${json.id}/characters/W-01`)).json();
   assert.equal(w.role, 'worker');
   assert.notEqual(w.name, '');
@@ -62,7 +62,7 @@ test('chat stores both turns, sends persona + history, and returns a quest propo
   assert.deepEqual(reply.replies, ['Do it', 'Not now']);
   const sys = model.calls[1]![0]!.content;
   assert.match(sys, /Track competitors/);
-  assert.match(sys, /Research chief/);
+  assert.match(sys, /Research lead/);
   assert.equal(model.calls[1]!.length, 4); // system + 2 past turns + new message
   const hist = (await app.inject(url)).json();
   assert.equal(hist.messages.length, 4);

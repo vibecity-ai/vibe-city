@@ -49,7 +49,7 @@ function NewDept() {
   const build = async (d: DeptDraft) => {
     await createDepartment({
       name: d.name, purpose: d.purpose,
-      inventory: { allowedSkillIds: d.skills, allowedToolsets: d.toolsets, model: d.model, limits: { maxConcurrentWorkers: d.workers } },
+      inventory: { allowedSkillIds: d.skills, allowedToolsets: d.toolsets, model: d.model }, teammates: d.teammates,
     }, hermesUp);
     // createDepartment opens the new floor on success; the dialogue is done either way unless it failed.
     if (!useStore.getState().busy.create) close();
@@ -78,7 +78,7 @@ function NewDept() {
                 <span><i>Skills</i>{d.skills.length ? <span className="hire-skills">{d.skills.map((s) => <i key={s}>{s}</i>)}</span> : 'none'}</span>
                 <span><i>Tools</i>{d.toolsets.length ? <span className="hire-skills">{d.toolsets.map((s) => <i key={s}>{s}</i>)}</span> : 'none'}</span>
                 <span><i>Model</i><span className="mono">{d.model ? d.model.id : 'Hermes default'}</span></span>
-                <span><i>Agents</i>1 chief{d.workers ? ` + ${d.workers} worker${d.workers > 1 ? 's' : ''}` : ', no workers'} · ~{d.creditsPerDay} credits/day <small>estimate</small></span>
+                <span><i>Agents</i>{1 + d.teammates} ({d.teammates ? `a lead + ${d.teammates} teammate${d.teammates > 1 ? 's' : ''}, each its own Hermes agent` : 'a lead working alone'}) · ~{d.creditsPerDay} credits/day <small>estimate</small></span>
               </span>
               {d.dropped.length > 0 && <span className="nd-dropped">Left out: {d.dropped.join('; ')}.</span>}
               {!hermesUp && <span className="nd-dropped">Hermes is not reachable: the floor will be added unconfigured. Provision it later.</span>}

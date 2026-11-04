@@ -41,8 +41,8 @@ test('a malformed success payload becomes an invalid_response ApiError (no parti
 test('strict schemas reject leaked server-only fields (absolute paths, stored_path)', async () => {
   use(fakeBackend()
     .on('GET', D, { body: { ...deptView(), workspacePath: '/home/someone/secret' } })
-    .on('GET', `${D}/quests/q/results`, { body: { questId: 'q', status: 'completed', chiefSummary: null, tasks: [{
-      taskId: 't', title: 't', role: 'worker', status: 'done', summary: null, error: null,
+    .on('GET', `${D}/quests/q/results`, { body: { questId: 'q', status: 'completed', leadSummary: null, tasks: [{
+      taskId: 't', title: 't', agentKey: 'W-01', status: 'done', summary: null, error: null,
       attachments: [{ id: 1, taskId: 't', filename: 'a.txt', contentType: null, size: 1, createdAt: null, downloadUrl: '/x', stored_path: '/srv/hermes/a.txt' }],
     }] } }));
   await assert.rejects(api.department(DEPT_ID), (e: unknown) => e instanceof ApiError && e.code === 'invalid_response');

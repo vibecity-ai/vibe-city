@@ -2,12 +2,12 @@
    AR watches the boards with a few plain rules and calls the CEO when a floor needs people. The intake is a chat with
    AR's head that ends in a brief; AR then scouts two serious candidates (loadouts built from what Hermes really has:
    its models and installed skills) and two joke candidates (an original, curated cast whose numbers are honestly bad).
-   Nothing changes in Hermes until the offer. An offer adds one worker seat, the candidate's skills and model to the
-   department inventory, then re-provisions the department through the normal path. */
+   Nothing changes in Hermes until the offer. An offer adds one agent to the department, with the candidate's own model
+   and skills, then re-provisions the department through the normal path, which creates the agent's Hermes profile. */
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  CandidateSchema, HiringBriefSchema, HiringMessageSchema, MAX_WORKERS_CEILING, MOODS,
+  CandidateSchema, HiringBriefSchema, HiringMessageSchema, MAX_TEAMMATES, MOODS, profileNameForAgent,
   type Candidate, type Character, type HiringBrief, type HiringMessage, type HiringRequestView, type HiringState,
   type HiringTrigger, type HermesModelsView, type InterviewReply, type ChatMessage, type Mood, type ModelChoice, type QuestSummary,
 } from '@vibe-city/shared';
@@ -214,22 +214,19 @@ export class HiringService {
     const { candidate: c } = this.candidateHistory(id, candidateId);
     if (!c.serious && !acceptConcerns) throw new ConflictError('AR has concerns about this candidate: confirm to hire anyway');
     const brief = HiringBriefSchema.parse(JSON.parse(r.brief_json!));
-    const inv = this.d.departments.getInventory(brief.departmentId);
-    const before = inv.limits.maxConcurrentWorkers;
-    if (before >= MAX_WORKERS_CEILING) throw new ConflictError(`${brief.departmentName} is already at the ${MAX_WORKERS_CEILING}-worker ceiling`);
-    const after = before + 1;
-    const skillsAdded = c.loadout.skills.filter((s) => !inv.allowedSkillIds.includes(s));
-    this.d.departments.patchInventory(brief.departmentId, {
-      limits: { maxConcurrentWorkers: after },
-      ...(skillsAdded.length ? { allowedSkillIds: [...inv.allowedSkillIds, ...skillsAdded] } : {}),
-      ...(c.loadout.model ? { model: c.loadout.model } : {}),
-    });
-    const seat = `W-${String(after).padStart(2, '0')}`;
+    const before = this.d.departments.agents(brief.departmentId).length;
+    if (before > MAX_TEAMMATES) throw new ConflictError(`${brief.departmentName} already has the maximum of ${MAX_TEAMMATES} teammates`);
+    // The hire is its own agent: its own Hermes profile, with the candidate's model and skills (the floor's are untouched).
+    const agent = this.d.departments.addAgent(brief.departmentId, { model: c.loadout.model, skills: c.loadout.skills });
+    const seat = agent.agent_key;
     this.d.savePersona?.(brief.departmentId, seat, { ...c.character, departmentId: brief.departmentId, agentKey: seat, role: 'worker', title: `${brief.departmentName} specialist, desk ${seat}` });
     // Re-apply the inventory to Hermes through the normal path. It runs in the background; the floor shows progress.
     let provisioning = 'started';
     try { void this.d.provisioning.provision(brief.departmentId).catch(() => undefined); } catch (e) { provisioning = (e as Error).message; }
-    const applied = { departmentId: brief.departmentId, seat, workersBefore: before, workersAfter: after, skillsAdded, model: c.loadout.model, provisioning };
+    const applied = {
+      departmentId: brief.departmentId, seat, profileRef: profileNameForAgent(brief.departmentId, seat), teamBefore: before, teamAfter: before + 1,
+      skills: [...new Set(c.loadout.skills)], model: c.loadout.model, provisioning,
+    };
     this.d.db.prepare("UPDATE hiring_request SET state = 'hired', hired_candidate_id = ?, applied_json = ?, updated_at = ? WHERE id = ?")
       .run(candidateId, JSON.stringify(applied), this.iso(), id);
     return this.get(id);
@@ -244,12 +241,12 @@ export class HiringService {
       let quests: QuestSummary[] = [];
       try { quests = await this.d.quests(dept.id); } catch { continue; }
       const active = quests.filter((q) => ACTIVE.has(q.status));
-      const workers = this.d.departments.getInventory(dept.id).limits.maxConcurrentWorkers;
+      const agents = dept.agents.length;
       const sum = (k: keyof QuestSummary['counts']) => active.reduce((n, q) => n + q.counts[k], 0);
       const failed = quests.reduce((n, q) => n + q.counts.failed, 0);
       let t: HiringTrigger | null = null;
-      if (workers === 0 && active.length >= 2) t = { kind: 'no_workers', departmentId: dept.id, reason: `${dept.name} has no workers and ${active.length} quests on the board. The chief is doing everything alone.` };
-      else if (workers > 0 && sum('pending') >= 3 && sum('running') >= workers) t = { kind: 'queue', departmentId: dept.id, reason: `${dept.name} is drowning: ${sum('pending')} tasks waiting and all ${workers} desks busy.` };
+      if (agents === 1 && active.length >= 2) t = { kind: 'no_workers', departmentId: dept.id, reason: `${dept.name} has ${active.length} quests on the board and one agent doing everything alone.` };
+      else if (agents > 1 && sum('pending') >= 3 && sum('running') >= agents) t = { kind: 'queue', departmentId: dept.id, reason: `${dept.name} is drowning: ${sum('pending')} tasks waiting and all ${agents} agents busy.` };
       else if (failed >= 2) t = { kind: 'failures', departmentId: dept.id, reason: `${dept.name} has ${failed} failed tasks. Maybe they need someone with different skills.` };
       if (t && !this.recentlyCalled(t)) return t;
     }
@@ -267,7 +264,7 @@ export class HiringService {
     const trigger = JSON.parse(r.trigger_json) as HiringTrigger;
     const depts = this.d.departments.list().map((d) => {
       const inv = this.d.departments.getInventory(d.id);
-      return `- "${d.name}" (id ${d.id}): ${d.purpose || 'no purpose written'}; ${inv.limits.maxConcurrentWorkers} worker seats; skills: ${inv.allowedSkillIds.join(', ') || 'none'}`;
+      return `- "${d.name}" (id ${d.id}): ${d.purpose || 'no purpose written'}; ${d.agents.length} agent(s); skills: ${inv.allowedSkillIds.join(', ') || 'none'}`;
     });
     let skills: string[] = [];
     try { skills = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name).slice(0, 60); } catch { /* Hermes down */ }

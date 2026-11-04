@@ -3,7 +3,7 @@ import {
   CharacterSchema, ChatHistorySchema, ChatReplySchema, type Character, type ChatHistory, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
   QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
-  type ActivityEvent, type AgentRole, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
+  type ActivityEvent, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
   type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
   type ProvisioningStatus, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
 } from '@vibe-city/shared';
@@ -95,7 +95,7 @@ export const api = {
   provision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision`, ProvisioningStatusSchema),
   retryProvision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision/retry`, ProvisioningStatusSchema),
   profiles: (dept: string): Promise<ProfilesView> => request('GET', `${d(dept)}/profiles`, ProfilesViewSchema),
-  agent: (dept: string, role: AgentRole): Promise<AgentView> => request('GET', `${d(dept)}/agents/${role}`, AgentViewSchema),
+  agent: (dept: string, agentKey: string): Promise<AgentView> => request('GET', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, AgentViewSchema),
   reconcile: async (): Promise<ProvisioningStatus[]> => (await request('POST', '/api/runtime/reconcile', ReconcileResultSchema)).departments,
   health: (): Promise<HealthView> => request('GET', '/api/runtime/health', HealthViewSchema),
   hermesDefaults: (): Promise<HermesDefaultsView> => request('GET', '/api/runtime/defaults', HermesDefaultsViewSchema),

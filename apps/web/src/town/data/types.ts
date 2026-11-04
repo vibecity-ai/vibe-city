@@ -1,24 +1,25 @@
 /* View model for the city. Everything here is derived from the Vibe City backend (see data/derive.ts):
-   a department is a floor, the chief and workers are derived from real Kanban tasks, quests are Hermes tasks.
-   Nothing is invented: no worker exists without a task, no percentage without counts. */
+   a department is a floor, every agent on it is a real Hermes profile (the lead at the big desk, teammates at desks
+   W-01…), and what each one is doing comes from the Kanban tasks assigned to it. Nothing is invented: no percentage
+   without counts. */
 import type { DepartmentView, ProvisioningState } from '@vibe-city/shared';
 
 export type AgentStatus = 'running' | 'idle' | 'completed' | 'failed' | 'disconnected' | 'awaiting';
 export type DeptState = 'active' | 'idle' | 'attention' | 'offline' | 'unconfigured';
 
-/** A desk in the office. `id` is a stable seat label (W-01…) for the lifetime of the task; `taskId` is the Hermes task. */
-export interface Worker { id: string; taskId: string; task: string; status: AgentStatus; since: string; shirt: string }
+/** A teammate's desk. `id` is the agent key (W-01…); `taskId`/`task` are the Hermes task it is on (null/'' when free). */
+export interface Worker { id: string; profile: string | null; taskId: string | null; task: string; status: AgentStatus; since: string; shirt: string }
+/** The lead agent: new quests are assigned to it. Same kind of agent as a teammate, at the big desk. */
 export interface Chief { name: string; profile: string; model: string | null; status: AgentStatus; activity: string; since: string }
 
 export interface Dept {
   id: string; name: string; purpose: string; state: DeptState;
   provisioning: ProvisioningState;
+  /** The lead (null until the floor is provisioned) and its teammates (one desk each, up to MAX_DESKS drawn). */
   chief: Chief | null; workers: Worker[];
-  /** The requested worker limit. Hermes only enforces a host-wide cap, so this is never presented as a guarantee. */
-  maxWorkers: number;
+  /** Agents on the floor, lead included (may exceed the desks drawn). */
+  teamSize: number;
   theme: { floor: string; accent: string };
-  chiefProfileRef: string | null;
-  workerProfileRef: string | null;
   /** Why the floor needs a person (provisioning error, failed task, ...). */
   attention?: string;
   /** The backend snapshot this floor was derived from (settings and inspectors read it directly). */

@@ -67,3 +67,34 @@ test('only one company row can exist', () => {
   assert.throws(() => db.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (2, 'b', 'B', 't')").run());
   assert.throws(() => db.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'C', 't')").run());
 });
+
+test('v10 turns the chief and the worker desks into agents with their own profiles', () => {
+  const path = join(tempDir(), 'a10.sqlite');
+  const v9 = openDb(path, MIGRATIONS.slice(0, 9));
+  v9.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'X', 't')").run();
+  const ins = v9.prepare(`INSERT INTO department (id, company_id, name, name_key, floor_order, chief_profile_ref, chief_origin, chief_verified_at,
+    worker_profile_ref, worker_origin, worker_verified_at, created_at, updated_at) VALUES (?, 'c', ?, ?, ?, ?, ?, ?, ?, ?, ?, 't', 't')`);
+  ins.run('d1', 'Eng', 'eng', 1, 'eng-chief', 'associated', 'v', 'vc-w', 'created', 'v');
+  ins.run('d2', 'Ops', 'ops', 2, null, null, null, null, null, null);
+  const inv = v9.prepare("INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, ?, 't')");
+  inv.run('d1', JSON.stringify({ limits: { maxConcurrentWorkers: 3, maxTaskRuntimeSeconds: 60, maxDelegationDepth: 1 } }));
+  inv.run('d2', JSON.stringify({ limits: { maxConcurrentWorkers: 0, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 } }));
+  v9.prepare("INSERT INTO run_reference (id, department_id, hermes_task_ref, profile_ref, role, state, last_observed_at) VALUES ('r', 'd1', 't_1', 'vc-w', 'worker', 'running', 't')").run();
+  v9.close();
+
+  const db = openDb(path);
+  const agents = db.prepare('SELECT department_id, agent_key, seat, profile_ref, origin, verified_at FROM department_agent ORDER BY department_id, seat').all()
+    .map((r) => ({ ...r }));
+  assert.deepEqual(agents, [
+    { department_id: 'd1', agent_key: 'chief', seat: 0, profile_ref: 'eng-chief', origin: 'associated', verified_at: 'v' },
+    { department_id: 'd1', agent_key: 'W-01', seat: 1, profile_ref: 'vc-w', origin: 'created', verified_at: 'v' },
+    { department_id: 'd1', agent_key: 'W-02', seat: 2, profile_ref: null, origin: null, verified_at: null },
+    { department_id: 'd1', agent_key: 'W-03', seat: 3, profile_ref: null, origin: null, verified_at: null },
+    { department_id: 'd2', agent_key: 'chief', seat: 0, profile_ref: null, origin: null, verified_at: null },
+  ]);
+  const limits = JSON.parse((db.prepare("SELECT inventory_json FROM department_inventory WHERE department_id = 'd1'").get() as { inventory_json: string }).inventory_json).limits;
+  assert.deepEqual(limits, { maxTaskRuntimeSeconds: 60, maxDelegationDepth: 1 });
+  const cols = (db.prepare('PRAGMA table_info(department)').all() as { name: string }[]).map((c) => c.name);
+  assert.ok(!cols.some((c) => /^(chief|worker)_/.test(c)));
+  assert.equal((db.prepare("SELECT agent_key FROM run_reference WHERE id = 'r'").get() as { agent_key: string }).agent_key, 'W-01');
+});

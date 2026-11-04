@@ -54,7 +54,8 @@ test('creates departments with arbitrary names, UUIDs, defaults', async () => {
   assert.equal(json.state, 'unconfigured');
   assert.equal(json.boardSyncState, 'not_provisioned');
   assert.equal(json.hermesBoardRef, null);
-  assert.equal(json.chiefProfileRef, null);
+  assert.equal(json.agents.length, 1, 'a department starts with its lead');
+  assert.deepEqual([json.agents[0].key, json.agents[0].lead, json.agents[0].profileRef], ['chief', true, null]);
   const got = (await app.inject(`/api/departments/${json.id}`)).json();
   assert.deepEqual(got, json);
 });
@@ -84,9 +85,10 @@ test('rejects invalid department input', async () => {
     { name: 'A', purpose: 'p'.repeat(2001) },
     { name: 'A', surprise: true },
     { name: 'A', inventory: { allowedToolsets: ['rm -rf'] } },
-    { name: 'A', inventory: { limits: { maxConcurrentWorkers: -1 } } },
-    { name: 'A', inventory: { limits: { maxConcurrentWorkers: 11 } } },
-    { name: 'A', inventory: { limits: { maxConcurrentWorkers: 1.5 } } },
+    { name: 'A', teammates: -1 },
+    { name: 'A', teammates: 11 },
+    { name: 'A', teammates: 1.5 },
+    { name: 'A', inventory: { limits: { maxConcurrentWorkers: 1 } } },
     { name: 'A', inventory: { limits: { maxDelegationDepth: 2 } } },
     { name: 'A', inventory: { allowedSkillIds: [''] } },
     { name: 'A', inventory: { unknownField: 1 } },
@@ -110,15 +112,17 @@ test('workspace is no longer accepted', async () => {
   assert.equal(res.statusCode, 400);
 });
 
-test('chief/worker profile refs are validated', async () => {
+test('teammates are created as agents of their own; only the lead profile can be associated', async () => {
   const { app } = memApp();
-  const d = (await createDept(app, { name: 'A' })).json;
+  const d = (await createDept(app, { name: 'A', teammates: 2 })).json;
+  assert.deepEqual(d.agents.map((a: any) => [a.key, a.lead]), [['chief', true], ['W-01', false], ['W-02', false]]);
   const url = `/api/departments/${d.id}`;
-  assert.equal((await app.inject({ method: 'PATCH', url, payload: { chiefProfileRef: 'Bad Name!' } })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'PATCH', url, payload: { leadProfileRef: 'Bad Name!' } })).statusCode, 400);
+  assert.equal((await app.inject({ method: 'PATCH', url, payload: { workerProfileRef: 'vc-worker' } })).statusCode, 400);
   assert.equal((await app.inject({ method: 'PATCH', url, payload: {} })).statusCode, 400);
-  const ok = (await app.inject({ method: 'PATCH', url, payload: { chiefProfileRef: 'vc-chief', workerProfileRef: 'vc-worker' } })).json();
-  assert.equal(ok.chiefProfileRef, 'vc-chief');
-  assert.equal(ok.workerProfileRef, 'vc-worker');
+  const ok = (await app.inject({ method: 'PATCH', url, payload: { leadProfileRef: 'vc-lead' } })).json();
+  assert.equal(ok.agents[0].profileRef, 'vc-lead');
+  assert.equal(ok.agents[1].profileRef, null);
   assert.equal(ok.state, 'unconfigured', 'still unconfigured until the board is synced');
 });
 
@@ -129,7 +133,7 @@ test('setting profile refs or marking a board synced never makes a department re
   const svc = new DepartmentService(db, (await app.inject('/api/company')).json().id);
   assert.throws(() => svc.markBoardSynced(d.id, 'wrong-slug'));
   svc.markBoardSynced(d.id, d.hermesBoardSlug);
-  await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { chiefProfileRef: 'c1' } });
+  await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'c1' } });
   assert.equal((await app.inject(`/api/departments/${d.id}`)).json().state, 'unconfigured');
 });
 
@@ -181,18 +185,18 @@ test('inventory defaults, partial patch merge, and persistence of limits', async
   const inv0 = (await app.inject(url)).json();
   assert.deepEqual(inv0, {
     allowedSkillIds: [], allowedMcpTools: [], model: null, allowedToolsets: [], sharedContextRefs: [],
-    limits: { maxConcurrentWorkers: 0, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
+    limits: { maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
   });
   const p1 = await app.inject({ method: 'PATCH', url, payload: {
     allowedSkillIds: ['pdf', 'pdf', 'arxiv'], allowedMcpTools: ['github:create_issue'], allowedToolsets: ['file', 'file', 'kanban'],
-    limits: { maxConcurrentWorkers: 3 },
+    limits: { maxDelegationDepth: 1 },
   } });
   assert.equal(p1.statusCode, 200);
   const p2 = (await app.inject({ method: 'PATCH', url, payload: { limits: { maxTaskRuntimeSeconds: 600 }, model: { provider: 'near-ai', id: 'm1' } } })).json();
   assert.deepEqual(p2.model, { provider: 'near-ai', id: 'm1' });
   assert.deepEqual(p2.allowedSkillIds, ['pdf', 'arxiv'], 'deduped, kept');
   assert.deepEqual(p2.allowedToolsets, ['file', 'kanban']);
-  assert.deepEqual(p2.limits, { maxConcurrentWorkers: 3, maxTaskRuntimeSeconds: 600, maxDelegationDepth: 1 });
+  assert.deepEqual(p2.limits, { maxTaskRuntimeSeconds: 600, maxDelegationDepth: 1 });
   assert.deepEqual((await app.inject(url)).json(), p2);
 });
 
@@ -200,7 +204,7 @@ test('inventory patch rejects bad values and leaves stored inventory untouched',
   const { app } = memApp();
   const d = (await createDept(app, { name: 'A', inventory: { allowedSkillIds: ['x'] } })).json;
   const url = `/api/departments/${d.id}/inventory`;
-  for (const payload of [{ allowedToolsets: ['nope'] }, { limits: { maxConcurrentWorkers: 99 } }, { bogus: 1 }, { limits: { maxTaskRuntimeSeconds: 1 } }]) {
+  for (const payload of [{ allowedToolsets: ['nope'] }, { limits: { maxConcurrentWorkers: 2 } }, { bogus: 1 }, { limits: { maxTaskRuntimeSeconds: 1 } }]) {
     assert.equal((await app.inject({ method: 'PATCH', url, payload })).statusCode, 400, JSON.stringify(payload));
   }
   assert.deepEqual((await app.inject(url)).json().allowedSkillIds, ['x']);
@@ -220,14 +224,14 @@ test('DELETE archives: hidden from default list, history and inventory retained,
   const db = openDb(':memory:');
   const app = buildApp(db);
   const d = (await createDept(app, { name: 'A', inventory: { allowedSkillIds: ['s'] } })).json;
-  await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { chiefProfileRef: 'chief-a' } });
+  await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'chief-a' } });
   const del = await app.inject({ method: 'DELETE', url: `/api/departments/${d.id}` });
   assert.equal(del.statusCode, 200);
   assert.equal(del.json().hermesResourcesRetained, true);
   assert.ok(del.json().department.archivedAt);
   assert.deepEqual((await app.inject('/api/departments')).json().departments, []);
   assert.equal((await app.inject('/api/departments?includeArchived=true')).json().departments.length, 1);
-  assert.equal((await app.inject(`/api/departments/${d.id}`)).json().chiefProfileRef, 'chief-a');
+  assert.equal((await app.inject(`/api/departments/${d.id}`)).json().agents[0].profileRef, 'chief-a');
   assert.deepEqual((await app.inject(`/api/departments/${d.id}/inventory`)).json().allowedSkillIds, ['s']);
   // second delete, edit, and inventory edit are refused
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/departments/${d.id}` })).statusCode, 404);
@@ -250,9 +254,9 @@ test('all organizational data survives a backend restart', async () => {
   let db = openDb(path);
   let app = buildApp(db);
   const company = (await app.inject('/api/company')).json();
-  const a = (await createDept(app, { name: 'Engineering', purpose: 'build', inventory: { allowedToolsets: ['file', 'terminal'], limits: { maxConcurrentWorkers: 4 } } })).json;
+  const a = (await createDept(app, { name: 'Engineering', purpose: 'build', inventory: { allowedToolsets: ['file', 'terminal'] }, teammates: 4 })).json;
   const b = (await createDept(app, { name: 'Research', purpose: 'read' })).json;
-  await app.inject({ method: 'PATCH', url: `/api/departments/${b.id}`, payload: { chiefProfileRef: 'research-chief', workerProfileRef: 'research-worker' } });
+  await app.inject({ method: 'PATCH', url: `/api/departments/${b.id}`, payload: { leadProfileRef: 'research-chief' } });
   const c = (await createDept(app, { name: 'Gone' })).json;
   await app.inject({ method: 'DELETE', url: `/api/departments/${c.id}` });
   const before = {

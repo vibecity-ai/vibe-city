@@ -104,10 +104,10 @@ export function age(iso: string | null, now = Date.now()): string {
 
 export interface CardLines { plan: string | null; latest: { k: 'failed' | 'running' | 'completed' | 'todo'; text: string } | null }
 
-/** The two lines a card shows when expanded: the chief's plan and the latest task, from the loaded task tree only. */
+/** The two lines a card shows when expanded: the lead's plan and the latest task, from the loaded task tree only. */
 export function cardLines(tasks: readonly TaskNode[] | undefined): CardLines {
   if (!tasks?.length) return { plan: null, latest: null };
-  const root = tasks.find((t) => t.role === 'chief' && t.depth === 0) ?? tasks[0]!;
+  const root = tasks.find((t) => t.depth === 0) ?? tasks[0]!;
   const plan = root.summary?.trim().replace(/^plan\s*[:\-]\s*/i, '') || null;
   const workers = tasks.filter((t) => t !== root);
   const by = (t: TaskNode) => t.completedAt ?? t.startedAt ?? t.createdAt ?? '';

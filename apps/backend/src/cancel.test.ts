@@ -7,12 +7,12 @@ import { questApp } from './testUtils.ts';
 const Q = (dept: string, quest: string) => `/api/departments/${dept}/quests/${quest}`;
 const cancel = (t: ReturnType<typeof questApp>, dept: string, quest: string) => t.app.inject({ method: 'POST', url: `${Q(dept, quest)}/cancel` });
 
-async function runningQuest(t: ReturnType<typeof questApp>, d: { board: string; chief: string; worker: string }, kids = 2) {
-  const root = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.chief });
-  t.kanban.startRun(d.board, root.id, d.chief);
-  const workers = Array.from({ length: kids }, (_, i) => t.kanban.seedTask(d.board, { title: `W${i + 1}`, assignee: d.worker, parents: [root.id] }));
+async function runningQuest(t: ReturnType<typeof questApp>, d: { board: string; lead: string; teammate: string }, kids = 2) {
+  const root = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.lead });
+  t.kanban.startRun(d.board, root.id, d.lead);
+  const workers = Array.from({ length: kids }, (_, i) => t.kanban.seedTask(d.board, { title: `W${i + 1}`, assignee: d.teammate, parents: [root.id] }));
   t.kanban.complete(d.board, root.id, 'planned'); // children become ready
-  t.kanban.startRun(d.board, workers[0]!.id, d.worker); // one running, the rest ready
+  t.kanban.startRun(d.board, workers[0]!.id, d.teammate); // one running, the rest ready
   return { root, workers };
 }
 
@@ -45,9 +45,9 @@ test('cancel never leaves a task that could be redispatched (nothing ready/todo/
 test('the running chief is stopped without its not-yet-started children ever becoming runnable first', async () => {
   const t = questApp();
   const d = await t.readyDept('Eng');
-  const root = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.chief });
-  t.kanban.startRun(d.board, root.id, d.chief);
-  const kid = t.kanban.seedTask(d.board, { title: 'W', assignee: d.worker, parents: [root.id] });
+  const root = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.lead });
+  t.kanban.startRun(d.board, root.id, d.lead);
+  const kid = t.kanban.seedTask(d.board, { title: 'W', assignee: d.teammate, parents: [root.id] });
   assert.equal(t.kanban.statusOf(d.board, kid.id), 'todo');
   const order: string[] = [];
   t.kanban.beforeArchive = (_b, id) => order.push(id);
@@ -87,13 +87,13 @@ test('race (irreducible): finishing inside Hermes\' archive call is archived but
 test('race: the chief creates a new task while cancellation is in progress -> a later pass still stops it', async () => {
   const t = questApp();
   const d = await t.readyDept('Eng');
-  const root = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.chief });
-  t.kanban.startRun(d.board, root.id, d.chief);
+  const root = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.lead });
+  t.kanban.startRun(d.board, root.id, d.lead);
   let injected = false;
   t.kanban.beforeArchive = (board) => {
     if (injected) return;
     injected = true;
-    t.kanban.seedTask(board, { title: 'late child', assignee: d.worker, parents: [root.id] });
+    t.kanban.seedTask(board, { title: 'late child', assignee: d.teammate, parents: [root.id] });
   };
   const st = (await cancel(t, d.id, root.id)).json();
   assert.equal(st.state, 'confirmed');
@@ -146,7 +146,7 @@ test('an archive refusal for one task does not stop the rest', async () => {
 test('cancelling a finished quest is a 409 and changes nothing; cancelling twice is safe', async () => {
   const t = questApp();
   const d = await t.readyDept('Eng');
-  const done = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.chief });
+  const done = t.kanban.seedTask(d.board, { title: 'Quest', assignee: d.lead });
   t.kanban.complete(d.board, done.id, 'all done');
   const res = await cancel(t, d.id, done.id);
   assert.equal(res.statusCode, 409);

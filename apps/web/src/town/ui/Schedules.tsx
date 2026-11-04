@@ -109,7 +109,7 @@ function ScheduleForm({ deptId, onDone }: { deptId: string | null; onDone: () =>
       <label className="field"><span className="lbl">When</span><PixelSelect value={preset} onChange={setPreset} options={[...PRESETS.map((p) => ({ value: p.cron, label: p.label })), { value: 'custom', label: 'Custom (cron)…' }]} /></label>
       {preset === 'custom' && <label className="field"><span className="lbl">Cron: minute hour day month weekday</span><input className="input mono" value={custom} onChange={(e) => setCustom(e.target.value)} /></label>}
       <label className="field"><span className="lbl">Quest title</span><input className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} placeholder="Morning digest" /></label>
-      <label className="field"><span className="lbl">Objective</span><textarea className="input" rows={2} maxLength={8000} value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="What the chief should deliver each time" /></label>
+      <label className="field"><span className="lbl">Objective</span><textarea className="input" rows={2} maxLength={8000} value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="What the floor should deliver each time" /></label>
       <p className="fine">Times are in your time zone ({tzLocal}). {describeCron(cron)}.</p>
       {error && <p className="field-err" role="alert">{error}</p>}
       <div className="row"><button className="btn primary small" type="submit" disabled={busy || !dept || !title.trim() || !objective.trim()}>{busy ? 'Saving…' : 'Save schedule'}</button><button type="button" className="btn small" onClick={onDone} disabled={busy}>Cancel</button></div>

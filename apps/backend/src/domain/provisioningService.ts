@@ -1,21 +1,36 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
-  AGENT_EXCLUDED_TOOLSETS, TOOLSETS, boardSlugForDepartment, profileNamesForDepartment,
-  type AgentRole, type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
+  AGENT_EXCLUDED_TOOLSETS, TOOLSETS, boardSlugForDepartment, profileNameForAgent,
+  type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
 } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime,
 } from '../hermes/ports.ts';
-import { ConflictError } from './errors.ts';
+import { ConflictError, NotFoundError } from './errors.ts';
 import { scrub } from './scrub.ts';
-import type { DepartmentService } from './departmentService.ts';
-import { buildBlock, hasBlock, upsertBlock, type Role } from './instructions.ts';
+import { agentModel, agentSkills, type AgentRow, type DepartmentService } from './departmentService.ts';
+import { buildBlock, hasBlock, upsertBlock } from './instructions.ts';
 import {
-  ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, buildDepartmentWideReport, buildRoleReport, desiredToolsetMap, diffObserved, effectiveToolsets, hasWorkers,
-  inventoryHash, modelToApply, skillsToDisable, type ObservedConfig, type ObservedRole,
+  ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, desiredToolsetMap, diffObserved,
+  effectiveToolsets, modelToApply, parseObserved, skillsToDisable, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
 type Step = ProvisioningError['step'];
+
+/** An agent as provisioning sees it: its profile name (stored, or the managed default) and where that came from. */
+interface Member { a: AgentRow; key: string; lead: boolean; profile: string; origin: 'created' | 'associated' }
+
+const members = (deptId: string, agents: AgentRow[]): Member[] => agents.map((a) => ({
+  a, key: a.agent_key, lead: a.seat === 0,
+  profile: a.profile_ref ?? profileNameForAgent(deptId, a.agent_key),
+  // Before provisioning has recorded an origin, a user-chosen ref is by definition an association.
+  origin: a.origin ?? (a.profile_ref ? 'associated' : 'created'),
+}));
+
+const hashOf = (inv: Inventory, ms: Member[]) =>
+  desiredHash(inv, ms.map((m) => ({ key: m.key, profile: m.profile, model: agentModel(m.a), skills: agentSkills(m.a) })));
+/** Pre-agent errors were tagged with the role step they failed in. */
+const STEP_ALIASES: Record<string, Step> = { chief: 'agents', worker: 'agents' };
 
 /** A failure with a known cause. `unavailable` = temporary Hermes problem (state becomes disconnected). */
 class StepError extends Error {
@@ -40,8 +55,8 @@ export class ProvisioningService {
   private hermes: HermesRuntime;
   private inflight = new Map<string, Promise<ProvisioningStatus>>();
 
-  /** Runs after a successful provisioning, before the department is marked ready. Errors are swallowed. */
-  afterProvision: ((departmentId: string, chiefProfile: string) => Promise<void>) | null = null;
+  /** Runs after a successful provisioning, before the department is marked ready, with every agent's profile. Errors are swallowed. */
+  afterProvision: ((departmentId: string, profiles: string[]) => Promise<void>) | null = null;
 
   constructor(db: DatabaseSync, depts: DepartmentService, hermes: HermesRuntime) {
     this.db = db;
@@ -51,30 +66,35 @@ export class ProvisioningService {
 
   // ---- views -----------------------------------------------------------------
 
+  /** Whether what Hermes was last given still matches the inventory and the team. */
+  private inSync(id: string): boolean {
+    return this.depts.getRow(id).inventory_applied_hash === hashOf(this.depts.getInventory(id), members(id, this.depts.agents(id)));
+  }
+
   status(id: string): ProvisioningStatus {
     const r = this.depts.getRow(id);
-    const inv = this.depts.getInventory(id);
     const confirmed = JSON.parse(r.confirmed_profile_refs_json) as string[];
-    const res = (ref: string | null, at: string | null, recorded: 'created' | 'associated' | null, profile = false) => {
-      // Before provisioning has recorded an origin, a user-chosen ref is by definition an association.
-      const origin = recorded ?? (profile && ref ? 'associated' : null);
-      return {
-      ref, verified: at !== null, verifiedAt: at, origin,
-      modificationConfirmed: profile && origin === 'associated' ? !!ref && confirmed.includes(ref) : null,
-      };
-    };
+    const error = r.provisioning_error_json ? (JSON.parse(r.provisioning_error_json) as ProvisioningError) : null;
     return {
       departmentId: id,
       state: r.provisioning_state,
       attempts: r.provisioning_attempts,
-      error: r.provisioning_error_json ? (JSON.parse(r.provisioning_error_json) as ProvisioningError) : null,
-      board: res(r.hermes_board_ref, r.board_verified_at, r.hermes_board_ref ? 'created' : null),
-      chief: res(r.chief_profile_ref, r.chief_verified_at, r.chief_origin, true),
-      worker: res(r.worker_profile_ref, r.worker_verified_at, r.worker_origin, true),
+      error: error ? { ...error, step: STEP_ALIASES[error.step] ?? error.step } : null,
+      board: {
+        ref: r.hermes_board_ref, verified: r.board_verified_at !== null, verifiedAt: r.board_verified_at,
+        origin: r.hermes_board_ref ? 'created' : null, modificationConfirmed: null,
+      },
+      agents: this.depts.agents(id).map((a) => {
+        const origin = a.origin ?? (a.profile_ref ? 'associated' : null);
+        return {
+          key: a.agent_key, ref: a.profile_ref, verified: a.verified_at !== null, verifiedAt: a.verified_at, origin,
+          modificationConfirmed: origin === 'associated' ? !!a.profile_ref && confirmed.includes(a.profile_ref) : null,
+        };
+      }),
       inventory: {
         applied: r.inventory_applied_at !== null,
         appliedAt: r.inventory_applied_at,
-        inSync: r.inventory_applied_hash === inventoryHash(inv),
+        inSync: this.inSync(id),
       },
       lastReconciledAt: r.last_reconciled_at,
     };
@@ -83,17 +103,20 @@ export class ProvisioningService {
   effectiveInventory(id: string): EffectiveInventory {
     const r = this.depts.getRow(id);
     const inv = this.depts.getInventory(id);
-    const obs = r.observed_config_json ? (JSON.parse(r.observed_config_json) as ObservedConfig) : null;
-    const inSync = r.inventory_applied_hash === inventoryHash(inv);
-    // Observed data is only trusted for the report while it matches the current inventory.
+    const agents = this.depts.agents(id);
+    const obs = parseObserved(r.observed_config_json);
+    const inSync = this.inSync(id);
+    // Observed data is only trusted for the report while it matches the current inventory and team.
     const usable = inSync ? obs : null;
     return {
       departmentId: id,
       observedAt: obs?.at ?? null,
       inSync,
-      chief: { role: 'chief', profileRef: r.chief_profile_ref, entries: buildRoleReport('chief', inv, usable?.chief ?? null) },
-      worker: hasWorkers(inv) ? { role: 'worker', profileRef: r.worker_profile_ref, entries: buildRoleReport('worker', inv, usable?.worker ?? null) } : null,
-      departmentWide: buildDepartmentWideReport(inv, obs?.globalConcurrencyCap),
+      agents: agents.map((a) => ({
+        agentKey: a.agent_key, profileRef: a.profile_ref,
+        entries: buildAgentReport(agentInventory(inv, { model: agentModel(a), skills: agentSkills(a) }), usable?.agents[a.agent_key] ?? null),
+      })),
+      departmentWide: buildDepartmentWideReport(inv, agents.length, obs?.globalConcurrencyCap),
     };
   }
 
@@ -121,34 +144,36 @@ export class ProvisioningService {
   }
 
   async profiles(id: string): Promise<ProfilesView> {
-    const r = this.depts.getRow(id);
-    const empty = (ref: string | null) => ({ ref, exists: null as boolean | null, model: null as string | null, description: null as string | null });
+    const agents = this.depts.agents(id);
     try {
       const list = await this.hermes.listProfiles();
-      const view = (ref: string | null) => {
-        const p = ref ? list.find((x) => x.name === ref) : undefined;
-        return { ref, exists: ref ? !!p : null, model: p?.model ?? null, description: p?.description ?? null };
+      return {
+        departmentId: id, reachable: true,
+        agents: agents.map(({ agent_key: key, profile_ref: ref }) => {
+          const p = ref ? list.find((x) => x.name === ref) : undefined;
+          return { key, ref, exists: ref ? !!p : null, model: p?.model ?? null, description: p?.description ?? null };
+        }),
       };
-      return { departmentId: id, reachable: true, chief: view(r.chief_profile_ref), worker: view(r.worker_profile_ref) };
     } catch (e) {
       if (!(e instanceof HermesUnavailableError) && !(e instanceof HermesAuthError)) throw e;
-      return { departmentId: id, reachable: false, chief: empty(r.chief_profile_ref), worker: empty(r.worker_profile_ref) };
+      return { departmentId: id, reachable: false, agents: agents.map((a) => ({ key: a.agent_key, ref: a.profile_ref, exists: null, model: null, description: null })) };
     }
   }
 
   /**
-   * One agent profile of the department. Skills/toolsets/model are the last read-back from Hermes (no CLI call per
-   * view); sessions are read live and degrade to null with a reason when Hermes is unavailable.
+   * One agent of the department (its own Hermes profile). Skills/toolsets/model are the last read-back from Hermes
+   * (no CLI call per view); sessions are read live and degrade to null with a reason when Hermes is unavailable.
    */
-  async agent(id: string, role: AgentRole): Promise<AgentView> {
+  async agent(id: string, agentKey: string): Promise<AgentView> {
     const r = this.depts.getRow(id);
-    const ref = role === 'chief' ? r.chief_profile_ref : r.worker_profile_ref;
-    const obs = r.observed_config_json ? (JSON.parse(r.observed_config_json) as ObservedConfig) : null;
-    const o = obs?.[role] ?? null;
+    const a = this.depts.agents(id).find((x) => x.agent_key === agentKey);
+    if (!a) throw new NotFoundError('agent not found');
+    const ref = a.profile_ref;
+    const o = parseObserved(r.observed_config_json)?.agents[agentKey] ?? null;
     const enabled = new Set(o?.enabledSkills ?? []);
     let sessions: AgentView['sessions'] = null;
     let sessionsError: string | null = null;
-    if (!ref) sessionsError = 'This department has no Hermes profile yet. Provision it first.';
+    if (!ref) sessionsError = 'This agent has no Hermes profile yet. Provision the department first.';
     else {
       try {
         const iso = (t: number | null) => (t === null ? null : new Date(t * 1000).toISOString());
@@ -165,7 +190,8 @@ export class ProvisioningService {
       }
     }
     return {
-      departmentId: id, role, profileRef: ref, observedAt: o ? obs!.at : null, model: o?.model ?? null, provider: o?.provider ?? null,
+      departmentId: id, agentKey, lead: a.seat === 0, profileRef: ref, observedAt: o ? parseObserved(r.observed_config_json)!.at : null,
+      model: o?.model ?? null, provider: o?.provider ?? null,
       skills: (o?.installedSkills ?? []).map((name) => ({ name, enabled: enabled.has(name), essential: (ESSENTIAL_SKILLS as readonly string[]).includes(name) })).sort((a, b) => a.name.localeCompare(b.name)),
       toolsets: Object.entries(o?.toolsets ?? {}).map(([name, on]) => ({ name, enabled: on })).sort((a, b) => a.name.localeCompare(b.name)),
       sessions, sessionsError,
@@ -217,13 +243,14 @@ export class ProvisioningService {
       provisioning_attempts: start.provisioning_attempts + 1,
       provisioning_error_json: null,
       // "verified" means verified in the latest attempt; every step re-verifies and re-stamps.
-      board_verified_at: null, chief_verified_at: null, worker_verified_at: null,
+      board_verified_at: null,
     });
+    for (const a of this.depts.agents(id)) this.depts.patchAgent(id, a.agent_key, { verified_at: null });
     try {
       await this.steps(id);
-      // Best effort extras (e.g. the Vibe City MCP server on the chief). Never fails provisioning.
-      const chief = this.depts.getRow(id).chief_profile_ref;
-      if (chief && this.afterProvision) { try { await this.afterProvision(id, chief); } catch { /* reported by the hook */ } }
+      // Best effort extras (e.g. the Vibe City MCP server on every agent). Never fails provisioning.
+      const profiles = this.depts.agents(id).map((a) => a.profile_ref).filter((p): p is string => !!p);
+      if (profiles.length && this.afterProvision) { try { await this.afterProvision(id, profiles); } catch { /* reported by the hook */ } }
       this.depts.patchRow(id, { provisioning_state: 'ready', provisioning_error_json: null, last_reconciled_at: now() });
     } catch (e) {
       this.fail(id, e);
@@ -270,9 +297,7 @@ export class ProvisioningService {
   private async steps(id: string) {
     const row = this.depts.getRow(id);
     const slug = boardSlugForDepartment(id);
-    const names = profileNamesForDepartment(id);
-    // No workers: no worker profile is created, configured or verified (a previously provisioned one is left as is).
-    const withWorker = hasWorkers(this.depts.getInventory(id));
+    const team = members(id, this.depts.agents(id));
 
     // 1. health
     await this.step('health', async () => {
@@ -282,25 +307,20 @@ export class ProvisioningService {
     });
 
     // 2. validate profile choices
-    const chiefName = row.chief_profile_ref ?? names.chief;
-    const workerName = row.worker_profile_ref ?? names.worker;
-    const chiefOrigin = row.chief_origin ?? (row.chief_profile_ref ? 'associated' : 'created');
-    const workerOrigin = row.worker_origin ?? (row.worker_profile_ref ? 'associated' : 'created');
-    const roles = ([['chief', chiefName, chiefOrigin], ['worker', workerName, workerOrigin]] as const).filter(([role]) => role === 'chief' || withWorker);
     const existing = await this.step('validate', () => this.hermes.listProfiles());
-    for (const [role, name, origin] of roles) {
+    for (const { key, profile: name, origin } of team) {
       if (origin === 'associated' && !existing.some((p) => p.name === name)) {
-        throw new StepError('validate', 'profile_not_found', `The ${role} profile "${name}" does not exist in Hermes.`, { retryable: false });
+        throw new StepError('validate', 'profile_not_found', `The profile "${name}" of agent ${key} does not exist in Hermes.`, { retryable: false });
       }
       if (name === 'default') throw new StepError('validate', 'profile_reserved', 'The default profile cannot be a department profile.', { retryable: false });
     }
     // Safeguard: never modify a pre-existing profile without explicit, per-profile consent. Checked before anything
     // is created or changed in Hermes, so a refusal leaves Hermes exactly as it was.
     const confirmed = JSON.parse(row.confirmed_profile_refs_json) as string[];
-    for (const [role, name, origin] of roles) {
+    for (const { key, profile: name, origin } of team) {
       if (origin === 'associated' && !confirmed.includes(name)) {
         throw new StepError('validate', 'confirmation_required',
-          `The ${role} profile "${name}" already exists. Provisioning would change its toolsets, skills, model and instructions, which may affect its use outside Vibe City. Confirm this explicitly (confirmModifyProfiles) or use a Vibe City-managed profile instead.`,
+          `The profile "${name}" of agent ${key} already exists. Provisioning would change its toolsets, skills, model and instructions, which may affect its use outside Vibe City. Confirm this explicitly (confirmModifyProfiles) or use a Vibe City-managed profile instead.`,
           { retryable: false });
       }
     }
@@ -317,56 +337,64 @@ export class ProvisioningService {
       this.depts.patchRow(id, { hermes_board_ref: slug, board_sync_state: 'synced', board_verified_at: now() });
     });
 
-    // 4/5. profiles (persist after each so a failure in the next step resumes without recreating)
-    for (const [role, name, origin] of roles) {
-      await this.step(role, async () => {
+    // 4. one profile per agent (persist after each so a failure in the next one resumes without recreating)
+    for (const { key, profile: name, origin } of team) {
+      await this.step('agents', async () => {
         const list = await this.hermes.listProfiles();
         if (!list.some((p) => p.name === name)) {
-          await this.hermes.createProfile(name, { description: `${role} for department "${row.name}" (managed by Vibe City)` });
+          await this.hermes.createProfile(name, { description: `Agent ${key} of department "${row.name}" (managed by Vibe City)` });
           if (!(await this.hermes.listProfiles()).some((p) => p.name === name)) {
-            throw new StepError(role, 'profile_not_found_after_create', `Hermes did not report profile "${name}" after creating it.`, { retryable: true });
+            throw new StepError('agents', 'profile_not_found_after_create', `Hermes did not report profile "${name}" after creating it.`, { retryable: true });
           }
         }
-        this.depts.patchRow(id, role === 'chief'
-          ? { chief_profile_ref: name, chief_origin: origin, chief_verified_at: now() }
-          : { worker_profile_ref: name, worker_origin: origin, worker_verified_at: now() });
+        this.depts.patchAgent(id, key, { profile_ref: name, origin, verified_at: now() });
       });
     }
 
-    // 6. inventory
-    const observed = await this.step('inventory', () => this.applyInventory(id, chiefName, withWorker ? workerName : null));
+    // 5. inventory
+    const observed = await this.step('inventory', () => this.applyInventory(id, team));
     const inv = this.depts.getInventory(id);
-    const problems = [...diffObserved('chief', inv, observed.chief), ...(observed.worker ? diffObserved('worker', inv, observed.worker) : [])];
+    const problems = team.flatMap((m) => diffObserved(agentInventory(inv, { model: agentModel(m.a), skills: agentSkills(m.a) }), observed.agents[m.key]!));
     if (problems.length) {
       throw new StepError('inventory', 'inventory_verification_failed', `Applied inventory does not match what Hermes reports (${problems.length} difference(s)).`, { retryable: true });
     }
 
-    // 7. final verification: everything still present and the inventory did not change mid-run
+    // 6. final verification: everything still present and neither the inventory nor the team changed mid-run
     await this.step('verify', async () => {
       const profiles = await this.hermes.listProfiles();
       const boards = await this.hermes.listBoards();
-      const missing = roles.map(([, n]) => n).filter((n) => !profiles.some((p) => p.name === n));
+      const missing = team.map((m) => m.profile).filter((n) => !profiles.some((p) => p.name === n));
       if (missing.length || !boards.some((b) => b.slug === slug && !b.archived)) {
         throw new StepError('verify', 'resource_missing', 'A Hermes resource disappeared during provisioning.', { retryable: true });
       }
-      if (inventoryHash(this.depts.getInventory(id)) !== inventoryHash(inv)) {
-        throw new StepError('verify', 'inventory_changed', 'The inventory changed while provisioning; provision again to apply it.', { retryable: true });
+      const applied = hashOf(inv, team);
+      if (hashOf(this.depts.getInventory(id), members(id, this.depts.agents(id))) !== applied) {
+        throw new StepError('verify', 'inventory_changed', 'The inventory or the team changed while provisioning; provision again to apply it.', { retryable: true });
       }
-      this.depts.patchRow(id, { inventory_applied_hash: inventoryHash(inv), inventory_applied_at: now(), observed_config_json: JSON.stringify(observed) });
+      this.depts.patchRow(id, { inventory_applied_hash: applied, inventory_applied_at: now(), observed_config_json: JSON.stringify(observed) });
     });
   }
 
   // ---- inventory application ----------------------------------------------------
 
-  private async applyInventory(id: string, chief: string, worker: string | null): Promise<ObservedConfig> {
+  /** The block an agent's SOUL.md must contain: the same rules for everyone, plus who its teammates are. */
+  private block(id: string, m: Member, team: Member[]): string {
     const row = this.depts.getRow(id);
-    const inv = this.depts.getInventory(id);
-    const roles: [Role, string, string | null][] = worker ? [['chief', chief, worker], ['worker', worker, chief]] : [['chief', chief, null]];
-    const out: Partial<Record<Role, ObservedRole>> = {};
-    for (const [role, profile, counterpart] of roles) {
+    return buildBlock({
+      deptId: id, deptName: row.name, purpose: row.purpose, agentKey: m.key, lead: m.lead,
+      teammates: team.filter((t) => t.key !== m.key).map((t) => t.profile), inv: this.depts.getInventory(id),
+    });
+  }
+
+  private async applyInventory(id: string, team: Member[]): Promise<ObservedConfig> {
+    const base = this.depts.getInventory(id);
+    const out: Record<string, ObservedRole> = {};
+    for (const m of team) {
+      const { profile } = m;
+      const inv = agentInventory(base, { model: agentModel(m.a), skills: agentSkills(m.a) });
       // toolsets: every toolset Hermes lists is set explicitly, so nothing outside the allowance stays on.
       const universe = Object.keys(await this.hermes.getToolsets(profile));
-      const want = desiredToolsetMap(universe, effectiveToolsets(role, inv));
+      const want = desiredToolsetMap(universe, effectiveToolsets(inv));
       await this.hermes.setToolsets(profile, {
         enable: universe.filter((t) => want[t]),
         disable: universe.filter((t) => !want[t]),
@@ -374,26 +402,24 @@ export class ProvisioningService {
       // skills: everything installed that is not allowed is disabled
       const installed = (await this.hermes.listSkills(profile)).map((s) => s.name);
       await this.hermes.setDisabledSkills(profile, skillsToDisable(inv, installed));
-      // model: only when the department chose one (provider + id, set together through Hermes)
+      // model: only when the agent or the department chose one (provider + id, set together through Hermes)
       const model = modelToApply(inv, await this.hermes.getModel(profile));
       if (model) await this.hermes.setModel(profile, model);
       // instructions: managed block only
-      const block = buildBlock({ deptId: id, deptName: row.name, purpose: row.purpose, role, counterpart, inv });
       const soul = await this.hermes.readInstructions(profile);
-      const next = upsertBlock(soul, block, id, role);
+      const next = upsertBlock(soul, this.block(id, m, team), id, m.key);
       if (next !== soul) await this.hermes.writeInstructions(profile, next);
-      out[role] = await this.observeRole(id, role, profile, counterpart);
+      out[m.key] = await this.observe(id, m, team);
     }
-    return { at: now(), globalConcurrencyCap: await this.hermes.getConcurrencyCap(), chief: out.chief!, worker: out.worker ?? null };
+    return { at: now(), globalConcurrencyCap: await this.hermes.getConcurrencyCap(), agents: out };
   }
 
-  /** Read-only: what Hermes currently reports for one profile. */
-  private async observeRole(id: string, role: Role, profile: string, counterpart: string | null): Promise<ObservedRole> {
-    const row = this.depts.getRow(id);
-    const inv = this.depts.getInventory(id);
+  /** Read-only: what Hermes currently reports for one agent's profile. */
+  private async observe(id: string, m: Member, team: Member[]): Promise<ObservedRole> {
+    const { profile } = m;
     const skills = await this.hermes.listSkills(profile);
     const soul = await this.hermes.readInstructions(profile);
-    const block = buildBlock({ deptId: id, deptName: row.name, purpose: row.purpose, role, counterpart, inv });
+    const block = this.block(id, m, team);
     return {
       profile,
       toolsets: await this.hermes.getToolsets(profile),
@@ -476,22 +502,24 @@ export class ProvisioningService {
     const boards = await this.hermes.listBoards();
     if (!boards.some((b) => b.slug === slug && !b.archived)) problems.push('board missing');
     const inv = this.depts.getInventory(id);
-    const withWorker = hasWorkers(inv);
+    const agents = this.depts.agents(id);
     const profiles = await this.hermes.listProfiles();
-    for (const [role, ref] of [['chief', row.chief_profile_ref], ...(withWorker ? [['worker', row.worker_profile_ref] as const] : [])] as const) {
-      if (!ref || !profiles.some((p) => p.name === ref)) problems.push(`${role} profile missing`);
+    for (const a of agents) {
+      if (!a.profile_ref || !profiles.some((p) => p.name === a.profile_ref)) problems.push(`profile of agent ${a.agent_key} missing`);
     }
     if (problems.length) return problems;
-    if (row.inventory_applied_hash !== inventoryHash(inv)) return ['inventory not applied'];
-    const chief = row.chief_profile_ref!;
-    const worker = withWorker ? row.worker_profile_ref! : null;
-    const oc = await this.observeRole(id, 'chief', chief, worker);
-    const ow = worker ? await this.observeRole(id, 'worker', worker, chief) : null;
-    problems.push(...diffObserved('chief', inv, oc).map((d) => `chief: ${d}`), ...(ow ? diffObserved('worker', inv, ow).map((d) => `worker: ${d}`) : []));
+    const team = members(id, agents);
+    if (row.inventory_applied_hash !== hashOf(inv, team)) return ['inventory not applied'];
+    const observed: Record<string, ObservedRole> = {};
+    for (const m of team) {
+      observed[m.key] = await this.observe(id, m, team);
+      const want = agentInventory(inv, { model: agentModel(m.a), skills: agentSkills(m.a) });
+      problems.push(...diffObserved(want, observed[m.key]!).map((d) => `${m.key}: ${d}`));
+    }
     if (!problems.length) {
-      const prev = row.observed_config_json ? (JSON.parse(row.observed_config_json) as ObservedConfig) : null;
+      const prev = parseObserved(row.observed_config_json);
       this.depts.patchRow(id, {
-        observed_config_json: JSON.stringify({ at: now(), globalConcurrencyCap: prev?.globalConcurrencyCap ?? null, chief: oc, worker: ow } satisfies ObservedConfig),
+        observed_config_json: JSON.stringify({ at: now(), globalConcurrencyCap: prev?.globalConcurrencyCap ?? null, agents: observed } satisfies ObservedConfig),
       });
     }
     return problems;

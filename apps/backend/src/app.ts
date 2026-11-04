@@ -67,7 +67,7 @@ export interface ServicesExtra {
   webDist?: string;
   /** Chat model for the dialogue window (NEAR AI Cloud in the container). Omit: chat answers 503 model_unavailable. */
   chatModel?: ChatModel;
-  /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned chief gets it in its config. */
+  /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned agent gets it in its config. */
   mcpUrl?: string;
   /** AR scouting time before the shortlist shows (ms). Default 45 s. */
   hiringScoutMs?: number;
@@ -182,11 +182,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(ProfilesViewSchema, await provisioning.profiles(id));
   });
 
-  app.get('/api/departments/:id/agents/:role', async (req) => {
+  app.get('/api/departments/:id/agents/:agentKey', async (req) => {
     const id = idOf(req.params);
-    const role = (req.params as { role?: string }).role;
-    if (role !== 'chief' && role !== 'worker') throw new NotFoundError('agent not found');
-    return parse(AgentViewSchema, await provisioning.agent(id, role));
+    const key = (req.params as { agentKey?: string }).agentKey ?? '';
+    if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
+    return parse(AgentViewSchema, await provisioning.agent(id, key));
   });
 
   // ---- Characters and dialogue-window chat (feature spec 2.1, 2.2, 2.5) ----
@@ -261,9 +261,10 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q) });
   if (extra.mcpUrl && hermes?.setMcpServer) {
     const url = extra.mcpUrl, rt = hermes;
-    provisioning.afterProvision = async (deptId, chief) => {
+    provisioning.afterProvision = async (deptId, profiles) => {
+      // One token per department, shared by its agents (issuing rotates it, so every profile gets the new one).
       const token = questRequests.issueToken(deptId);
-      await rt.setMcpServer!(chief, MCP_SERVER_NAME, { url, headers: { Authorization: `Bearer ${token}` }, tools: { include: [...MCP_TOOLS] } });
+      for (const p of profiles) await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers: { Authorization: `Bearer ${token}` }, tools: { include: [...MCP_TOOLS] } });
     };
   }
   // ---- schedules (feature spec 8): the backend creates the quests, Hermes cron stays off ----
@@ -282,7 +283,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.post('/api/schedules/:schedId/run', async (req) => parse(ScheduleSchema, await schedules.runNow(schedId(req.params))));
 
   app.get('/api/quest-requests', async () => parse(QuestRequestListSchema, { requests: questRequests.list() }));
-  /** For the CEO (and tests): file a request on behalf of a department's chief, through the same guardrails. */
+  /** For the CEO (and tests): file a request on behalf of a department, through the same guardrails. */
   app.post('/api/quest-requests', async (req, reply) => {
     const b = parse(QuestRequestCreateSchema, req.body);
     idOf({ id: b.fromDepartmentId });

@@ -4,8 +4,8 @@ export interface StatusInfo { label: string; tone: 'neutral' | 'active' | 'good'
 
 /** Plain-language status. `completed` is only ever shown when Hermes shows every task in the tree done. */
 export const STATUS: Record<QuestStatus, StatusInfo> = {
-  queued: { label: 'Queued', tone: 'neutral', hint: 'Waiting for the chief to start.' },
-  planning: { label: 'Chief planning', tone: 'active', hint: 'The chief is running and has not created worker tasks yet.' },
+  queued: { label: 'Queued', tone: 'neutral', hint: 'Waiting for the lead to start.' },
+  planning: { label: 'Lead planning', tone: 'active', hint: 'The lead is running and has not handed out tasks yet.' },
   running: { label: 'In progress', tone: 'active', hint: 'Work is running or waiting to be dispatched.' },
   awaiting_input: { label: 'Needs input', tone: 'warn', hint: 'A task is blocked and waiting for a person.' },
   in_review: { label: 'In review', tone: 'warn', hint: 'A task is waiting for review.' },
@@ -32,9 +32,9 @@ export function formatBytes(n: number): string {
 /** What the chief finishing means, without implying the quest is done. */
 export function planningNote(q: Pick<QuestDetail, 'flags' | 'status'>): string | null {
   if (q.flags.planningComplete && q.status !== 'completed' && q.status !== 'cancelled' && q.status !== 'cancelling') {
-    return 'The chief has finished planning. The quest is complete only when all worker tasks are done.';
+    return 'The lead has finished planning. The quest is complete only when every teammate task is done.';
   }
-  if (q.flags.planningComplete && !q.flags.delegated && q.status === 'completed') return 'The chief finished without creating worker tasks.';
+  if (q.flags.planningComplete && !q.flags.delegated && q.status === 'completed') return 'The lead finished the work itself, without handing out tasks.';
   return null;
 }
 

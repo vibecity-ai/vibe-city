@@ -1,10 +1,10 @@
-/* Dialogue-window chat with one agent seat. The agent answers in character, with what Vibe City knows about its
+/* Dialogue-window chat with one agent. The agent answers in character, with what Vibe City knows about its
    department (purpose, its Hermes instructions, live quests) as context. Chat never starts work: if the user asks for
    work, the agent returns a quest proposal, and the user's Accept creates an ordinary quest through the quest API. */
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  ChatMessageSchema, ChatProposalSchema, MOODS, profileNamesForDepartment,
+  ChatMessageSchema, ChatProposalSchema, MOODS, profileNameForAgent,
   type Character, type ChatHistory, type ChatMessage, type ChatReply, type ChatSend, type Mood, type QuestSummary,
 } from '@vibe-city/shared';
 import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
@@ -66,8 +66,7 @@ export class ChatService {
 
   private async systemPrompt(departmentId: string, ch: Character, taskTitle?: string): Promise<string> {
     const dept = this.d.departments.get(departmentId);
-    const names = profileNamesForDepartment(departmentId);
-    const profile = ch.role === 'chief' ? (dept.chiefProfileRef ?? names.chief) : (dept.workerProfileRef ?? names.worker);
+    const profile = dept.agents.find((a) => a.key === ch.agentKey)?.profileRef ?? profileNameForAgent(departmentId, ch.agentKey);
     let instructions = '';
     try { instructions = (await this.d.hermes.readInstructions(profile)) ?? ''; } catch { /* Hermes down: talk without them */ }
     let quests: QuestSummary[] = [];
@@ -78,7 +77,7 @@ export class ChatService {
       `Personality: ${ch.traits.join(', ')}. Way of speaking: ${ch.speechStyle}. Quirk: ${ch.quirk}.`,
       `You are talking to the CEO, whom you call "boss". Stay in character.`,
       `Department purpose: ${dept.purpose || 'not written yet'}.`,
-      ch.role === 'worker' && taskTitle ? `Your current task: "${taskTitle}".` : '',
+      taskTitle ? `Your current task: "${taskTitle}".` : '',
       questLines.length ? `Your department's quests right now (from the Kanban board):\n${questLines.join('\n')}` : 'Your department has no quests right now.',
       instructions ? `Your standing instructions (from your Hermes profile):\n${scrubPaths(instructions).slice(0, MAX_INSTRUCTIONS)}` : '',
       '',

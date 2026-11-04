@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { profileNamesForDepartment } from '@vibe-city/shared';
+import { profileNameForAgent } from '@vibe-city/shared';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './hermes/ports.ts';
 import { FakeHermes } from './testing/fakeHermes.ts';
 import { buildServices } from './app.ts';
@@ -8,10 +8,12 @@ import { openDb } from './db/db.ts';
 import { provApp, tempDir } from './testUtils.ts';
 
 const count = (h: FakeHermes, prefix: string) => h.calls.filter((c) => c.startsWith(prefix)).length;
+/** Managed profile names of the lead and the first teammate (provApp departments have one teammate). */
+const profiles = (id: string) => ({ chief: profileNameForAgent(id, 'chief'), worker: profileNameForAgent(id, 'W-01') });
 
 // ---- happy path -------------------------------------------------------------
 
-test('provisioning creates the board and both profiles, applies the inventory, and marks ready', async () => {
+test('provisioning creates the board and one profile per agent, applies the inventory, and marks ready', async () => {
   const t = provApp();
   const d = await t.create('Engineering', { purpose: 'build things', inventory: { allowedToolsets: ['file', 'terminal'], allowedSkillIds: ['pdf'], sharedContextRefs: ['docs/style.md'] } });
   assert.equal((await t.dept(d.id)).state, 'unconfigured');
@@ -23,10 +25,11 @@ test('provisioning creates the board and both profiles, applies the inventory, a
   assert.equal(st.error, null);
   assert.equal(st.attempts, 1);
 
-  const names = profileNamesForDepartment(d.id);
-  assert.deepEqual([st.board.ref, st.chief.ref, st.worker.ref], [d.hermesBoardSlug, names.chief, names.worker]);
-  assert.ok([st.board, st.chief, st.worker].every((r: any) => r.verified && r.verifiedAt));
-  assert.deepEqual([st.chief.origin, st.worker.origin], ['created', 'created']);
+  const names = profiles(d.id);
+  assert.deepEqual([st.board.ref, st.agents[0].ref, st.agents[1].ref], [d.hermesBoardSlug, names.chief, names.worker]);
+  assert.deepEqual(st.agents.map((a: any) => a.key), ['chief', 'W-01']);
+  assert.ok([st.board, ...st.agents].every((r: any) => r.verified && r.verifiedAt));
+  assert.deepEqual([st.agents[0].origin, st.agents[1].origin], ['created', 'created']);
   assert.ok(st.inventory.applied && st.inventory.inSync);
 
   // Hermes really contains them, and Vibe City stores the verified refs
@@ -36,7 +39,7 @@ test('provisioning creates the board and both profiles, applies the inventory, a
   assert.equal(dept.state, 'ready');
   assert.equal(dept.hermesBoardRef, d.hermesBoardSlug);
   assert.equal(dept.boardSyncState, 'synced');
-  assert.equal(dept.chiefProfileRef, names.chief);
+  assert.deepEqual(dept.agents.map((a: any) => a.profileRef), [names.chief, names.worker]);
 });
 
 test('inventory is applied: toolsets, skills, instructions; other profiles and unrelated config untouched', async () => {
@@ -44,15 +47,15 @@ test('inventory is applied: toolsets, skills, instructions; other profiles and u
   t.hermes.profiles.get('default')!.soul = '# default soul\n';
   const d = await t.create('Eng', { purpose: 'p', inventory: { allowedToolsets: ['file', 'terminal', 'delegation', 'todo'], allowedSkillIds: ['pdf'] } });
   await t.provision(d.id);
-  const { chief, worker } = profileNamesForDepartment(d.id);
+  const { chief, worker } = profiles(d.id);
   const w = t.hermes.profiles.get(worker)!;
   const c = t.hermes.profiles.get(chief)!;
   const on = (p: typeof w) => Object.entries(p.toolsets).filter(([, v]) => v).map(([k]) => k).sort();
-  assert.deepEqual(on(w), ['file', 'kanban', 'terminal', 'todo'], 'worker: allowed minus delegation, plus kanban');
-  assert.deepEqual(on(c), ['file', 'kanban', 'terminal', 'todo'], 'chief: same allowance as the worker');
+  assert.deepEqual(on(w), ['file', 'kanban', 'terminal', 'todo'], 'teammate: allowed minus delegation, plus kanban');
+  assert.deepEqual(on(c), ['file', 'kanban', 'terminal', 'todo'], 'lead: the same allowance');
   assert.deepEqual(Object.entries(w.skills).filter(([, v]) => v).map(([k]) => k), ['hermes-agent', 'pdf'], 'allowed + Hermes essential');
   assert.ok(w.soul.startsWith('# Soul\nBe helpful.\n'), 'existing instructions preserved');
-  assert.ok(w.soul.includes('Worker Agent') && c.soul.includes('Chief Agent'));
+  assert.ok(w.soul.includes('You are an agent of this department (seat W-01)') && c.soul.includes('(seat chief). New quests'));
   assert.equal(w.model, 'base-model', 'model untouched when no allowed models are listed');
   const def = t.hermes.profiles.get('default')!;
   assert.equal(def.soul, '# default soul\n');
@@ -60,11 +63,11 @@ test('inventory is applied: toolsets, skills, instructions; other profiles and u
   assert.ok(t.hermes.calls.every((c2) => !/\(default[,)]/.test(c2) || c2.startsWith('listProfiles')), 'no profile-scoped call targeted default');
 });
 
-test('chosen model: both profiles get the provider + model pair, set through Hermes', async () => {
+test('chosen model: every agent profile gets the provider + model pair, set through Hermes', async () => {
   const t = provApp();
   const d = await t.create('Eng', { inventory: { model: { provider: 'anthropic', id: 'claude-x' } } });
   assert.equal((await t.provision(d.id)).json().state, 'ready');
-  const { chief, worker } = profileNamesForDepartment(d.id);
+  const { chief, worker } = profiles(d.id);
   for (const n of [chief, worker]) {
     assert.deepEqual([t.hermes.profiles.get(n)!.provider, t.hermes.profiles.get(n)!.model], ['anthropic', 'claude-x'], n);
   }
@@ -108,17 +111,17 @@ test('provisioning is idempotent: a second run creates nothing new', async () =>
   assert.equal(t.hermes.boards.size, 1);
 });
 
-test('partial failure: board ok, worker creation fails -> error; retry resumes without duplicates', async () => {
+test('partial failure: board ok, a profile creation fails -> error; retry resumes without duplicates', async () => {
   const t = provApp();
   const d = await t.create('Eng');
   t.hermes.failNext('createProfile', new HermesRejectedError('boom'), 1); // chief
   const first = (await t.provision(d.id)).json();
   assert.equal(first.state, 'error');
-  assert.equal(first.error.step, 'chief');
+  assert.equal(first.error.step, 'agents');
   assert.equal(first.error.code, 'hermes_rejected');
   assert.equal(first.error.retryable, true);
   assert.equal(first.board.verified, true, 'board progress is preserved');
-  assert.equal(first.chief.verified, false);
+  assert.equal(first.agents[0].verified, false);
   assert.equal((await t.dept(d.id)).state, 'error');
 
   // second profile fails too, after chief succeeds on retry
@@ -126,19 +129,19 @@ test('partial failure: board ok, worker creation fails -> error; retry resumes w
   const retry = await t.app.inject({ method: 'POST', url: `/api/departments/${d.id}/provision/retry` });
   assert.equal(retry.json().state, 'ready');
   assert.equal(count(t.hermes, 'createBoard'), 1, 'board not recreated');
-  const { chief, worker } = profileNamesForDepartment(d.id);
+  const { chief, worker } = profiles(d.id);
   assert.ok(t.hermes.profiles.has(chief) && t.hermes.profiles.has(worker));
-  assert.equal(t.hermes.profiles.size, 3, 'default + exactly one chief + one worker');
+  assert.equal(t.hermes.profiles.size, 3, 'default + exactly one profile per agent');
 });
 
 test('crash between creating a profile and recording it does not duplicate it', async () => {
   const t = provApp();
   const d = await t.create('Eng');
-  const { chief } = profileNamesForDepartment(d.id);
+  const { chief } = profiles(d.id);
   t.hermes.addProfile(chief); // exists in Hermes, Vibe City never recorded it
   const st = (await t.provision(d.id)).json();
   assert.equal(st.state, 'ready');
-  assert.equal(st.chief.origin, 'created');
+  assert.equal(st.agents[0].origin, 'created');
   assert.equal(count(t.hermes, 'createProfile(' + chief), 0, 'existing derived profile is adopted, not recreated');
 });
 
@@ -173,7 +176,7 @@ test('Hermes drops mid-provisioning -> disconnected with progress kept', async (
   t.hermes.failNext('createProfile', new HermesUnavailableError('gone'), 1);
   const st = (await t.provision(d.id)).json();
   assert.equal(st.state, 'disconnected');
-  assert.equal(st.error.step, 'chief');
+  assert.equal(st.error.step, 'agents');
   assert.equal(st.board.verified, true);
   assert.equal((await t.provision(d.id)).json().state, 'ready');
 });
@@ -191,7 +194,7 @@ test('rejected session token -> error (not disconnected), not retryable until co
 test('associating a profile that does not exist is an invalid configuration, not an outage', async () => {
   const t = provApp();
   const d = await t.create('Eng');
-  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { chiefProfileRef: 'my-chief' } });
+  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'my-chief' } });
   const st = (await t.provision(d.id)).json();
   assert.equal(st.state, 'error');
   assert.equal(st.error.code, 'profile_not_found');
@@ -202,19 +205,21 @@ test('associating a profile that does not exist is an invalid configuration, not
   await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { confirmModifyProfiles: ['my-chief'] } });
   const ok = (await t.app.inject({ method: 'POST', url: `/api/departments/${d.id}/provision` })).json();
   assert.equal(ok.state, 'ready');
-  assert.equal(ok.chief.origin, 'associated');
+  assert.equal(ok.agents[0].origin, 'associated');
   assert.equal(count(t.hermes, 'createProfile(my-chief'), 0);
 });
 
-test('profile association rules: not default, not shared, chief != worker', async () => {
+test('profile association rules: not default, not shared, not a teammate\'s profile', async () => {
   const t = provApp();
   const a = await t.create('A');
   const b = await t.create('B');
+  await t.provision(b.id);
   const patch = (id: string, payload: object) => t.app.inject({ method: 'PATCH', url: `/api/departments/${id}`, payload });
-  assert.equal((await patch(a.id, { chiefProfileRef: 'default' })).statusCode, 400);
-  assert.equal((await patch(a.id, { chiefProfileRef: 'same', workerProfileRef: 'same' })).statusCode, 400);
-  assert.equal((await patch(a.id, { chiefProfileRef: 'shared' })).statusCode, 200);
-  assert.equal((await patch(b.id, { workerProfileRef: 'shared' })).statusCode, 409);
+  assert.equal((await patch(a.id, { leadProfileRef: 'default' })).statusCode, 400);
+  assert.equal((await patch(a.id, { leadProfileRef: 'shared' })).statusCode, 200);
+  assert.equal((await patch(b.id, { leadProfileRef: 'shared' })).statusCode, 409);
+  assert.equal((await patch(a.id, { leadProfileRef: profiles(b.id).worker })).statusCode, 409, 'another department\'s teammate');
+  assert.equal((await patch(b.id, { leadProfileRef: profiles(b.id).worker })).statusCode, 400, 'one of its own teammates');
 });
 
 test('inventory that Hermes does not reflect -> error, never ready', async () => {
@@ -266,7 +271,7 @@ test('editing the inventory of a ready department requires re-provisioning', asy
   assert.equal(st.inventory.inSync, false);
   assert.equal((await t.app.inject(`/api/departments/${d.id}/effective-inventory`)).json().inSync, false);
   assert.equal((await t.provision(d.id)).json().state, 'ready');
-  const { worker } = profileNamesForDepartment(d.id);
+  const { worker } = profiles(d.id);
   assert.equal(t.hermes.profiles.get(worker)!.toolsets.web, true);
   assert.equal(count(t.hermes, 'createProfile'), 2, 'no profile re-creation on re-provision');
 });
@@ -276,11 +281,11 @@ test('changing the profile association resets verification and readiness', async
   const d = await t.create('Eng');
   await t.provision(d.id);
   t.hermes.addProfile('other-chief');
-  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { chiefProfileRef: 'other-chief', confirmModifyProfiles: ['other-chief'] } });
+  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'other-chief', confirmModifyProfiles: ['other-chief'] } });
   const st = await t.status(d.id);
   assert.equal(st.state, 'unconfigured');
-  assert.equal(st.chief.verified, false);
-  assert.equal((await t.provision(d.id)).json().chief.origin, 'associated');
+  assert.equal(st.agents[0].verified, false);
+  assert.equal((await t.provision(d.id)).json().agents[0].origin, 'associated');
 });
 
 test('renaming the department refreshes the instruction block on the next provision', async () => {
@@ -290,7 +295,7 @@ test('renaming the department refreshes the instruction block on the next provis
   await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { purpose: 'v2' } });
   assert.equal((await t.status(d.id)).state, 'unconfigured');
   await t.provision(d.id);
-  const { worker } = profileNamesForDepartment(d.id);
+  const { worker } = profiles(d.id);
   const soul = t.hermes.profiles.get(worker)!.soul;
   assert.ok(soul.includes('v2') && !soul.includes('v1'));
   assert.equal(soul.match(/vibe-city:begin/g)!.length, 1);
@@ -306,11 +311,11 @@ test('two departments get distinct boards, profiles and independent inventories'
   await t.provision(b.id);
   const [sa, sb] = [await t.status(a.id), await t.status(b.id)];
   assert.notEqual(sa.board.ref, sb.board.ref);
-  assert.notEqual(sa.worker.ref, sb.worker.ref);
-  assert.equal(t.hermes.profiles.get(sa.worker.ref)!.toolsets.terminal, true);
-  assert.equal(t.hermes.profiles.get(sa.worker.ref)!.toolsets.web, false);
-  assert.equal(t.hermes.profiles.get(sb.worker.ref)!.toolsets.web, true);
-  assert.equal(t.hermes.profiles.get(sb.worker.ref)!.toolsets.terminal, false);
+  assert.notEqual(sa.agents[1].ref, sb.agents[1].ref);
+  assert.equal(t.hermes.profiles.get(sa.agents[1].ref)!.toolsets.terminal, true);
+  assert.equal(t.hermes.profiles.get(sa.agents[1].ref)!.toolsets.web, false);
+  assert.equal(t.hermes.profiles.get(sb.agents[1].ref)!.toolsets.web, true);
+  assert.equal(t.hermes.profiles.get(sb.agents[1].ref)!.toolsets.terminal, false);
 });
 
 // ---- reconcile -----------------------------------------------------------------------
@@ -336,7 +341,7 @@ test('reconcile recreates Vibe City-created resources that vanished from Hermes'
   const t = provApp();
   const d = await t.create('Eng');
   await t.provision(d.id);
-  const { chief } = profileNamesForDepartment(d.id);
+  const { chief } = profiles(d.id);
   t.hermes.boards.delete(d.hermesBoardSlug);
   t.hermes.profiles.delete(chief);
   await t.provisioning.reconcile(d.id);
@@ -348,7 +353,7 @@ test('reconcile does not recreate an associated profile that vanished: it report
   const t = provApp();
   t.hermes.addProfile('mine');
   const d = await t.create('Eng');
-  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { workerProfileRef: 'mine', confirmModifyProfiles: ['mine'] } });
+  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'mine', confirmModifyProfiles: ['mine'] } });
   await t.provision(d.id);
   t.hermes.profiles.delete('mine');
   await t.provisioning.reconcile(d.id);
@@ -362,7 +367,7 @@ test('reconcile detects capability drift in Hermes and re-applies the inventory'
   const t = provApp();
   const d = await t.create('Eng', { inventory: { allowedToolsets: ['file'] } });
   await t.provision(d.id);
-  const { worker } = profileNamesForDepartment(d.id);
+  const { worker } = profiles(d.id);
   t.hermes.profiles.get(worker)!.toolsets.terminal = true; // someone enabled a tool by hand
   await t.provisioning.reconcile(d.id);
   assert.equal((await t.status(d.id)).state, 'ready');
@@ -423,20 +428,20 @@ test('profiles route returns live profile data, or the stored refs when Hermes i
   await t.provision(d.id);
   const live = (await t.app.inject(`/api/departments/${d.id}/profiles`)).json();
   assert.equal(live.reachable, true);
-  assert.equal(live.chief.exists, true);
-  assert.equal(live.worker.model, 'base-model');
+  assert.equal(live.agents[0].exists, true);
+  assert.equal(live.agents[1].model, 'base-model');
   t.hermes.online = false;
   const off = (await t.app.inject(`/api/departments/${d.id}/profiles`)).json();
   assert.equal(off.reachable, false);
-  assert.equal(off.chief.ref, live.chief.ref);
-  assert.equal(off.chief.exists, null);
+  assert.equal(off.agents[0].ref, live.agents[0].ref);
+  assert.equal(off.agents[0].exists, null);
 });
 
 test('effective inventory: honest statuses before and after provisioning', async () => {
   const t = provApp();
   t.hermes.concurrencyCap = 2;
-  const d = await t.create('Eng', { inventory: { allowedToolsets: ['terminal'], allowedMcpTools: ['gh:issue'], limits: { maxConcurrentWorkers: 5 } } });
-  const find = (r: any, role: 'chief' | 'worker', cap: string) => r[role].entries.find((e: any) => e.capability === cap);
+  const d = await t.create('Eng', { inventory: { allowedToolsets: ['terminal'], allowedMcpTools: ['gh:issue'], }, teammates: 4 });
+  const find = (r: any, role: 'chief' | 'worker', cap: string) => r.agents[role === 'chief' ? 0 : 1].entries.find((e: any) => e.capability === cap);
 
   let eff = (await t.app.inject(`/api/departments/${d.id}/effective-inventory`)).json();
   assert.equal(eff.observedAt, null);
@@ -447,13 +452,13 @@ test('effective inventory: honest statuses before and after provisioning', async
   assert.ok(eff.inSync && eff.observedAt);
   assert.equal(find(eff, 'worker', 'toolsets.behavior-tested').status, 'enforced');
   assert.deepEqual(find(eff, 'worker', 'toolsets.behavior-tested').effective, ['terminal']);
-  assert.deepEqual(find(eff, 'chief', 'toolsets.behavior-tested').effective, ['terminal'], 'chief gets the department toolsets');
+  assert.deepEqual(find(eff, 'chief', 'toolsets.behavior-tested').effective, ['terminal'], 'every agent gets the department toolsets');
   assert.equal(find(eff, 'worker', 'mcp.tools').status, 'unverified');
   assert.equal(find(eff, 'worker', 'models.restriction').status, 'unsupported');
-  const conc = eff.departmentWide.find((e: any) => e.capability === 'limits.maxConcurrentWorkers');
-  assert.equal(conc.status, 'unsupported');
-  assert.equal(conc.requested, 5);
-  assert.equal(conc.effective, 2, 'reports the host-wide cap, not the requested value');
+  assert.equal(eff.agents.length, 5, 'one report per agent');
+  const conc = eff.departmentWide.find((e: any) => e.capability === 'limits.concurrency');
+  assert.equal(conc.status, 'configured');
+  assert.deepEqual(conc.effective, { agents: 5, perAgentCap: 2, departmentMax: 10 }, 'each agent is its own profile under the host-wide cap');
   assert.equal(eff.departmentWide.find((e: any) => e.capability === 'files.isolation').status, 'unsupported');
 });
 
@@ -483,16 +488,19 @@ test('profiles route degrades to reachable=false when Hermes rejects the call', 
   assert.equal((await t.app.inject(`/api/departments/${d.id}/profiles`)).json().reachable, false);
 });
 
-test('concurrency: requested limit equals the host-wide cap is the only case Hermes backs', async () => {
+test('concurrency: a department runs up to agents x the host-wide per-profile cap; no cap is said plainly', async () => {
   const t = provApp();
+  const solo = await t.create('Solo', { teammates: 0 });
+  const team = await t.create('Team', { teammates: 2 });
   t.hermes.concurrencyCap = 3;
-  const same = await t.create('Same', { inventory: { limits: { maxConcurrentWorkers: 3 } } });
-  const diff = await t.create('Diff', { inventory: { limits: { maxConcurrentWorkers: 5 } } });
-  for (const d of [same, diff]) await t.provision(d.id);
-  const entry = async (id: string) => (await t.app.inject(`/api/departments/${id}/effective-inventory`)).json().departmentWide.find((e: any) => e.capability === 'limits.maxConcurrentWorkers');
-  assert.equal((await entry(same.id)).status, 'configured');
-  assert.equal((await entry(diff.id)).status, 'unsupported');
-  assert.match((await entry(diff.id)).detail, /NOT enforced/);
+  await t.provision(team.id);
+  t.hermes.concurrencyCap = null;
+  await t.provision(solo.id);
+  const entry = async (id: string) => (await t.app.inject(`/api/departments/${id}/effective-inventory`)).json().departmentWide.find((e: any) => e.capability === 'limits.concurrency');
+  assert.deepEqual((await entry(team.id)).effective, { agents: 3, perAgentCap: 3, departmentMax: 9 });
+  assert.match((await entry(team.id)).detail, /at most 9 at once/);
+  assert.deepEqual((await entry(solo.id)).effective, { agents: 1, perAgentCap: null, departmentMax: null });
+  assert.match((await entry(solo.id)).detail, /not limited/);
 });
 
 
@@ -505,14 +513,14 @@ test('an associated profile is NOT modified without explicit confirmation; nothi
   t.hermes.addProfile('existing-worker');
   const before = snapshot(t.hermes, 'existing-worker');
   const d = await t.create('Eng', { inventory: { allowedToolsets: ['file'] } });
-  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { workerProfileRef: 'existing-worker' } });
+  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'existing-worker' } });
   const st = (await t.provision(d.id)).json();
   assert.equal(st.state, 'error');
   assert.equal(st.error.code, 'confirmation_required');
   assert.equal(st.error.step, 'validate');
   assert.equal(st.error.retryable, false);
-  assert.equal(st.worker.origin, 'associated');
-  assert.equal(st.worker.modificationConfirmed, false);
+  assert.equal(st.agents[0].origin, 'associated');
+  assert.equal(st.agents[0].modificationConfirmed, false);
   assert.equal(snapshot(t.hermes, 'existing-worker'), before, 'profile untouched');
   assert.equal(t.hermes.boards.size, 0, 'no board created');
   assert.equal(count(t.hermes, 'createProfile'), 0);
@@ -524,15 +532,15 @@ test('with explicit confirmation the associated profile is modified; Vibe City-c
   t.hermes.addProfile('existing-worker');
   const d = await t.create('Eng', { inventory: { allowedToolsets: ['file'] } });
   const patch = (payload: object) => t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload });
-  await patch({ workerProfileRef: 'existing-worker' });
+  await patch({ leadProfileRef: 'existing-worker' });
   await t.provision(d.id);
   assert.equal((await patch({ confirmModifyProfiles: ['existing-worker'] })).statusCode, 200);
   const st = (await t.provision(d.id)).json();
   assert.equal(st.state, 'ready');
-  assert.equal(st.worker.modificationConfirmed, true);
-  assert.equal(st.chief.modificationConfirmed, null, 'created profile: not applicable');
+  assert.equal(st.agents[0].modificationConfirmed, true);
+  assert.equal(st.agents[1].modificationConfirmed, null, 'created profile: not applicable');
   assert.equal(t.hermes.profiles.get('existing-worker')!.toolsets.terminal, false);
-  assert.ok(t.hermes.profiles.get('existing-worker')!.soul.includes('Worker Agent'));
+  assert.ok(t.hermes.profiles.get('existing-worker')!.soul.includes('You are an agent of this department'));
 });
 
 test('confirmation is bound to the profile name: changing the ref revokes it', async () => {
@@ -541,16 +549,16 @@ test('confirmation is bound to the profile name: changing the ref revokes it', a
   t.hermes.addProfile('b');
   const d = await t.create('Eng');
   const patch = (payload: object) => t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload });
-  await patch({ workerProfileRef: 'a', confirmModifyProfiles: ['a'] });
-  assert.equal((await t.status(d.id)).worker.modificationConfirmed, true);
-  await patch({ workerProfileRef: 'b' });
-  assert.equal((await t.status(d.id)).worker.modificationConfirmed, false, 'consent for "a" does not carry over to "b"');
+  await patch({ leadProfileRef: 'a', confirmModifyProfiles: ['a'] });
+  assert.equal((await t.status(d.id)).agents[0].modificationConfirmed, true);
+  await patch({ leadProfileRef: 'b' });
+  assert.equal((await t.status(d.id)).agents[0].modificationConfirmed, false, 'consent for "a" does not carry over to "b"');
   const before = snapshot(t.hermes, 'b');
   assert.equal((await t.provision(d.id)).json().error.code, 'confirmation_required');
   assert.equal(snapshot(t.hermes, 'b'), before);
 });
 
-test('confirming a profile that is not this department\'s chief/worker is rejected', async () => {
+test('confirming a profile that is not this department\'s lead is rejected', async () => {
   const t = provApp();
   const d = await t.create('Eng');
   const res = await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { confirmModifyProfiles: ['somebody-elses'] } });
@@ -561,7 +569,7 @@ test('reconcile never modifies an associated profile whose consent is missing', 
   const t = provApp();
   t.hermes.addProfile('mine');
   const d = await t.create('Eng', { inventory: { allowedToolsets: ['file'] } });
-  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { workerProfileRef: 'mine', confirmModifyProfiles: ['mine'] } });
+  await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'mine', confirmModifyProfiles: ['mine'] } });
   await t.provision(d.id);
   await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { confirmModifyProfiles: [] } }); // consent withdrawn
   await t.provision(d.id); // refused
@@ -577,18 +585,18 @@ test('reconcile never modifies an associated profile whose consent is missing', 
 test('guarantee is true only for enforced capabilities; file isolation and delegation depth never are', async () => {
   const t = provApp();
   t.hermes.concurrencyCap = 1;
-  const d = await t.create('Eng', { inventory: { allowedToolsets: ['file', 'terminal'], allowedMcpTools: ['x:y'], model: { provider: 'near-ai', id: 'm-1' }, limits: { maxConcurrentWorkers: 1 } } });
+  const d = await t.create('Eng', { inventory: { allowedToolsets: ['file', 'terminal'], allowedMcpTools: ['x:y'], model: { provider: 'near-ai', id: 'm-1' }, } });
   await t.provision(d.id);
   const eff = (await t.app.inject(`/api/departments/${d.id}/effective-inventory`)).json();
-  const all = [...eff.chief.entries, ...eff.worker.entries, ...eff.departmentWide];
+  const all = [...eff.agents.flatMap((a: any) => a.entries), ...eff.departmentWide];
   for (const e of all) assert.equal(e.guarantee, e.status === 'enforced', `${e.capability}: guarantee must equal (status === enforced)`);
   assert.ok(all.some((e: any) => e.guarantee), 'tested toolset restrictions are guarantees');
   for (const cap of ['files.isolation', 'limits.maxDelegationDepth']) {
     const e = eff.departmentWide.find((x: any) => x.capability === cap);
     assert.deepEqual([e.status, e.guarantee], ['unsupported', false], cap);
   }
-  assert.equal(eff.worker.entries.find((e: any) => e.capability === 'models.restriction').guarantee, false);
-  assert.equal(eff.worker.entries.find((e: any) => e.capability === 'mcp.tools').guarantee, false);
-  assert.equal(eff.worker.entries.find((e: any) => e.capability === 'toolsets.other').guarantee, false, 'configured != guaranteed');
-  assert.equal(eff.departmentWide.find((x: any) => x.capability === 'limits.maxConcurrentWorkers').guarantee, false, 'even when it matches the cap');
+  assert.equal(eff.agents[1].entries.find((e: any) => e.capability === 'models.restriction').guarantee, false);
+  assert.equal(eff.agents[1].entries.find((e: any) => e.capability === 'mcp.tools').guarantee, false);
+  assert.equal(eff.agents[1].entries.find((e: any) => e.capability === 'toolsets.other').guarantee, false, 'configured != guaranteed');
+  assert.equal(eff.departmentWide.find((x: any) => x.capability === 'limits.concurrency').guarantee, false, 'a host-wide cap is not a department guarantee');
 });

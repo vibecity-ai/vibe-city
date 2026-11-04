@@ -101,7 +101,7 @@ export function QuestPolicyEditor({ deptId }: { deptId: string }) {
   const allowed = all ? depts.map((d) => d.id) : (p.allowFrom as string[]);
   return (
     <div className="policy" aria-busy={saving}>
-      <p className="fine">Chiefs can hand work to other floors with the Vibe City tool <span className="mono">request_quest</span>. Each request becomes a quest on the other floor’s board.</p>
+      <p className="fine">Agents can hand work to other floors with the Vibe City tool <span className="mono">request_quest</span>. Each request becomes a quest on the other floor’s board.</p>
       <div className="field">
         <span className="lbl">Who can give this floor work</span>
         <div className="seg-row" role="group" aria-label="Who can give this floor work">
@@ -119,7 +119,7 @@ export function QuestPolicyEditor({ deptId }: { deptId: string }) {
         )}
       </div>
       <label className="field">
-        <span className="lbl">Quests this floor’s chief may request per day without your OK</span>
+        <span className="lbl">Quests this floor’s agents may request per day without your OK</span>
         <input className="input policy-cap" type="number" min={0} max={100} value={p.dailyCap} disabled={saving}
           onChange={(e) => setP({ ...p, dailyCap: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
           onBlur={(e) => void save({ dailyCap: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />

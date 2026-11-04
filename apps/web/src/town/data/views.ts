@@ -41,8 +41,8 @@ export const settingsErrorField = (message: string) => (/name/i.test(message) ? 
 
 /* ---------- archive ---------- */
 
-export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoardRef' | 'chiefProfileRef' | 'workerProfileRef'>): string[] {
-  const hermes = [d.hermesBoardRef && `board ${d.hermesBoardRef}`, d.chiefProfileRef && `profile ${d.chiefProfileRef}`, d.workerProfileRef && `profile ${d.workerProfileRef}`].filter(Boolean);
+export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoardRef' | 'agents'>): string[] {
+  const hermes = [d.hermesBoardRef && `board ${d.hermesBoardRef}`, ...d.agents.map((a) => a.profileRef && `profile ${a.profileRef}`)].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
     'Vibe City keeps the department record, its inventory and settings. You can still inspect it under Executive Office → Archived.',
@@ -59,9 +59,9 @@ export const archivedNotice = (name: string, retained: boolean) =>
 /* ---------- inventory ---------- */
 
 export const LIMIT_COPY = {
-  maxConcurrentWorkers: 'Above 0 it is requested, host-limited: Hermes only has a host-wide per-profile cap, so it is not guaranteed per department.',
-  maxTaskRuntimeSeconds: 'Applies to the quest task the chief receives. It does not propagate automatically to the tasks the chief creates for workers.',
-  maxDelegationDepth: 'Fixed at 1 and instructed to the chief. Hermes cannot enforce it.',
+  teammates: 'Every agent is its own Hermes profile, so teammates work in parallel. Each runs up to Hermes\' host-wide per-profile cap at once.',
+  maxTaskRuntimeSeconds: 'Applies to the quest task the lead receives. It does not propagate automatically to the tasks the lead hands to teammates.',
+  maxDelegationDepth: 'Fixed at 1: agents are told to do handed-over tasks themselves. Hermes cannot enforce it.',
 } as const;
 
 /** What to tell the user after an inventory save, based on the provisioning state before and after. */
@@ -130,9 +130,9 @@ export function taskStatusView(t: Pick<TaskNode, 'status' | 'failed'>): { k: Sta
   }
 }
 
-export function assigneeWarning(t: Pick<TaskNode, 'role' | 'assignee'>): string | null {
-  if (t.role !== 'other') return null;
-  return `Assigned to ${t.assignee ? `“${t.assignee}”` : 'nobody'}, which is not this department’s chief or worker. Detected, not prevented.`;
+export function assigneeWarning(t: Pick<TaskNode, 'agentKey' | 'assignee'>): string | null {
+  if (t.agentKey !== null) return null;
+  return `Assigned to ${t.assignee ? `“${t.assignee}”` : 'nobody'}, which is not one of this department’s agents. Detected, not prevented.`;
 }
 
 export const RUN_STATE_LABEL: Record<TaskNode['runs'][number]['state'], string> = {

@@ -80,7 +80,8 @@ export function ChatTranscript({ deptId, agentKey, onTalk }: { deptId: string; a
   );
 }
 
-export function AgentRecord({ d, role }: { d: Dept; role: 'chief' | 'worker' }) {
+export function AgentRecord({ d, agentKey }: { d: Dept; agentKey: string }) {
+  const lead = agentKey === 'chief';
   const quests = useStore((s) => s.quests);
   const details = useStore((s) => s.details);
   const mine = quests.filter((q) => q.deptId === d.id);
@@ -89,18 +90,18 @@ export function AgentRecord({ d, role }: { d: Dept; role: 'chief' | 'worker' }) 
   const durations = done.map((q) => (q.summary.completedAt && q.summary.createdAt ? Date.parse(q.summary.completedAt) - Date.parse(q.summary.createdAt) : NaN)).filter((x) => Number.isFinite(x) && x >= 0);
   const avg = durations.length ? durations.reduce((a, b) => a + b, 0) / durations.length : null;
   const fmt = (ms: number) => (ms < 3600_000 ? `${Math.round(ms / 60_000)} min` : ms < 86_400_000 ? `${(ms / 3600_000).toFixed(1)} h` : `${(ms / 86_400_000).toFixed(1)} days`);
-  const workerTasks = Object.values(details).filter((q) => mine.some((x) => x.summary.id === q.id)).flatMap((q) => q.tasks.filter((t) => t.role === 'worker'));
+  const workerTasks = Object.values(details).filter((q) => mine.some((x) => x.summary.id === q.id)).flatMap((q) => q.tasks.filter((t) => t.agentKey === agentKey));
   const wDone = workerTasks.filter((t) => t.status === 'done').length, wFailed = workerTasks.filter((t) => t.failed).length;
   const rate = (f: number, ok: number) => (f + ok ? `${Math.round((100 * f) / (f + ok))}%` : '—');
-  const rows: [string, string][] = role === 'chief'
+  const rows: [string, string][] = lead
     ? [['Quests on this floor', String(mine.length)], ['Completed', String(done.length)], ['Failed', String(failed.length)], ['Failure rate', rate(failed.length, done.length)], ['Average time to complete', avg != null ? fmt(avg) : '—']]
-    : [['Worker tasks seen', String(workerTasks.length)], ['Done', String(wDone)], ['Failed', String(wFailed)], ['Failure rate', rate(wFailed, wDone)]];
+    : [['Tasks seen', String(workerTasks.length)], ['Done', String(wDone)], ['Failed', String(wFailed)], ['Failure rate', rate(wFailed, wDone)]];
   return (
     <section className="pane-sec">
       <h3 className="sec-t">Record</h3>
-      <p className="fine">{role === 'chief' ? 'From the quests on this floor’s Hermes board.' : 'From the worker tasks in the quests loaded for this floor. All worker desks share one Hermes profile, so this is the desks’ combined record.'}</p>
+      <p className="fine">{lead ? 'From the quests on this floor’s Hermes board.' : 'From the tasks assigned to this agent’s own Hermes profile, in the quests loaded for this floor.'}</p>
       <dl className="record">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
-      {role === 'worker' && workerTasks.length > 0 && (
+      {!lead && workerTasks.length > 0 && (
         <ul className="stack tight">{workerTasks.slice(-6).reverse().map((t) => { const v = taskStatusView(t); return <li key={t.id}><Glyph k={v.k} /> {t.title} <span className="muted small">· {v.label}</span></li>; })}</ul>
       )}
       <p className="muted small">Cost per quest needs usage records (spec 6.3) and review grades come with AR reviews (spec 7.2): neither is tracked yet, so they are not shown.</p>

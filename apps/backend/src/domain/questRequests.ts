@@ -1,6 +1,6 @@
-/* Quests between departments (feature spec 2.4). A chief asks another department for work through the Vibe City MCP
+/* Quests between departments (feature spec 2.4). An agent asks another department for work through the Vibe City MCP
    tool `request_quest` (mcp/server.ts). The request becomes an ordinary quest on the target's Hermes board, assigned to
-   the target chief, and Vibe City records where it came from. Guardrails, checked here and nowhere else:
+   the target's lead agent, and Vibe City records where it came from. Guardrails, checked here and nowhere else:
    - the target department's allowlist decides who may give it work;
    - no handing work back: if the target has an open request to the requester, the requester cannot ask it back;
    - a daily cap per requesting department: over the cap the request waits for the CEO's approval.
@@ -39,7 +39,7 @@ export class QuestRequestService {
 
   // ---- MCP identity: one bearer token per department, stored hashed ---------------------------------------------
 
-  /** A fresh token for the department's chief (rotates the old one). Only ever handed to Hermes' profile config. */
+  /** A fresh token for the department's agents (rotates the old one). Only ever handed to Hermes' profile config. */
   issueToken(departmentId: string): string {
     this.d.departments.get(departmentId);
     const token = `vc_${randomBytes(24).toString('hex')}`;
@@ -72,7 +72,7 @@ export class QuestRequestService {
 
   // ---- requests ---------------------------------------------------------------------------------------------------
 
-  /** Departments a chief can ask, with whether it is allowed (for the MCP list tool). */
+  /** Departments an agent can ask, with whether it is allowed (for the MCP list tool). */
   targets(fromDepartmentId: string) {
     return this.d.departments.list().filter((d) => d.id !== fromDepartmentId).map((d) => {
       const p = this.policy(d.id);
@@ -156,7 +156,7 @@ export class QuestRequestService {
     try {
       const created = await this.d.createQuest(r.to_department_id!, {
         clientRequestId: r.id, title: r.title, objective: r.objective,
-        instructions: `Requested by the ${from.name} chief.${r.reason ? ` Reason: ${r.reason}` : ''} When you finish, write a short summary of the result on the quest so ${from.name} can read it.`,
+        instructions: `Requested by ${from.name}.${r.reason ? ` Reason: ${r.reason}` : ''} When you finish, write a short summary of the result on the quest so ${from.name} can read it.`,
       });
       this.recordOrigin(r.to_department_id!, created.questId, 'agent', { departmentId: from.id, requestId: r.id });
       this.d.db.prepare("UPDATE quest_request SET state = 'created', quest_id = ?, note = NULL, decided_at = ? WHERE id = ?").run(created.questId, this.iso(), id);

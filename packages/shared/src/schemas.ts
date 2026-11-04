@@ -17,7 +17,8 @@ export type Toolset = z.infer<typeof ToolsetSchema>;
 /** Never given to a department agent: sub-agents and cron jobs run outside the department board, where Vibe City cannot see them. */
 export const AGENT_EXCLUDED_TOOLSETS = ['delegation', 'cronjob'] as const;
 
-export const MAX_WORKERS_CEILING = 10;
+/** Agents a department may have besides its lead. Every agent is its own Hermes profile. */
+export const MAX_TEAMMATES = 10;
 
 // ---- inventory ------------------------------------------------------------
 
@@ -37,20 +38,15 @@ const contextRefs = idList('shared context ref');
 export const InventorySchema = z.object({
   allowedSkillIds: skillIds.default([]),
   allowedMcpTools: mcpTools.default([]),
-  /** The agents' default model, chosen from Hermes' list. Null = keep the profile's own default. */
+  /** The agents' default model, chosen from Hermes' list. An agent's own model (from its hire) wins. Null = keep the profile's own default. */
   model: ModelChoiceSchema.nullable().default(null),
   allowedToolsets: toolsets.default([]),
   sharedContextRefs: contextRefs.default([]),
   limits: z.object({
-    /**
-     * 0 = no worker profile: the chief does the work itself. Above 0 a worker profile is provisioned; the number is a
-     * REQUESTED limit (Hermes only has a host-wide per-profile cap, so it is not guaranteed per department).
-     */
-    maxConcurrentWorkers: z.number().int().min(0).max(MAX_WORKERS_CEILING).default(0),
     /** Per-task runtime cap passed to Hermes as max_runtime_seconds when tasks are created. */
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable().default(null),
     maxDelegationDepth: z.literal(1).default(1),
-  }).default({ maxConcurrentWorkers: 0, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
+  }).default({ maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
 }).strict();
 export type Inventory = z.infer<typeof InventorySchema>;
 
@@ -62,7 +58,6 @@ export const InventoryPatchSchema = z.object({
   allowedToolsets: toolsets.optional(),
   sharedContextRefs: contextRefs.optional(),
   limits: z.object({
-    maxConcurrentWorkers: z.number().int().min(0).max(MAX_WORKERS_CEILING),
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable(),
     maxDelegationDepth: z.literal(1),
   }).partial().strict().optional(),
@@ -82,21 +77,42 @@ export const DepartmentCreateSchema = z.object({
   name,
   purpose: purpose.default(''),
   inventory: InventoryPatchSchema.optional(),
+  /** Agents to start with besides the lead. Each gets its own Hermes profile when the department is provisioned. */
+  teammates: z.number().int().min(0).max(MAX_TEAMMATES).default(0),
 }).strict();
 export type DepartmentCreate = z.infer<typeof DepartmentCreateSchema>;
 
 export const DepartmentUpdateSchema = z.object({
   name: name.optional(),
   purpose: purpose.optional(),
-  chiefProfileRef: profileRef.optional(),
-  workerProfileRef: profileRef.optional(),
+  /** An existing Hermes profile to use as the lead agent (null = a Vibe City-managed one). Teammates are always managed. */
+  leadProfileRef: profileRef.optional(),
   /**
    * Explicit consent to let Vibe City modify these EXISTING Hermes profiles (toolsets, skills, model, SOUL.md block).
-   * Each entry must equal the department's current chief/worker ref. Replaces the previous confirmation list.
+   * Each entry must equal the department's current lead ref. Replaces the previous confirmation list.
    */
-  confirmModifyProfiles: z.array(z.string().trim().min(1)).max(2).optional(),
+  confirmModifyProfiles: z.array(z.string().trim().min(1)).max(1).optional(),
 }).strict().refine((v) => Object.keys(v).length > 0, 'at least one field is required');
 export type DepartmentUpdate = z.infer<typeof DepartmentUpdateSchema>;
+
+export const AGENT_KEY_RE = /^(chief|W-\d{2,3})$/;
+
+/**
+ * One agent of a department: its own Hermes profile. Every agent gets the same instructions; the lead (seat 0, key
+ * `chief`) is the one new quests are assigned to, and it hands parts of the work to its teammates by profile name.
+ */
+export const DepartmentAgentSchema = z.object({
+  key: z.string().regex(AGENT_KEY_RE),
+  lead: z.boolean(),
+  /** Null until provisioning has created (or associated) the profile. */
+  profileRef: z.string().nullable(),
+  /** The agent's own model (from its hire). Null = the department's model. */
+  model: ModelChoiceSchema.nullable(),
+  /** Skills the agent has on top of the department's allowance (from its hire). */
+  skills: z.array(z.string()),
+  createdAt: z.string(),
+}).strict();
+export type DepartmentAgent = z.infer<typeof DepartmentAgentSchema>;
 
 export const DepartmentViewSchema = z.object({
   id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
@@ -107,8 +123,8 @@ export const DepartmentViewSchema = z.object({
   /** Visual position among active departments: 1 = directly below the Executive Office. Null when archived. */
   floorPosition: z.number().int().min(1).nullable(),
   state: z.enum(DEPARTMENT_STATES),
-  chiefProfileRef: z.string().nullable(),
-  workerProfileRef: z.string().nullable(),
+  /** Lead first, then teammates in seat order. */
+  agents: z.array(DepartmentAgentSchema),
   /** Deterministic slug derived from the immutable id; the board may not exist in Hermes yet. */
   hermesBoardSlug: z.string(),
   /** Null until the board has been synchronized with Hermes. */
@@ -143,7 +159,7 @@ export const boardSlugForDepartment = (id: string) => `vc-${id}`;
 export const ProvisioningStateSchema = z.enum(DEPARTMENT_STATES);
 export type ProvisioningState = z.infer<typeof ProvisioningStateSchema>;
 
-export const PROVISIONING_STEPS = ['health', 'validate', 'board', 'chief', 'worker', 'inventory', 'verify'] as const;
+export const PROVISIONING_STEPS = ['health', 'validate', 'board', 'agents', 'inventory', 'verify'] as const;
 
 export const ProvisioningErrorSchema = z.object({
   /** Machine-readable cause, e.g. hermes_unreachable, hermes_auth, profile_not_found, resource_missing. */
@@ -172,8 +188,8 @@ export const ProvisioningStatusSchema = z.object({
   attempts: z.number().int(),
   error: ProvisioningErrorSchema.nullable(),
   board: ResourceStatusSchema,
-  chief: ResourceStatusSchema,
-  worker: ResourceStatusSchema,
+  /** One profile per agent, lead first. */
+  agents: z.array(ResourceStatusSchema.extend({ key: z.string() }).strict()),
   inventory: z.object({ applied: z.boolean(), appliedAt: z.string().nullable(), inSync: z.boolean() }).strict(),
   lastReconciledAt: z.string().nullable(),
 }).strict();
@@ -200,22 +216,21 @@ export const CapabilityEntrySchema = z.object({
 }).strict();
 export type CapabilityEntry = z.infer<typeof CapabilityEntrySchema>;
 
-export const RoleConfigSchema = z.object({
-  role: z.enum(['chief', 'worker']),
+export const AgentConfigSchema = z.object({
+  agentKey: z.string(),
   profileRef: z.string().nullable(),
   entries: z.array(CapabilityEntrySchema),
 }).strict();
-export type RoleConfig = z.infer<typeof RoleConfigSchema>;
+export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
 export const EffectiveInventorySchema = z.object({
   departmentId: z.string(),
   /** Whether `observedAt` data came from a real read of Hermes; null before the first successful apply. */
   observedAt: z.string().nullable(),
   inSync: z.boolean(),
-  chief: RoleConfigSchema,
-  /** Null when the department has no workers (maxConcurrentWorkers 0). */
-  worker: RoleConfigSchema.nullable(),
-  /** Department-wide gaps that are not per-role (concurrency, file isolation, ...). */
+  /** One report per agent profile, lead first. */
+  agents: z.array(AgentConfigSchema),
+  /** Department-wide gaps that are not per-agent (concurrency, file isolation, ...). */
   departmentWide: z.array(CapabilityEntrySchema),
 }).strict();
 export type EffectiveInventory = z.infer<typeof EffectiveInventorySchema>;
@@ -266,11 +281,11 @@ export const ProfilesViewSchema = z.object({
   departmentId: z.string(),
   /** Live Hermes data; null when Hermes could not be reached (the stored refs are still returned). */
   reachable: z.boolean(),
-  chief: z.object({ ref: z.string().nullable(), exists: z.boolean().nullable(), model: z.string().nullable(), description: z.string().nullable() }).strict(),
-  worker: z.object({ ref: z.string().nullable(), exists: z.boolean().nullable(), model: z.string().nullable(), description: z.string().nullable() }).strict(),
+  agents: z.array(z.object({ key: z.string(), ref: z.string().nullable(), exists: z.boolean().nullable(), model: z.string().nullable(), description: z.string().nullable() }).strict()),
 }).strict();
 export type ProfilesView = z.infer<typeof ProfilesViewSchema>;
 
+/** Persona flavour only (title, colour): the lead seat or a teammate desk. Both are the same kind of agent. */
 export const AGENT_ROLES = ['chief', 'worker'] as const;
 export type AgentRole = (typeof AGENT_ROLES)[number];
 
@@ -293,13 +308,14 @@ export const AgentSessionSchema = z.object({
 export type AgentSession = z.infer<typeof AgentSessionSchema>;
 
 /**
- * The agent view: one Hermes profile of a department (the chief, or the shared worker profile).
+ * The agent view: one agent of a department, which is one Hermes profile.
  * Skills, toolsets and model come from the last read-back during provisioning/reconcile (`observedAt`); sessions are
- * read live and are null when Hermes could not be reached. Skills and models are department-wide allowances.
+ * read live and are null when Hermes could not be reached.
  */
 export const AgentViewSchema = z.object({
   departmentId: z.string(),
-  role: z.enum(AGENT_ROLES),
+  agentKey: z.string(),
+  lead: z.boolean(),
   profileRef: z.string().nullable(),
   observedAt: z.string().nullable(),
   model: z.string().nullable(),
@@ -314,13 +330,14 @@ export const AgentViewSchema = z.object({
 }).strict();
 export type AgentView = z.infer<typeof AgentViewSchema>;
 
-export const profileNamesForDepartment = (id: string) => {
-  const short = id.replace(/-/g, '').slice(0, 12);
-  return { chief: `vc-${short}-chief`, worker: `vc-${short}-worker` };
+/** The Vibe City-managed profile name of one agent: `vc-<id>-chief` for the lead, `vc-<id>-w01` for W-01. */
+export const profileNameForAgent = (departmentId: string, agentKey: string) => {
+  const short = departmentId.replace(/-/g, '').slice(0, 12);
+  return `vc-${short}-${agentKey === 'chief' ? 'chief' : agentKey.replace('-', '').toLowerCase()}`;
 };
 
 // ---- quests (Milestone 3) ----------------------------------------------------
-// A quest is a top-level Hermes Kanban task assigned to the department chief. Nothing here is stored in SQLite:
+// A quest is a top-level Hermes Kanban task assigned to the department's lead agent. Nothing here is stored in SQLite:
 // every view is derived from Hermes on request.
 
 export const HERMES_TASK_ID_RE = /^t_[A-Za-z0-9]{4,32}$/;
@@ -328,7 +345,7 @@ export const HERMES_TASK_STATUSES = ['triage', 'todo', 'ready', 'running', 'bloc
 
 export const QUEST_STATUSES = [
   'queued',          // nothing has started yet
-  'planning',        // the chief is running and has not created worker tasks yet
+  'planning',        // the lead is running and has not handed out tasks yet
   'running',         // work is in progress or waiting to be dispatched
   'awaiting_input',  // a task is blocked waiting for a human
   'in_review',       // a task is in review
@@ -361,8 +378,8 @@ export const TaskRunViewSchema = z.object({
 export const TaskNodeSchema = z.object({
   id: z.string(),
   title: z.string(),
-  /** chief = the quest root, worker = assigned to the department worker, other = any other assignee (flagged). */
-  role: z.enum(['chief', 'worker', 'other']),
+  /** The department agent the task is assigned to; null = a profile outside the department (flagged). */
+  agentKey: z.string().nullable(),
   assignee: z.string().nullable(),
   status: z.enum(HERMES_TASK_STATUSES),
   parentIds: z.array(z.string()),
@@ -399,15 +416,15 @@ export const CancellationStatusSchema = z.object({
 export type CancellationStatus = z.infer<typeof CancellationStatusSchema>;
 
 export const QuestFlagsSchema = z.object({
-  /** The chief's own task is done (planning finished). Does NOT mean the quest is complete. */
+  /** The lead's own task is done (planning finished). Does NOT mean the quest is complete. */
   planningComplete: z.boolean(),
-  /** Worker tasks exist. */
+  /** Tasks were handed to teammates. */
   delegated: z.boolean(),
   hasFailures: z.boolean(),
   hasBlocked: z.boolean(),
   /** Work remains but nothing is running right now (waiting for the dispatcher, a parent, or a human). */
   idle: z.boolean(),
-  /** Tasks assigned to a profile other than the department's chief/worker were found. */
+  /** Tasks assigned to a profile that is not one of the department's agents were found. */
   unauthorizedAssignees: z.boolean(),
 }).strict();
 
@@ -472,11 +489,11 @@ export type AttachmentView = z.infer<typeof AttachmentViewSchema>;
 export const QuestResultsSchema = z.object({
   questId: z.string(),
   status: z.enum(QUEST_STATUSES),
-  chiefSummary: z.string().nullable(),
+  leadSummary: z.string().nullable(),
   tasks: z.array(z.object({
     taskId: z.string(),
     title: z.string(),
-    role: z.enum(['chief', 'worker', 'other']),
+    agentKey: z.string().nullable(),
     status: z.enum(HERMES_TASK_STATUSES),
     summary: z.string().nullable(),
     error: z.string().nullable(),
@@ -543,11 +560,10 @@ export const LiveMessageSchema = z.discriminatedUnion('type', [
 export type LiveMessage = z.infer<typeof LiveMessageSchema>;
 
 // ---- characters and agent chat (feature spec 2.1, 2.2, 2.5) ------------------
-// A character is the persona of one agent seat (the chief, or a worker desk W-01…). It shapes how the agent talks in
+// A character is the persona of one agent (the lead, or a teammate desk W-01…). It shapes how the agent talks in
 // the dialogue window and never what it may do. Chat is a conversation with the model the department runs on; work
 // only starts when the user accepts a proposal, which creates an ordinary quest.
 
-export const AGENT_KEY_RE = /^(chief|W-\d{2,3})$/;
 export const MOODS = ['neutral', 'happy', 'focused', 'worried', 'smug', 'annoyed'] as const;
 export type Mood = (typeof MOODS)[number];
 
@@ -597,7 +613,7 @@ export type ChatHistory = z.infer<typeof ChatHistorySchema>;
 
 export const ChatSendSchema = z.object({
   message: z.string().trim().min(1, 'say something').max(2000),
-  /** The worker desk's current task title, as context for the persona (workers only). */
+  /** The agent's current task title, as context for the persona. */
   taskTitle: z.string().trim().max(300).optional(),
 }).strict();
 export type ChatSend = z.infer<typeof ChatSendSchema>;
@@ -608,7 +624,7 @@ export type ChatReply = z.infer<typeof ChatReplySchema>;
 // ---- AR: scouting and hiring (feature spec 7.1) -------------------------------------------------------------------
 // AR (Agent Resources) notices when a floor needs people and calls the CEO. The intake is a chat with AR's head, which
 // ends in a brief; AR then scouts four candidates (two serious, two joke) and the CEO hires one. Nothing changes in
-// Hermes until the offer: a hire adds a worker seat and the candidate's skills/model to the department's inventory.
+// Hermes until the offer: a hire adds an agent (its own Hermes profile, with the candidate's model and skills).
 
 export const HIRING_STATES = ['ringing', 'intake', 'scouting', 'shortlist', 'hired', 'closed'] as const;
 export type HiringState = (typeof HIRING_STATES)[number];
@@ -676,7 +692,7 @@ export const HiringRequestViewSchema = z.object({
   candidates: z.array(CandidateSchema),
   hiredCandidateId: z.string().nullable(),
   /** What the offer changed, once hired. */
-  applied: z.object({ departmentId: z.string(), seat: z.string(), workersBefore: z.number().int(), workersAfter: z.number().int(), skillsAdded: z.array(z.string()), model: ModelChoiceSchema.nullable(), provisioning: z.string() }).strict().nullable(),
+  applied: z.object({ departmentId: z.string(), seat: z.string(), profileRef: z.string(), teamBefore: z.number().int(), teamAfter: z.number().int(), skills: z.array(z.string()), model: ModelChoiceSchema.nullable(), provisioning: z.string() }).strict().nullable(),
   modelReady: z.boolean(),
   createdAt: z.string(),
 }).strict();
@@ -706,7 +722,7 @@ export const DeptDraftSchema = z.object({
   skills: z.array(z.string()),
   toolsets: z.array(ToolsetSchema),
   model: ModelChoiceSchema.nullable(),
-  workers: z.number().int().min(0).max(4),
+  teammates: z.number().int().min(0).max(4),
   /** Estimate from the model size class and the number of agents. Not a price quote. */
   creditsPerDay: z.number().int().min(0),
   /** Anything the assistant asked for that Hermes does not have, said plainly. */
@@ -724,8 +740,8 @@ export const AssistantViewSchema = z.object({ character: CharacterSchema, modelR
 export type AssistantView = z.infer<typeof AssistantViewSchema>;
 
 // ---- quests between departments (feature spec 2.4) ----------------------------------------------------------------
-// A chief can hand work to another department through the Vibe City MCP tool `request_quest`. The request becomes an
-// ordinary quest on the target department's board (assigned to its chief), with guardrails: the target's allowlist,
+// An agent can hand work to another department through the Vibe City MCP tool `request_quest`. The request becomes an
+// ordinary quest on the target department's board (assigned to its lead), with guardrails: the target's allowlist,
 // no handing work back along an open chain, and a daily cap per requesting department (over the cap the CEO decides).
 
 export const QUEST_ORIGINS = ['user', 'agent', 'schedule', 'market'] as const;
@@ -755,7 +771,7 @@ export const QuestOriginListSchema = z.object({ origins: z.array(QuestOriginSche
 export const QuestPolicySchema = z.object({
   /** Departments allowed to give this department work: '*' for every department, or a list of department ids. */
   allowFrom: z.union([z.literal('*'), z.array(z.string()).max(50)]),
-  /** Quests this department's chief may request per 24 h before each one needs the CEO's approval. */
+  /** Quests this department's agents may request per 24 h before each one needs the CEO's approval. */
   dailyCap: z.number().int().min(0).max(100),
 }).strict();
 export type QuestPolicy = z.infer<typeof QuestPolicySchema>;

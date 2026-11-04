@@ -485,7 +485,7 @@ export function glassWalls(c: IC, which: 'front' | 'side') {
     px.line(along(a[0], 40), along(a[1], 40), '#B8B0E0'); px.line(along(a[0], 41), along(a[1], 41), '#6D62B0');
     px.line(along(a[0], 1), along(a[1], 1), '#6D62B0');
     for (const k of posts) { px.line(along(k, 0), along(k, 41), '#B8B0E0'); }
-    if (label) px.text('CHIEF', (x, y) => along(14 + x, 33 - y), 1, C.gold, 0.9);
+    if (label) px.text('LEAD', (x, y) => along(14 + x, 33 - y), 1, C.gold, 0.9);
     void b;
   };
   if (which === 'front') pane([0, 50], [0, 0], [0, 16.6, 33.3, 50], (k, h) => P(k, 88, h), true);

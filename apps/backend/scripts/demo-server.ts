@@ -46,8 +46,8 @@ const scripted = new FakeChatModel((turns) => {
     const key = Object.keys(kinds).find((k) => last.includes(k));
     if (!key) return JSON.stringify({ say: 'Love it. One question: is this floor about research, sales, support, finance, legal or trading?', mood: 'focused', replies: ['Finance', 'Research'], draft: null });
     const [name, purpose, skills] = kinds[key]!;
-    return JSON.stringify({ say: `${name} it is. Small team to start: a chief and two workers. Here's the blueprint.`, mood: 'happy', replies: ['Make it cheaper', 'Add web search'],
-      draft: { name, purpose, skills, toolsets: ['web', 'file'], model: 'near-ai/model-a', workers: 2 } });
+    return JSON.stringify({ say: `${name} it is. Small team to start: a lead and two teammates. Here's the blueprint.`, mood: 'happy', replies: ['Make it cheaper', 'Add web search'],
+      draft: { name, purpose, skills, toolsets: ['web', 'file'], model: 'near-ai/model-a', teammates: 2 } });
   }
   // The AR intake call.
   if (sys.includes('Head of Agent Resources')) {
@@ -75,39 +75,44 @@ const chatModel = cfg.chat.apiKey ? new OpenAiCompatModel(cfg.chat) : scripted;
 
 const { app, schedules } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
 
-const refs: Record<string, { board: string; chief: string; worker: string }> = {};
+/** Each floor's board and agent profiles (lead first). */
+const refs: Record<string, { board: string; agents: string[] }> = {};
 type Kind = 'queued' | 'planning' | 'running' | 'failed' | 'done';
-/** A quest in a given state: the chief's root task plus worker tasks, driven through the fake board. */
-function quest(dept: string, title: string, kind: Kind, workers: string[] = []) {
+/** Hands task i to a teammate (round robin), or to the lead on a solo floor. */
+const pickAgent = (r: { agents: string[] }, i: number) => (r.agents.length > 1 ? r.agents[1 + (i % (r.agents.length - 1))]! : r.agents[0]!);
+/** A quest in a given state: the lead's root task plus the tasks it handed to teammates, driven through the fake board. */
+function quest(dept: string, title: string, kind: Kind, tasks: string[] = []) {
   const r = refs[dept]!;
-  const root = kanban.seedTask(r.board, { title, assignee: r.chief, body: `# Quest: ${title}` });
+  const lead = r.agents[0]!;
+  const root = kanban.seedTask(r.board, { title, assignee: lead, body: `# Quest: ${title}` });
   if (kind === 'queued') return;
-  kanban.startRun(r.board, root.id, r.chief);
+  kanban.startRun(r.board, root.id, lead);
   if (kind === 'planning') return;
-  kanban.complete(r.board, root.id, `Plan: ${workers.length} worker tasks.`);
-  workers.forEach((t, i) => {
-    const k = kanban.seedTask(r.board, { title: t, assignee: r.worker, parents: [root.id] });
-    kanban.startRun(r.board, k.id, r.worker);
+  kanban.complete(r.board, root.id, `Plan: ${tasks.length} tasks for the team.`);
+  tasks.forEach((t, i) => {
+    const k = kanban.seedTask(r.board, { title: t, assignee: pickAgent(r, i), parents: [root.id] });
+    kanban.startRun(r.board, k.id, pickAgent(r, i));
     if (kind === 'done' || (kind === 'failed' && i > 0)) kanban.complete(r.board, k.id, 'Done.');
     else if (kind === 'failed') kanban.fail(r.board, k.id, 'The source site blocked the scraper (HTTP 403).');
   });
 }
 
-async function seed(name: string, purpose: string, workers: string[], maxWorkers = 4) {
-  const res = await app.inject({ method: 'POST', url: '/api/departments', payload: { name, purpose, inventory: { limits: { maxConcurrentWorkers: maxWorkers } } } });
+async function seed(name: string, purpose: string, tasks: string[], teammates = 3) {
+  const res = await app.inject({ method: 'POST', url: '/api/departments', payload: { name, purpose, teammates } });
   const dept = res.json() as { id: string; hermesBoardSlug: string };
-  const prov = (await app.inject({ method: 'POST', url: `/api/departments/${dept.id}/provision` })).json() as { chief: { ref: string }; worker: { ref: string } };
+  const prov = (await app.inject({ method: 'POST', url: `/api/departments/${dept.id}/provision` })).json() as { agents: { ref: string }[] };
   kanban.addBoard(dept.hermesBoardSlug);
-  const root = kanban.seedTask(dept.hermesBoardSlug, { title: `${name}: weekly sweep`, assignee: prov.chief.ref, body: '# Quest: weekly sweep\n\n## Objective\nKeep things moving.' });
-  kanban.startRun(dept.hermesBoardSlug, root.id, prov.chief.ref);
-  kanban.complete(dept.hermesBoardSlug, root.id, 'Plan done: split into worker tasks.');
-  refs[name] = { board: dept.hermesBoardSlug, chief: prov.chief.ref, worker: prov.worker?.ref ?? prov.chief.ref };
-  if (maxWorkers === 0) {
-    // A floor without workers and quests piling up: AR's "no workers" rule fires and the phone rings.
-    for (const t of workers) kanban.seedTask(dept.hermesBoardSlug, { title: t, assignee: prov.chief.ref, body: `# Quest: ${t}` });
+  const r = refs[name] = { board: dept.hermesBoardSlug, agents: prov.agents.map((a) => a.ref) };
+  const lead = r.agents[0]!;
+  if (teammates === 0) {
+    // A one-agent floor with quests piling up: AR's rule fires and the phone rings.
+    for (const t of tasks) kanban.seedTask(dept.hermesBoardSlug, { title: t, assignee: lead, body: `# Quest: ${t}` });
     return;
   }
-  workers.forEach((t) => { const k = kanban.seedTask(dept.hermesBoardSlug, { title: t, assignee: prov.worker.ref, parents: [root.id] }); kanban.startRun(dept.hermesBoardSlug, k.id, prov.worker.ref); });
+  const root = kanban.seedTask(dept.hermesBoardSlug, { title: `${name}: weekly sweep`, assignee: lead, body: '# Quest: weekly sweep\n\n## Objective\nKeep things moving.' });
+  kanban.startRun(dept.hermesBoardSlug, root.id, lead);
+  kanban.complete(dept.hermesBoardSlug, root.id, 'Plan done: split across the team.');
+  tasks.forEach((t, i) => { const k = kanban.seedTask(dept.hermesBoardSlug, { title: t, assignee: pickAgent(r, i), parents: [root.id] }); kanban.startRun(dept.hermesBoardSlug, k.id, pickAgent(r, i)); });
 }
 await seed('Research', 'Track competitors, vendors and the AI tooling landscape; turn findings into decision-ready briefs.', ['Scrape vendor pricing pages', 'Summarise analyst notes']);
 await seed('Growth', 'Run growth experiments and write launch copy.', ['Draft launch thread']);
@@ -127,7 +132,7 @@ quest('Growth', 'SEO audit of the docs site', 'done', ['Crawl docs', 'List fixes
 quest('Growth', 'Weekly metrics recap', 'done', ['Pull numbers']);
 await seed('Support', 'Answer customer tickets and keep the help centre current.', ['Refund backlog', 'Login issues FAQ'], 0);
 
-// Chiefs handing work to each other (what a chief does through the MCP tool request_quest), on a timer for the demo.
+// Departments handing work to each other (what an agent does through the MCP tool request_quest), on a timer for the demo.
 {
   const depts = (await app.inject('/api/departments')).json().departments as { id: string; name: string }[];
   const id = (n: string) => depts.find((d) => d.name === n)!.id;

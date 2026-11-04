@@ -429,7 +429,7 @@ export class City {
     wallLive(c, d, s.quests.filter((q) => q.deptId === d.id).map((q) => q.summary.status), floorNo, elevOpen, lit);
 
     // cast shadows first, so everything stands in them
-    const nD = Math.min(DESKS.length, Math.max(d.maxWorkers, d.workers.length));
+    const nD = Math.min(DESKS.length, d.workers.length);
     for (let i = 0; i < nD; i++) { const [u, v] = DESKS[i]; cast(c, u, v, 28, 16, 14, 0.26); }
     cast(c, 0, 56, 14, 18, 44, 0.24); cast(c, 190, 126, 48, 14, 14, 0.2); cast(c, 0, 118, 8, 20, 40, 0.2);
 
