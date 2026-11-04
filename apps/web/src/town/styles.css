@@ -566,6 +566,7 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .dlg-text p { margin: 0; min-height: 2.3em; max-width: 1100px; font: 400 clamp(30px, 2.9vw, 40px)/1.15 var(--f-px); text-transform: uppercase; letter-spacing: .07em; color: #F2E3C6; text-shadow: 3px 3px 0 #4A1630; }
 .dlg-caret { display: inline-block; margin-left: .3em; font-size: .7em; color: var(--who, #FFC75A); animation: blink 1s steps(2) infinite; }
 .dlg-caret.more { animation: none; }
+.dlg-status { color: var(--who, #FFC75A); opacity: .85; font-size: .7em; }
 .dlg-dots i { font-style: normal; animation: blink 1s steps(2) infinite; }
 .dlg-dots i:nth-child(2) { animation-delay: .2s; } .dlg-dots i:nth-child(3) { animation-delay: .4s; }
 .dlg-replies { display: flex; flex-wrap: wrap; gap: 8px; min-height: 0; }

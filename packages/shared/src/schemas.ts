@@ -625,6 +625,14 @@ export type ChatSend = z.infer<typeof ChatSendSchema>;
 export const ChatReplySchema = z.object({ user: ChatMessageSchema, agent: ChatMessageSchema }).strict();
 export type ChatReply = z.infer<typeof ChatReplySchema>;
 
+/** What the agent is doing while it answers (the `progress` events of POST .../chat/stream). */
+export const ChatProgressSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('thinking') }).strict(),
+  z.object({ kind: z.literal('tool'), name: z.string(), preview: z.string().nullable() }).strict(),
+  z.object({ kind: z.literal('approval'), command: z.string().nullable() }).strict(),
+]);
+export type ChatProgress = z.infer<typeof ChatProgressSchema>;
+
 // ---- AR: scouting and hiring (feature spec 7.1) -------------------------------------------------------------------
 // AR (Agent Resources) notices when a floor needs people and calls the CEO. The intake is a chat with AR's head, which
 // ends in a brief; AR then scouts four candidates (two serious, two joke) and the CEO hires one. Nothing changes in

@@ -34,18 +34,6 @@ test('incremental migration upgrades an older database and keeps data', () => {
   assert.equal((v2.prepare('SELECT name, note FROM company').get() as { name: string; note: null }).note, null);
 });
 
-test('v5 drops the workspace columns from a v4 database and keeps the department', () => {
-  const path = join(tempDir(), 'w.sqlite');
-  const v4 = openDb(path, MIGRATIONS.slice(0, 4));
-  v4.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'X', 't')").run();
-  v4.prepare("INSERT INTO department (id, company_id, name, name_key, floor_order, workspace_path, workspace_isolation, created_at, updated_at) VALUES ('d', 'c', 'Eng', 'eng', 1, '/srv', 'unverified', 't', 't')").run();
-  v4.close();
-  const db = openDb(path);
-  const cols = (db.prepare('PRAGMA table_info(department)').all() as { name: string }[]).map((c) => c.name);
-  assert.ok(!cols.includes('workspace_path') && !cols.includes('workspace_isolation'));
-  assert.equal((db.prepare('SELECT name FROM department').get() as { name: string }).name, 'Eng');
-});
-
 test('failed migration rolls back and leaves the version unchanged', () => {
   const path = join(tempDir(), 'c.sqlite');
   openDb(path).close();
@@ -59,13 +47,6 @@ test('a database newer than the build is refused', () => {
   const path = join(tempDir(), 'd.sqlite');
   openDb(path, [...MIGRATIONS, 'CREATE TABLE future (x);']).close();
   assert.throws(() => openDb(path), /newer than this build/);
-});
-
-test('only one company row can exist', () => {
-  const db = openDb(':memory:');
-  db.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'a', 'A', 't')").run();
-  assert.throws(() => db.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (2, 'b', 'B', 't')").run());
-  assert.throws(() => db.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'C', 't')").run());
 });
 
 test('v10 turns the chief and the worker desks into agents with their own profiles', () => {

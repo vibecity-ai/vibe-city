@@ -6,6 +6,7 @@ import { loadConfig } from './config.ts';
 import { RealHermesRuntime } from './hermes/realRuntime.ts';
 import { KanbanClient } from './hermes/kanbanClient.ts';
 import { OpenAiCompatModel } from './model/chatModel.ts';
+import { HermesAgentChat } from './hermes/agentChat.ts';
 
 const cfg = loadConfig();
 const dbPath = resolve(cfg.dbPath);
@@ -23,9 +24,11 @@ const { app, provisioning, schedules } = buildServices(db, hermes, {
   live: { wsBaseUrl: cfg.hermesUrl.replace(/^http/, 'ws'), sessionToken: cfg.hermesToken ?? '' },
   ...(cfg.allowedOrigins ? { allowedOrigins: cfg.allowedOrigins } : {}),
   ...(cfg.webDist ? { webDist: cfg.webDist } : {}),
-  chatModel: new OpenAiCompatModel(cfg.chat), ...(cfg.mcpUrl ? { mcpUrl: cfg.mcpUrl } : {}),
+  chatModel: new OpenAiCompatModel(cfg.chat), agentChat: new HermesAgentChat({ baseUrl: cfg.hermesApiUrl }),
+  // Profiles served by the multiplexed gateway read credentials only from their own .env, not this container's env.
+  ...(process.env.NEAR_AI_API_KEY ? { agentEnv: { NEAR_AI_API_KEY: process.env.NEAR_AI_API_KEY } } : {}), ...(cfg.mcpUrl ? { mcpUrl: cfg.mcpUrl } : {}),
 });
-if (!cfg.chat.apiKey) console.warn('NEAR_AI_API_KEY is not set: the dialogue window cannot talk to agents.');
+if (!cfg.chat.apiKey) console.warn('NEAR_AI_API_KEY is not set: AR interviews and the executive assistant cannot talk.');
 
 // Schedules (feature spec 8): the backend fires due schedules by creating ordinary quests.
 setInterval(() => { void schedules.tick().catch((e) => console.warn('schedule tick failed:', (e as Error).message)); }, 30_000).unref();

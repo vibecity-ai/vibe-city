@@ -130,6 +130,16 @@ The effective-inventory endpoint labels each capability: `enforced` (applied, re
 
 `npm test` (no Hermes; uses `FakeHermes`): schema, API, floors, policy, parsers, provisioning state machine, reconciliation. `npm run m2:integration -w @vibe-city/backend` and the Phase 0 scripts need a live Hermes and are never run by `npm test`.
 
+### Dialogue chat (`domain/chatService.ts`, `hermes/agentChat.ts`)
+
+The dialogue window talks to the agent's **own Hermes profile**, with its model, toolsets, skills, memory and `SOUL.md`, so it answers from the real board and files and can do quick work itself. It goes through the gateway API server (`HERMES_API_URL`, default `http://127.0.0.1:8642`; `gateway.multiplex_profiles` serves each profile under `/p/<profile>/`).
+
+- **Credentials.** Hermes never lets a named profile use the owner's `API_SERVER_KEY`, and under multiplexing a profile reads secrets only from its own `.env`. On an agent's first chat (and once per backend start) Vibe City writes a random `API_SERVER_KEY` plus `agentEnv` (`NEAR_AI_API_KEY`) into the profile's `.env` with `hermes -p <profile> config set`. The key is stored in `agent_chat`. A 401 rotates it and retries once.
+- **Conversation.** One Hermes session per profile (`agent_chat.session_id`) holds the history, and each turn sends only the new message. The persona and the dialogue rules (plain text, the board slug and the `hermes kanban` commands to read it, the trailing `<vc>{mood, replies, proposal}</vc>` line) go in as the turn's ephemeral `system_message`. `chat_message` keeps Vibe City's copy of the transcript for the window.
+- **Streaming.** `POST .../characters/:agentKey/chat/stream` relays `progress` events (thinking, tool started, approval waiting) and ends with `reply` or `error`. A tool-using turn can take minutes. Vibe City reads Hermes' stream to the end even if the browser leaves, because disconnecting would interrupt the run, so the reply still lands in the history. One turn at a time per agent (409 otherwise).
+- **Failures.** A turn Hermes did not finish (`completed: false`, for example the model unreachable) is an error, never a chat reply.
+- Approvals follow the profile's `approvals.mode` (`smart` by default). The window shows "waiting for approval" while Hermes holds a risky command, and Hermes' approval timeout applies.
+
 ## Quests (Milestone 3)
 
 **Hermes Kanban is the only store of quest data.** Vibe City has no quest or task table. The only new SQLite object is `event_cursor` (board slug -> last relayed event id) so the live stream can resume. Everything below is derived from Hermes on each request.

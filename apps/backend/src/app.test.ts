@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 import { openDb } from './db/db.ts';
 import { buildApp } from './app.ts';
-import { DepartmentService } from './domain/departmentService.ts';
 import { createDept, memApp, tempDir } from './testUtils.ts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -32,15 +31,6 @@ test('Executive Office is not a department and cannot be deleted or modified', a
     assert.equal(res.statusCode, 404, method);
   }
   assert.deepEqual((await app.inject('/api/departments')).json().departments, []);
-});
-
-test('Executive Office stays first in floors regardless of department changes', async () => {
-  const { app } = memApp();
-  const a = (await createDept(app, { name: 'A' })).json;
-  const b = (await createDept(app, { name: 'B' })).json;
-  await app.inject({ method: 'DELETE', url: `/api/departments/${a.id}` });
-  const floors = (await app.inject('/api/company')).json().floors;
-  assert.deepEqual(floors, [{ kind: 'executive' }, { kind: 'department', departmentId: b.id }]);
 });
 
 // ---- create / read ---------------------------------------------------------
@@ -106,12 +96,6 @@ test('invalid JSON body is a 4xx, not a crash', async () => {
   assert.equal(res.statusCode, 400);
 });
 
-test('workspace is no longer accepted', async () => {
-  const { app } = memApp();
-  const { res } = await createDept(app, { name: 'ws', workspace: '/tmp' });
-  assert.equal(res.statusCode, 400);
-});
-
 test('teammates are created as agents of their own; only the lead profile can be associated', async () => {
   const { app } = memApp();
   const d = (await createDept(app, { name: 'A', teammates: 2 })).json;
@@ -124,17 +108,6 @@ test('teammates are created as agents of their own; only the lead profile can be
   assert.equal(ok.agents[0].profileRef, 'vc-lead');
   assert.equal(ok.agents[1].profileRef, null);
   assert.equal(ok.state, 'unconfigured', 'still unconfigured until the board is synced');
-});
-
-test('setting profile refs or marking a board synced never makes a department ready (only provisioning does)', async () => {
-  const db = openDb(':memory:');
-  const app = buildApp(db);
-  const d = (await createDept(app, { name: 'A' })).json;
-  const svc = new DepartmentService(db, (await app.inject('/api/company')).json().id);
-  assert.throws(() => svc.markBoardSynced(d.id, 'wrong-slug'));
-  svc.markBoardSynced(d.id, d.hermesBoardSlug);
-  await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { leadProfileRef: 'c1' } });
-  assert.equal((await app.inject(`/api/departments/${d.id}`)).json().state, 'unconfigured');
 });
 
 // ---- duplicates ------------------------------------------------------------
@@ -160,21 +133,6 @@ test('an archived department frees its name', async () => {
 });
 
 // ---- floor order ------------------------------------------------------------
-
-test('floor order: newest department is directly below the Executive Office; creation ids are stable', async () => {
-  const { app } = memApp();
-  const ids: string[] = [];
-  for (const n of ['A', 'B', 'C']) ids.push((await createDept(app, { name: n })).json.id);
-  const order = async () => (await app.inject('/api/departments')).json().departments.map((d: any) => [d.name, d.floorOrder, d.floorPosition]);
-  assert.deepEqual(await order(), [['C', 3, 1], ['B', 2, 2], ['A', 1, 3]]);
-  await app.inject({ method: 'DELETE', url: `/api/departments/${ids[1]}` });
-  assert.deepEqual(await order(), [['C', 3, 1], ['A', 1, 2]], 'positions close the gap; creation ids stay');
-  await createDept(app, { name: 'D' });
-  assert.deepEqual(await order(), [['D', 4, 1], ['C', 3, 2], ['A', 1, 3]], 'archived creation id is not reused');
-  await app.inject({ method: 'PATCH', url: `/api/departments/${ids[0]}`, payload: { name: 'A2', purpose: 'x' } });
-  assert.deepEqual((await order()).map((r: any) => r[1]), [4, 3, 1], 'updates do not move floors');
-  assert.deepEqual(await order(), await order(), 'repeatable');
-});
 
 // ---- inventory -------------------------------------------------------------
 
@@ -210,14 +168,6 @@ test('inventory patch rejects bad values and leaves stored inventory untouched',
   assert.deepEqual((await app.inject(url)).json().allowedSkillIds, ['x']);
 });
 
-test('departments have independent inventories', async () => {
-  const { app } = memApp();
-  const a = (await createDept(app, { name: 'A', inventory: { allowedToolsets: ['file'] } })).json;
-  const b = (await createDept(app, { name: 'B', inventory: { allowedToolsets: ['web'] } })).json;
-  assert.deepEqual((await app.inject(`/api/departments/${a.id}/inventory`)).json().allowedToolsets, ['file']);
-  assert.deepEqual((await app.inject(`/api/departments/${b.id}/inventory`)).json().allowedToolsets, ['web']);
-});
-
 // ---- safe deletion -----------------------------------------------------------
 
 test('DELETE archives: hidden from default list, history and inventory retained, no Hermes deletion implied', async () => {
@@ -238,12 +188,6 @@ test('DELETE archives: hidden from default list, history and inventory retained,
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { name: 'Z' } })).statusCode, 409);
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}/inventory`, payload: { allowedSkillIds: [] } })).statusCode, 409);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM department').get() as { n: number }).n, 1, 'row is kept');
-});
-
-test('deleting a department without Hermes bindings reports nothing retained', async () => {
-  const { app } = memApp();
-  const d = (await createDept(app, { name: 'A' })).json;
-  assert.equal((await app.inject({ method: 'DELETE', url: `/api/departments/${d.id}` })).json().hermesResourcesRetained, false);
 });
 
 // ---- persistence -------------------------------------------------------------

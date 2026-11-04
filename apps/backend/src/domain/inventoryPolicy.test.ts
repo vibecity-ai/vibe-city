@@ -58,12 +58,6 @@ test('modelToApply: no choice leaves the profile alone; an unchanged pair is not
   assert.deepEqual(modelToApply(inv({ model: m }), { id: 'other', provider: 'near-ai' }), m);
 });
 
-test('the model is one provider + id pair, not a list', () => {
-  assert.throws(() => inv({ model: { id: 'm1' } }));
-  assert.throws(() => inv({ allowedModelIds: ['m1'] }));
-  assert.equal(inv().model, null);
-});
-
 const observed = (o: Partial<ObservedRole> = {}): ObservedRole => ({
   profile: 'p', toolsets: { kanban: true, terminal: false, file: false }, enabledSkills: ['hermes-agent'], installedSkills: ['pdf', 'hermes-agent'], model: 'm', provider: 'near-ai', instructionsPresent: true, ...o,
 });

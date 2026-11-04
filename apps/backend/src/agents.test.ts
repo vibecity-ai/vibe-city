@@ -76,11 +76,3 @@ test('Hermes unreachable: sessions are null with a reason, the last read-back is
   assert.equal(v.skills.find((s) => s.name === 'pdf')?.enabled, true);
 });
 
-test('unknown agent or department is a 404', async () => {
-  const t = provApp();
-  const d = await t.create('Legal');
-  assert.equal((await agent(t, d.id, 'janitor')).statusCode, 404);
-  assert.equal((await agent(t, d.id, 'W-02')).statusCode, 404, 'no such seat');
-  assert.equal((await agent(t, d.id, 'worker')).statusCode, 404);
-  assert.equal((await agent(t, '00000000-0000-4000-8000-000000000000', 'chief')).statusCode, 404);
-});

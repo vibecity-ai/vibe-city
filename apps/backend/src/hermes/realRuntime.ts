@@ -199,6 +199,14 @@ export class RealHermesRuntime implements HermesRuntime {
     await this.cli(['config', 'set', `mcp_servers.${name}`, JSON.stringify(config), '--force'], profile);
   }
 
+  async setProfileEnv(profile: string, vars: Record<string, string>): Promise<void> {
+    for (const [name, value] of Object.entries(vars)) {
+      if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(name) || !value || /[\r\n\0]/.test(value)) throw new HermesRejectedError(`invalid env variable ${name}`);
+      // An UPPER_SNAKE name: `config set` stores it in the profile's .env, not config.yaml.
+      await this.cli(['config', 'set', name, value], profile);
+    }
+  }
+
   async getConcurrencyCap(): Promise<number | null> {
     try {
       const out = (await this.cli(['config', 'get', 'kanban.max_in_progress_per_profile'])).trim().split('\n').pop() ?? '';

@@ -32,6 +32,7 @@ import { ConflictError, InvalidInputError, NotFoundError } from './domain/errors
 import { AGENT_KEY_RE, CharacterSchema, ChatHistorySchema, ChatReplySchema, ChatSendSchema } from '@vibe-city/shared';
 import { CharacterService } from './domain/characters.ts';
 import { ChatService } from './domain/chatService.ts';
+import type { AgentChat } from './hermes/agentChat.ts';
 import { ModelFailedError, ModelUnavailableError, type ChatModel } from './model/chatModel.ts';
 import { HiringService } from './domain/hiringService.ts';
 import { AssistantService } from './domain/assistantService.ts';
@@ -65,8 +66,12 @@ export interface ServicesExtra {
   allowedOrigins?: string[];
   /** Built web app (apps/web/dist). When set, the backend serves it on the same origin as the API. */
   webDist?: string;
-  /** Chat model for the dialogue window (NEAR AI Cloud in the container). Omit: chat answers 503 model_unavailable. */
+  /** Chat model for AR interviews and the executive assistant (NEAR AI Cloud in the container). Omit: those answer 503 model_unavailable. */
   chatModel?: ChatModel;
+  /** The gateway API server, for the dialogue window's chat with an agent's own Hermes profile. Omit: agent chat answers 503. */
+  agentChat?: AgentChat;
+  /** Variables each agent profile needs in its .env to answer through the gateway (e.g. NEAR_AI_API_KEY). */
+  agentEnv?: Record<string, string>;
   /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned agent gets it in its config. */
   mcpUrl?: string;
   /** AR scouting time before the shortlist shows (ms). Default 45 s. */
@@ -98,23 +103,26 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     : null;
   const allowedOrigins = extra.allowedOrigins ?? ['http://127.0.0.1:4200', 'http://localhost:4200', 'http://127.0.0.1:4100', 'http://localhost:4100'];
 
-  app.setErrorHandler((err, _req, reply) => {
+  /** The documented error body for a thrown error, or null for an unexpected one (logged, answered as 500). */
+  const errorBody = (err: unknown): { status: number; body: Record<string, unknown> } | null => {
     if (err instanceof ZodError) {
-      return reply.code(400).send({
-        error: 'invalid_request',
-        issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-      });
+      return { status: 400, body: { error: 'invalid_request', issues: err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) } };
     }
-    if (err instanceof InvalidInputError) return reply.code(400).send({ error: 'invalid_request', message: err.message });
-    if (err instanceof NotFoundError) return reply.code(404).send({ error: 'not_found', message: err.message });
-    if (err instanceof HermesUnavailableError) return reply.code(503).send({ error: 'hermes_unavailable', message: err.message });
-    if (err instanceof HermesAuthError) return reply.code(502).send({ error: 'hermes_auth', message: err.message });
-    if (err instanceof HermesRejectedError) return reply.code(502).send({ error: 'hermes_rejected', message: err.message });
-    if (err instanceof ConflictError) return reply.code(409).send({ error: 'conflict', message: err.message });
-    if (err instanceof ModelUnavailableError) return reply.code(503).send({ error: 'model_unavailable', message: err.message });
-    if (err instanceof ModelFailedError) return reply.code(502).send({ error: 'model_failed', message: err.message });
+    if (err instanceof InvalidInputError) return { status: 400, body: { error: 'invalid_request', message: err.message } };
+    if (err instanceof NotFoundError) return { status: 404, body: { error: 'not_found', message: err.message } };
+    if (err instanceof HermesUnavailableError) return { status: 503, body: { error: 'hermes_unavailable', message: err.message } };
+    if (err instanceof HermesAuthError) return { status: 502, body: { error: 'hermes_auth', message: err.message } };
+    if (err instanceof HermesRejectedError) return { status: 502, body: { error: 'hermes_rejected', message: err.message } };
+    if (err instanceof ConflictError) return { status: 409, body: { error: 'conflict', message: err.message } };
+    if (err instanceof ModelUnavailableError) return { status: 503, body: { error: 'model_unavailable', message: err.message } };
+    if (err instanceof ModelFailedError) return { status: 502, body: { error: 'model_failed', message: err.message } };
     const fe = err as { statusCode?: number; message?: string };
-    if (fe.statusCode && fe.statusCode < 500) return reply.code(fe.statusCode).send({ error: 'bad_request', message: fe.message });
+    if (fe.statusCode && fe.statusCode < 500) return { status: fe.statusCode, body: { error: 'bad_request', message: fe.message } };
+    return null;
+  };
+  app.setErrorHandler((err, _req, reply) => {
+    const e = errorBody(err);
+    if (e) return reply.code(e.status).send(e.body);
     app.log.error(err);
     return reply.code(500).send({ error: 'internal_error' });
   });
@@ -195,8 +203,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const noModel: ChatModel = { ready: false, complete: async () => { throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.'); } };
   const characters = new CharacterService(db);
   const chat = new ChatService({
-    db, departments, characters, model: extra.chatModel ?? noModel, hermes: runtime,
-    quests: (id) => quests_.list(id), companyName: () => company.view().name,
+    db, departments, characters, hermes: runtime, companyName: () => company.view().name,
+    ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), ...(extra.agentEnv ? { agentEnv: extra.agentEnv } : {}),
   });
   const agentKeyOf = (params: unknown): string => {
     const key = (params as { agentKey?: string }).agentKey ?? '';
@@ -209,6 +217,27 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     parse(ChatHistorySchema, chat.history(idOf(req.params), agentKeyOf(req.params))));
   app.post('/api/departments/:id/characters/:agentKey/chat', async (req) =>
     parse(ChatReplySchema, await chat.send(idOf(req.params), agentKeyOf(req.params), parse(ChatSendSchema, req.body))));
+  /** Same turn as POST .../chat, as Server-Sent Events: `progress` (thinking, tool use, waiting for an approval) while the
+      agent works, then `reply` (a ChatReply) or `error` (the usual error body plus `status`). A tool-using turn can take
+      minutes; closing the stream does not stop the agent, and the reply still lands in the history. */
+  app.post('/api/departments/:id/characters/:agentKey/chat/stream', async (req, reply) => {
+    const id = idOf(req.params), key = agentKeyOf(req.params), input = parse(ChatSendSchema, req.body);
+    reply.hijack();
+    const res = reply.raw;
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
+    const send = (event: string, data: unknown) => { if (!res.writableEnded && !res.destroyed) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`); };
+    const ping = setInterval(() => { if (!res.writableEnded && !res.destroyed) res.write(': keepalive\n\n'); }, 15_000);
+    try {
+      send('reply', parse(ChatReplySchema, await chat.send(id, key, input, (e) => send('progress', e))));
+    } catch (err) {
+      const e = errorBody(err);
+      if (!e) app.log.error(err);
+      send('error', e ? { status: e.status, ...e.body } : { status: 500, error: 'internal_error' });
+    } finally {
+      clearInterval(ping);
+      res.end();
+    }
+  });
 
   // ---- AR: scouting and hiring (feature spec 7.1) ----
   const hiring = new HiringService({

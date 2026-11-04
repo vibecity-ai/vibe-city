@@ -44,9 +44,8 @@ import { FakeKanban } from './testing/fakeKanban.ts';
 import type { ServicesExtra } from './app.ts';
 
 /** App + fake Hermes runtime + fake Kanban, with a helper that provisions a ready department and its board. */
-export function questApp(extra: ServicesExtra = {}) {
+export function questApp(extra: ServicesExtra = {}, hermes = new FakeHermes()) {
   const db = openDb(':memory:');
-  const hermes = new FakeHermes();
   const kanban = new FakeKanban();
   const services = buildServices(db, hermes, { kanban, ...extra });
   const { app } = services;

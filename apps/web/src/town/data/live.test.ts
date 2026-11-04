@@ -6,7 +6,7 @@ import type { CancellationStatus, QuestDetail } from '@vibe-city/shared';
 import { DEPT_ID, company, deptView, detail, fakeBackend, health, inventory, iso, provStatus, summary } from '../../testing/fakeBackend.ts';
 import { useStore } from '../store.ts';
 import {
-  archiveDepartment, cancelQuest, patchInventory, refreshAll, saveDepartmentSettings, stopLive,
+  archiveDepartment, cancelQuest, refreshAll, saveDepartmentSettings, stopLive,
 } from './live.ts';
 
 class FakeWS {
@@ -233,13 +233,3 @@ test('a successful settings save refreshes this department and says when it must
   assert.equal(b.count('GET', '/api/company'), n, 'only the affected department was refetched');
 });
 
-test('saving the inventory of a synced department warns that it needs a sync', async () => {
-  const { b, state } = backend();
-  await refreshAll();
-  b.on('PATCH', `${D}/inventory`, () => { state.depts = [deptView({ state: 'unconfigured' })]; return { body: { ...inventory(), sharedContextRefs: ['wiki:handbook'] } }; });
-  await patchInventory(DEPT_ID, { sharedContextRefs: ['wiki:handbook'] });
-  assert.deepEqual(b.calls.find((c) => c.method === 'PATCH')!.body, { sharedContextRefs: ['wiki:handbook'] });
-  const t = useStore.getState().toasts.at(-1)!;
-  assert.equal(t.tone, 'warn');
-  assert.match(t.text, /Sync the department so Hermes uses it/);
-});

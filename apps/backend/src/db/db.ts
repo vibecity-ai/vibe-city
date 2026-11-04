@@ -205,6 +205,14 @@ export const MIGRATIONS: readonly string[] = [
    ALTER TABLE run_reference ADD COLUMN agent_key TEXT;
    UPDATE run_reference SET agent_key = CASE role WHEN 'chief' THEN 'chief' ELSE 'W-01' END;
    ALTER TABLE run_reference DROP COLUMN role;`,
+  // v11: the dialogue window talks to the agent's own Hermes profile through the gateway API server. Per profile: the
+  // API_SERVER_KEY Vibe City set in its .env, and the Hermes session that holds the conversation with the CEO.
+  `CREATE TABLE agent_chat (
+     profile TEXT PRIMARY KEY,
+     api_key TEXT NOT NULL,
+     session_id TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

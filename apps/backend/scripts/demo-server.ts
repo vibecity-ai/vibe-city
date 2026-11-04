@@ -10,6 +10,7 @@ import { buildServices } from '../src/app.ts';
 import { FakeHermes } from '../src/testing/fakeHermes.ts';
 import { FakeKanban } from '../src/testing/fakeKanban.ts';
 import { FakeChatModel, OpenAiCompatModel } from '../src/model/chatModel.ts';
+import { FakeAgentChat } from '../src/testing/fakeAgentChat.ts';
 import { loadConfig } from '../src/config.ts';
 
 const cfg = loadConfig();
@@ -58,22 +59,27 @@ const scripted = new FakeChatModel((turns) => {
     return JSON.stringify({ say: `Got it. Ticket handler for Support, ${budget} credits a day. Here's the brief. Say the word and I'm out the door.`, mood: 'happy', replies: ['Change the budget'],
       brief: { department: 'Support', focus: 'Works support tickets and keeps the queue moving', skills: ['github', 'pdf'], budgetPerDay: budget, notes: '' } });
   }
-  const name = /You are ([^,]+),/.exec(turns[0]!.content)?.[1] ?? 'me';
-  if (/job|task|can you|need you|look into|research|write/.test(last)) {
-    return JSON.stringify({
-      say: `Say no more, boss. I'll put a proper quest on the board so the team can run with it. Here's what I'd do.`,
-      mood: 'focused', replies: ['Ship it', 'Make it smaller', 'Never mind'],
-      proposal: { kind: 'quest', title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' },
-    });
-  }
-  if (/how|status|doing|working/.test(last)) {
-    return JSON.stringify({ say: `Board's in front of you, boss. I only know what's on it: nothing invented, nothing hidden. Ask me for something new and I'll plan it.`, mood: 'smug', replies: ['I have a job for you', 'Who are you again?'], proposal: null });
-  }
-  return JSON.stringify({ say: `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?`, mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null });
+  return JSON.stringify({ say: 'Ready when you are, boss.', mood: 'happy', replies: [], proposal: null });
 });
 const chatModel = cfg.chat.apiKey ? new OpenAiCompatModel(cfg.chat) : scripted;
 
-const { app, schedules } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
+// The dialogue window talks to the agent's own Hermes profile; offline, a scripted agent stands in.
+const meta = (m: object) => `\n<vc>${JSON.stringify(m)}</vc>`;
+const agentChat = new FakeAgentChat(hermes, (t) => {
+  const last = t.message.toLowerCase();
+  const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
+  if (/job|task|can you|need you|look into|research|write/.test(last)) {
+    return `Say no more, boss. I'll put a proper quest on the board so the team can run with it. Here's what I'd do.${meta({
+      mood: 'focused', replies: ['Ship it', 'Make it smaller', 'Never mind'],
+      proposal: { title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' } })}`;
+  }
+  if (/how|status|doing|working/.test(last)) {
+    return `Demo mode, boss: no real Hermes behind me, so I can't open the board for you. Ask me for something new and I'll plan it.${meta({ mood: 'smug', replies: ['I have a job for you', 'Who are you again?'], proposal: null })}`;
+  }
+  return `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?${meta({ mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null })}`;
+});
+
+const { app, schedules } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
 
 /** Each floor's board and agent profiles (lead first). */
 const refs: Record<string, { board: string; agents: string[] }> = {};

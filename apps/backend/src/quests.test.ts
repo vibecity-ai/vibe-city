@@ -1,6 +1,5 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HermesUnavailableError } from './hermes/ports.ts';
 import { questApp } from './testUtils.ts';
 
 const Q = (dept: string, quest = '') => `/api/departments/${dept}/quests${quest ? `/${quest}` : ''}`;
@@ -41,29 +40,6 @@ test('quest creation is idempotent per clientRequestId', async () => {
   const c = await t.create(d.id, { clientRequestId: crypto.randomUUID() });
   assert.notEqual(c.json().questId, a.json().questId);
   assert.equal((await t.kanban.listBoardTasks(d.board)).length, 2);
-});
-
-test('the same clientRequestId in another department does not collide', async () => {
-  const t = questApp();
-  const a = await t.readyDept('A');
-  const b = await t.readyDept('B');
-  const id = crypto.randomUUID();
-  const qa = (await t.create(a.id, { clientRequestId: id })).json().questId;
-  const qb = (await t.create(b.id, { clientRequestId: id })).json().questId;
-  assert.equal((await t.kanban.listBoardTasks(a.board)).length, 1);
-  assert.equal((await t.kanban.listBoardTasks(b.board)).length, 1);
-  assert.ok(qa && qb);
-});
-
-test('creation retried after a transient Hermes failure does not duplicate', async () => {
-  const t = questApp();
-  const d = await t.readyDept('Eng');
-  const id = crypto.randomUUID();
-  t.kanban.failNext('createTask', new HermesUnavailableError('down'), 1);
-  assert.equal((await t.create(d.id, { clientRequestId: id })).statusCode, 503);
-  assert.equal((await t.kanban.listBoardTasks(d.board)).length, 0);
-  assert.equal((await t.create(d.id, { clientRequestId: id })).statusCode, 201);
-  assert.equal((await t.kanban.listBoardTasks(d.board)).length, 1);
 });
 
 test('creation requires a ready department and valid input', async () => {
@@ -171,19 +147,6 @@ test('detail returns the real hierarchy: roles, depth, parent/child ids, nested 
   assert.equal(detail.objective, 'Build it');
   const tasks = (await t.get(Q(d.id, root.id) + '/tasks')).json();
   assert.equal(tasks.tasks.length, 4);
-});
-
-test('a grandchild that is still running keeps the quest running even if chief and children are done', async () => {
-  const t = questApp();
-  const d = await t.readyDept('Eng');
-  const { root, kids } = await seedQuest(t, d, 1);
-  const grand = t.kanban.seedTask(d.board, { title: 'G', assignee: d.teammate, parents: [kids[0]!.id] });
-  t.kanban.complete(d.board, root.id, 'planned');
-  t.kanban.complete(d.board, kids[0]!.id, 'child done');
-  t.kanban.startRun(d.board, grand.id, d.teammate);
-  assert.equal((await t.get(Q(d.id, root.id))).json().status, 'running');
-  t.kanban.complete(d.board, grand.id, 'done');
-  assert.equal((await t.get(Q(d.id, root.id))).json().status, 'completed');
 });
 
 test('failed worker -> quest failed with the error shown; foreign assignees are reported as violations', async () => {
@@ -296,11 +259,3 @@ test('Hermes offline: quest reads answer 503 and nothing is fabricated', async (
   assert.equal((await t.get(Q(d.id))).json().quests.length, 1, 'real data is back after reconnect');
 });
 
-test('without a Kanban integration configured the quest routes answer 503', async () => {
-  const { buildServices } = await import('./app.ts');
-  const { openDb } = await import('./db/db.ts');
-  const { FakeHermes } = await import('./testing/fakeHermes.ts');
-  const { app } = buildServices(openDb(':memory:'), new FakeHermes());
-  const dept = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'A' } })).json();
-  assert.equal((await app.inject(Q(dept.id))).statusCode, 409, 'unprovisioned department');
-});

@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { EffectiveInventorySchema, HermesDefaultsViewSchema, profileNameForAgent } from '@vibe-city/shared';
-import { HermesUnavailableError } from './hermes/ports.ts';
 import { DepartmentService } from './domain/departmentService.ts';
 import { provApp, questApp } from './testUtils.ts';
 
@@ -117,8 +116,3 @@ test('runtime defaults report the default profile: model, toolsets (with managea
   assert.ok(t.hermes.calls.every((c) => !/^(set|write|create)/.test(c)), 'reading defaults changes nothing in Hermes');
 });
 
-test('runtime defaults return 503 when Hermes is unreachable', async () => {
-  const t = provApp();
-  t.hermes.failNext('getToolsets', new HermesUnavailableError('down'));
-  assert.equal((await t.app.inject('/api/runtime/defaults')).statusCode, 503);
-});

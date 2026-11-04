@@ -58,7 +58,7 @@ On every start, `docker/cont-init.d/03-vibe-city-near` does three things before 
 - While no provider has been chosen yet (`model.provider` unset or `auto`), it makes `near-ai` with `NEAR_AI_MODEL` the default. A provider chosen later is never overwritten.
 - Where `agent.reasoning_effort` is unset (Hermes then uses `medium`), it sets `NEAR_AI_REASONING_EFFORT` (default `high`), in the main config and every profile. DeepSeek V4.x on NEAR rejects `medium` with HTTP 400 ("reasoning_effort must be low, high, xhigh, max …"). Departments created later inherit the setting, because their profiles are cloned from `default`.
 
-The key itself is never written to disk; Hermes reads it from the environment when it calls the model. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
+Hermes' own workers read the key from the environment. The dialogue window is the exception: it talks to each agent's profile through the gateway API server, where Hermes multiplexes profiles and a profile reads credentials **only from its own `.env`**. So the backend writes `NEAR_AI_API_KEY` (and the profile's `API_SERVER_KEY`) into an agent's profile `.env` the first time someone chats with it, and again once after every restart, so a changed key propagates. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
 
 The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
 
