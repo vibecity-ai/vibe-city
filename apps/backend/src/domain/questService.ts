@@ -81,8 +81,8 @@ export class QuestService {
     const r = this.depts.getRow(departmentId); // 404 for unknown
     const agents = this.depts.agents(departmentId);
     const lead = agents[0]?.profile_ref;
-    if (!r.hermes_board_ref || !lead || r.board_sync_state !== 'synced') throw new ConflictError('department is not provisioned');
-    if (opts.requireReady && agents.some((a) => !a.profile_ref)) throw new ConflictError('department is not provisioned');
+    if (!r.hermes_board_ref || !lead || r.board_sync_state !== 'synced') throw new ConflictError('department is not synced with Hermes yet');
+    if (opts.requireReady && agents.some((a) => !a.profile_ref)) throw new ConflictError('department is not synced with Hermes yet');
     if (opts.requireReady) {
       if (r.archived_at) throw new ConflictError('department is archived');
       if (r.provisioning_state !== 'ready') throw new ConflictError(`department is not ready (state: ${r.provisioning_state})`);

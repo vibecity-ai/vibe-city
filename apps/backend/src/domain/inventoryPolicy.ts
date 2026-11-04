@@ -118,7 +118,7 @@ export function buildAgentReport(inv: Inventory, o: ObservedRole | null): Capabi
     status: toolsetOk ? 'enforced' : 'unverified',
     detail: toolsetOk
       ? 'terminal, file, web, browser, code_execution: applied, read back, and tested against real Hermes (a disabled toolset is not available to the agent).'
-      : 'Not yet applied or not matching Hermes; provision the department.',
+      : 'Not yet applied or not matching Hermes; sync the department.',
   });
   entries.push({
     capability: 'toolsets.other',

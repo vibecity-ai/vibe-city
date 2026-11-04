@@ -1,6 +1,4 @@
 import { execFile } from 'node:child_process';
-import { readFile, rename, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import { promisify } from 'node:util';
 import type { ModelChoice } from '@vibe-city/shared';
 import { HermesHttp } from './http.ts';
@@ -36,21 +34,6 @@ export function parseToolsList(out: string): Record<string, boolean> {
   return res;
 }
 
-/** Parses the rich table printed by `hermes skills list` (rows start with │). */
-export function parseSkillsList(out: string): SkillInfo[] {
-  const skills: SkillInfo[] = [];
-  for (const line of out.split('\n')) {
-    if (!line.trimStart().startsWith('│')) continue;
-    const cells = line.split('│').slice(1, -1).map((c) => c.trim());
-    const name = cells[0];
-    const status = cells[cells.length - 1];
-    if (name && (status === 'enabled' || status === 'disabled')) skills.push({ name, enabled: status === 'enabled' });
-  }
-  // A truncated name would silently produce a wrong disable list: refuse instead of guessing.
-  if (skills.some((s) => s.name.includes('…'))) throw new HermesRejectedError('skills table was truncated by the terminal width');
-  return skills;
-}
-
 export class RealHermesRuntime implements HermesRuntime {
   private o: Required<Omit<RealRuntimeOptions, 'log'>> & { log: (m: string) => void };
   private web: HermesHttp;
@@ -66,6 +49,12 @@ export class RealHermesRuntime implements HermesRuntime {
 
   private http<T>(method: string, path: string, opts: { auth?: boolean; body?: unknown } = {}): Promise<T> {
     return this.web.json<T>(method, path, opts);
+  }
+
+  /** A profile-scoped dashboard call (milliseconds, where the equivalent CLI call starts a Python process for 2-5 s). */
+  private profileHttp<T>(method: string, path: string, profile: string, body?: unknown): Promise<T> {
+    if (!PROFILE_RE.test(profile)) throw new HermesRejectedError('invalid profile name');
+    return this.http<T>(method, path.replace(':p', encodeURIComponent(profile)), body === undefined ? {} : { body });
   }
 
   async health(): Promise<HermesHealth> {
@@ -157,7 +146,8 @@ export class RealHermesRuntime implements HermesRuntime {
   }
 
   async listSkills(profile: string): Promise<SkillInfo[]> {
-    return parseSkillsList(await this.cli(['skills', 'list'], profile));
+    const rows = await this.profileHttp<{ name: string; enabled: boolean }[]>('GET', '/api/skills?profile=:p', profile);
+    return rows.map((r) => ({ name: r.name, enabled: r.enabled === true }));
   }
 
   async setDisabledSkills(profile: string, names: string[]): Promise<void> {
@@ -165,8 +155,8 @@ export class RealHermesRuntime implements HermesRuntime {
   }
 
   async getModel(profile: string): Promise<{ id: string | null; provider: string | null }> {
-    const get = async (key: string) => (await this.cli(['config', 'get', key], profile)).trim().split('\n').pop()?.trim() || null;
-    return { id: await get('model.default'), provider: await get('model.provider') };
+    const r = await this.profileHttp<{ model?: string | null; provider?: string | null }>('GET', '/api/model/info?profile=:p', profile);
+    return { id: r.model || null, provider: r.provider || null };
   }
 
   /** Through the dashboard's own model assignment (`POST /api/model/set`), which validates the pair against the provider. */
@@ -196,31 +186,12 @@ export class RealHermesRuntime implements HermesRuntime {
     };
   }
 
-  private async soulPath(profile: string): Promise<string> {
-    const out = await this.cli(['profile', 'show', profile]);
-    const m = /^Path:\s*(.+)$/m.exec(out);
-    if (!m) throw new HermesRejectedError('could not resolve profile directory');
-    return join(m[1]!.trim(), 'SOUL.md');
-  }
-
   async readInstructions(profile: string): Promise<string | null> {
-    try {
-      return await readFile(await this.soulPath(profile), 'utf8');
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === 'ENOENT') return null;
-      throw e instanceof HermesRejectedError ? e : new HermesRejectedError('could not read profile instructions');
-    }
+    return (await this.profileHttp<{ content?: string | null }>('GET', '/api/profiles/:p/soul', profile)).content || null;
   }
 
   async writeInstructions(profile: string, text: string): Promise<void> {
-    const path = await this.soulPath(profile);
-    const tmp = `${path}.vc-tmp`;
-    try {
-      await writeFile(tmp, text, 'utf8');
-      await rename(tmp, path);
-    } catch {
-      throw new HermesRejectedError('could not write profile instructions');
-    }
+    await this.profileHttp('PUT', '/api/profiles/:p/soul', profile, { content: text });
   }
 
   async setMcpServer(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void> {

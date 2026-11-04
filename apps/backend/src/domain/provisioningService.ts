@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
   AGENT_EXCLUDED_TOOLSETS, TOOLSETS, boardSlugForDepartment, profileNameForAgent,
-  type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type ProfilesView, type ProvisioningError, type ProvisioningStatus,
+  type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type ProfilesView, type ProvisioningError, type ProvisioningStatus, type SyncCheck,
 } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime,
@@ -12,10 +12,13 @@ import { agentModel, agentSkills, type AgentRow, type DepartmentService } from '
 import { buildBlock, hasBlock, upsertBlock } from './instructions.ts';
 import {
   ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, desiredToolsetMap, diffObserved,
-  effectiveToolsets, modelToApply, parseObserved, skillsToDisable, type ObservedConfig, type ObservedRole,
+  effectiveSkills, effectiveToolsets, modelToApply, parseObserved, skillsToDisable, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
 type Step = ProvisioningError['step'];
+/** user = the CEO's Sync; background = the periodic check (heals drift); check = Refresh (reads only). */
+type SyncMode = 'user' | 'background' | 'check';
+const seatName = (m: Member) => (m.lead ? 'Lead' : m.key);
 
 /** An agent as provisioning sees it: its profile name (stored, or the managed default) and where that came from. */
 interface Member { a: AgentRow; key: string; lead: boolean; profile: string; origin: 'created' | 'associated' }
@@ -49,11 +52,32 @@ class StepError extends Error {
 
 const now = () => new Date().toISOString();
 
+/** Agents synced at once. Each toolset read is a `hermes` CLI process (a few seconds of Python start-up). */
+const AGENT_PARALLELISM = 4;
+/** Apply + read-back rounds per agent before a difference counts as a verification failure. */
+const MAX_APPLY_ROUNDS = 3;
+
+/** Runs `fn` over `items`, at most `limit` at a time; waits for every one, then rethrows the first failure. */
+async function settleAll<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+  const out: PromiseSettledResult<R>[] = [];
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i]!).then((value) => ({ status: 'fulfilled', value }) as const, (reason: unknown) => ({ status: 'rejected', reason }) as const);
+    }
+  }));
+  const bad = out.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  if (bad) throw bad.reason;
+  return out.map((r) => (r as PromiseFulfilledResult<R>).value);
+}
+
 export class ProvisioningService {
   private db: DatabaseSync;
   private depts: DepartmentService;
   private hermes: HermesRuntime;
-  private inflight = new Map<string, Promise<ProvisioningStatus>>();
+  private inflight = new Map<string, { p: Promise<unknown>; mode: SyncMode }>();
+  private sweep: Promise<ProvisioningStatus[]> | null = null;
 
   /** Runs after a successful provisioning, before the department is marked ready, with every agent's profile. Errors are swallowed. */
   afterProvision: ((departmentId: string, profiles: string[]) => Promise<void>) | null = null;
@@ -173,7 +197,7 @@ export class ProvisioningService {
     const enabled = new Set(o?.enabledSkills ?? []);
     let sessions: AgentView['sessions'] = null;
     let sessionsError: string | null = null;
-    if (!ref) sessionsError = 'This agent has no Hermes profile yet. Provision the department first.';
+    if (!ref) sessionsError = 'This agent has no Hermes profile yet. Sync the department first.';
     else {
       try {
         const iso = (t: number | null) => (t === null ? null : new Date(t * 1000).toISOString());
@@ -198,16 +222,32 @@ export class ProvisioningService {
     };
   }
 
-  // ---- provisioning ------------------------------------------------------------
+  // ---- sync: provisioning and reconciliation are one operation ------------------------
 
-  /** Idempotent. Concurrent calls for one department are refused (409), not duplicated. */
+  /**
+   * The CEO's Sync. Idempotent. A second one while one runs is refused (409); a background check or a Refresh check that
+   * is running is waited for first, so the button never fails just because the 30 s check happened to be underway.
+   */
   provision(id: string): Promise<ProvisioningStatus> {
     const row = this.depts.getRow(id); // 404 if unknown
     if (row.archived_at) throw new ConflictError('department is archived');
-    if (this.inflight.has(id)) throw new ConflictError('provisioning is already in progress for this department');
-    const p = this.run(id).finally(() => this.inflight.delete(id));
-    this.inflight.set(id, p);
-    return p;
+    const cur = this.inflight.get(id);
+    if (cur?.mode === 'user') throw new ConflictError('a sync is already running for this department');
+    if (cur) return cur.p.catch(() => undefined).then(() => this.provision(id));
+    return this.start(id, 'user').then((r) => r.status);
+  }
+
+  /**
+   * Refresh: the same sync with every write left out. Reads Hermes and lists what differs from the department (empty =
+   * in sync). Never changes Hermes; a department that fully verifies is marked ready, one that differs keeps its state.
+   */
+  async check(id: string): Promise<SyncCheck> {
+    const row = this.depts.getRow(id); // 404 if unknown
+    if (row.archived_at) throw new ConflictError('department is archived');
+    const cur = this.inflight.get(id);
+    if (cur) await cur.p.catch(() => undefined);
+    const { status, differences } = await this.start(id, 'check');
+    return { inSync: status.state === 'ready' && differences.length === 0, differences, status };
   }
 
   /** Like provision, but only valid after a failed or interrupted attempt. */
@@ -215,6 +255,33 @@ export class ProvisioningService {
     const s = this.depts.getRow(id).provisioning_state;
     if (s !== 'error' && s !== 'disconnected') throw new ConflictError(`nothing to retry: department is ${s}`);
     return this.provision(id);
+  }
+
+  /**
+   * Background check of a provisioned (ready/disconnected) department: the same sync, which writes to Hermes only when
+   * something vanished or drifted. Unconfigured and errored departments wait for the CEO.
+   */
+  reconcile(id: string): Promise<ProvisioningStatus> {
+    const r = this.depts.getRow(id);
+    if (r.archived_at || this.inflight.has(id) || (r.provisioning_state !== 'ready' && r.provisioning_state !== 'disconnected')) {
+      return Promise.resolve(this.status(id));
+    }
+    return this.start(id, 'background').then((r) => r.status);
+  }
+
+  /** One sweep at a time: a call while a sweep runs (timer or API) gets that sweep's result instead of starting another. */
+  reconcileAll(): Promise<ProvisioningStatus[]> {
+    return (this.sweep ??= this.sweepAll().finally(() => { this.sweep = null; }));
+  }
+
+  private async sweepAll(): Promise<ProvisioningStatus[]> {
+    const out: ProvisioningStatus[] = [];
+    for (const id of this.depts.activeIds()) {
+      try {
+        out.push(await this.reconcile(id));
+      } catch { /* one department must not stop the sweep */ }
+    }
+    return out;
   }
 
   /** At process start: a crash mid-provisioning leaves state 'provisioning'. Verified-step flags make resuming safe. */
@@ -225,7 +292,7 @@ export class ProvisioningService {
       if (r.provisioning_state !== 'provisioning' || this.inflight.has(id)) continue;
       this.depts.patchRow(id, {
         provisioning_state: 'error',
-        provisioning_error_json: JSON.stringify(this.err('verify', 'interrupted', 'Provisioning was interrupted (restart); retry to resume.', true)),
+        provisioning_error_json: JSON.stringify(this.err('verify', 'interrupted', 'The sync was interrupted (restart); sync again to resume.', true)),
       });
       n++;
     }
@@ -236,26 +303,49 @@ export class ProvisioningService {
     return { code, step, message, retryable, at: now() };
   }
 
-  private async run(id: string): Promise<ProvisioningStatus> {
-    const start = this.depts.getRow(id);
-    this.depts.patchRow(id, {
-      provisioning_state: 'provisioning',
-      provisioning_attempts: start.provisioning_attempts + 1,
-      provisioning_error_json: null,
+  private start(id: string, mode: SyncMode): Promise<{ status: ProvisioningStatus; differences: string[] }> {
+    const p = this.sync(id, mode).finally(() => this.inflight.delete(id));
+    this.inflight.set(id, { p, mode });
+    return p;
+  }
+
+  /**
+   * One sync: read what Hermes has, change only what differs, read the changes back. `ready` only after every agent
+   * verifies against Hermes. The department leaves `ready` (new quests wait) only while Hermes is being changed, so a
+   * background check that finds nothing to fix is invisible.
+   */
+  private async sync(id: string, mode: SyncMode): Promise<{ status: ProvisioningStatus; differences: string[] }> {
+    const user = mode === 'user';
+    let marked = false;
+    const differences: string[] = [];
+    /** Called before every write to Hermes with what it fixes. False = leave it (a check only collects differences). */
+    const writing = (what: string) => {
+      if (mode === 'check') { differences.push(what); return false; }
+      if (!marked) {
+        marked = true;
+        this.depts.patchRow(id, { provisioning_state: 'provisioning', provisioning_attempts: this.depts.getRow(id).provisioning_attempts + 1, provisioning_error_json: null });
+      }
+      return true;
+    };
+    if (user) {
+      writing('');
       // "verified" means verified in the latest attempt; every step re-verifies and re-stamps.
-      board_verified_at: null,
-    });
-    for (const a of this.depts.agents(id)) this.depts.patchAgent(id, a.agent_key, { verified_at: null });
+      this.depts.patchRow(id, { board_verified_at: null });
+      for (const a of this.depts.agents(id)) this.depts.patchAgent(id, a.agent_key, { verified_at: null });
+    }
     try {
-      await this.steps(id);
-      // Best effort extras (e.g. the Vibe City MCP server on every agent). Never fails provisioning.
+      const changed = await this.steps(id, writing);
+      if (differences.length) return { status: this.status(id), differences };
+      // Best effort extras (e.g. the Vibe City MCP server on every agent), after a change or when the CEO asks. Never fails the sync.
       const profiles = this.depts.agents(id).map((a) => a.profile_ref).filter((p): p is string => !!p);
-      if (profiles.length && this.afterProvision) { try { await this.afterProvision(id, profiles); } catch { /* reported by the hook */ } }
+      if ((user || changed) && profiles.length && this.afterProvision) {
+        try { await this.afterProvision(id, profiles); } catch (e) { console.warn(`after-provision hook failed for ${id}: ${(e as Error).message}`); }
+      }
       this.depts.patchRow(id, { provisioning_state: 'ready', provisioning_error_json: null, last_reconciled_at: now() });
     } catch (e) {
       this.fail(id, e);
     }
-    return this.status(id);
+    return { status: this.status(id), differences };
   }
 
   private fail(id: string, e: unknown) {
@@ -274,7 +364,7 @@ export class ProvisioningService {
     } else if (e instanceof ConflictError) {
       return; // department archived mid-run: nothing to record
     } else {
-      perr = this.err('verify', 'internal', 'Unexpected error during provisioning.', true);
+      perr = this.err('verify', 'internal', 'Unexpected error while syncing with Hermes.', true);
     }
     try {
       this.depts.patchRow(id, { provisioning_state: state, provisioning_error_json: JSON.stringify(perr) });
@@ -294,10 +384,15 @@ export class ProvisioningService {
     }
   }
 
-  private async steps(id: string) {
+  /** Returns whether anything was written to Hermes. In a check (writing returns false) it stops before verifying once something differs. */
+  private async steps(id: string, writing: (what: string) => boolean): Promise<boolean> {
     const row = this.depts.getRow(id);
     const slug = boardSlugForDepartment(id);
     const team = members(id, this.depts.agents(id));
+    const inv = this.depts.getInventory(id);
+    let changed = false;
+    let differs = false;
+    const write = (what: string) => { if (writing(what)) return (changed = true); differs = true; return false; };
 
     // 1. health
     await this.step('health', async () => {
@@ -320,7 +415,7 @@ export class ProvisioningService {
     for (const { key, profile: name, origin } of team) {
       if (origin === 'associated' && !confirmed.includes(name)) {
         throw new StepError('validate', 'confirmation_required',
-          `The profile "${name}" of agent ${key} already exists. Provisioning would change its toolsets, skills, model and instructions, which may affect its use outside Vibe City. Confirm this explicitly (confirmModifyProfiles) or use a Vibe City-managed profile instead.`,
+          `The profile "${name}" of agent ${key} already exists. Syncing would change its toolsets, skills, model and instructions, which may affect its use outside Vibe City. Confirm this explicitly (confirmModifyProfiles) or use a Vibe City-managed profile instead.`,
           { retryable: false });
       }
     }
@@ -330,6 +425,7 @@ export class ProvisioningService {
       let board = (await this.hermes.listBoards()).find((b) => b.slug === slug);
       if (board?.archived) throw new StepError('board', 'board_archived', 'The department board exists in Hermes but is archived.', { retryable: false });
       if (!board) {
+        if (!write('The Kanban board is missing')) return;
         await this.hermes.createBoard(slug, row.name);
         board = (await this.hermes.listBoards()).find((b) => b.slug === slug);
         if (!board) throw new StepError('board', 'board_not_found_after_create', 'Hermes did not report the board after creating it.', { retryable: true });
@@ -337,45 +433,71 @@ export class ProvisioningService {
       this.depts.patchRow(id, { hermes_board_ref: slug, board_sync_state: 'synced', board_verified_at: now() });
     });
 
-    // 4. one profile per agent (persist after each so a failure in the next one resumes without recreating)
-    for (const { key, profile: name, origin } of team) {
-      await this.step('agents', async () => {
-        const list = await this.hermes.listProfiles();
-        if (!list.some((p) => p.name === name)) {
-          await this.hermes.createProfile(name, { description: `Agent ${key} of department "${row.name}" (managed by Vibe City)` });
-          if (!(await this.hermes.listProfiles()).some((p) => p.name === name)) {
-            throw new StepError('agents', 'profile_not_found_after_create', `Hermes did not report profile "${name}" after creating it.`, { retryable: true });
-          }
-        }
-        this.depts.patchAgent(id, key, { profile_ref: name, origin, verified_at: now() });
-      });
-    }
+    // 4. every agent at once (each is its own profile): create it if missing, read it, change what differs, read back.
+    // The host-wide concurrency cap is a slow CLI read: only on the CEO's sync or while unknown.
+    const prevCap = parseObserved(row.observed_config_json)?.globalConcurrencyCap ?? null;
+    const cap = prevCap === null || row.provisioning_state !== 'ready' ? this.hermes.getConcurrencyCap().catch(() => null) : Promise.resolve(prevCap);
+    const names = new Set(existing.map((p) => p.name));
+    const observed = await settleAll(team, AGENT_PARALLELISM, (m) => this.syncAgent(id, m, team, inv, names, write));
+    if (differs) return false;
 
-    // 5. inventory
-    const observed = await this.step('inventory', () => this.applyInventory(id, team));
-    const inv = this.depts.getInventory(id);
-    const problems = team.flatMap((m) => diffObserved(agentInventory(inv, { model: agentModel(m.a), skills: agentSkills(m.a) }), observed.agents[m.key]!));
-    if (problems.length) {
-      throw new StepError('inventory', 'inventory_verification_failed', `Applied inventory does not match what Hermes reports (${problems.length} difference(s)).`, { retryable: true });
-    }
-
-    // 6. final verification: everything still present and neither the inventory nor the team changed mid-run
+    // 5. final verification: everything still present and neither the inventory nor the team changed mid-run
     await this.step('verify', async () => {
-      const profiles = await this.hermes.listProfiles();
-      const boards = await this.hermes.listBoards();
+      const [profiles, boards] = await Promise.all([this.hermes.listProfiles(), this.hermes.listBoards()]);
       const missing = team.map((m) => m.profile).filter((n) => !profiles.some((p) => p.name === n));
       if (missing.length || !boards.some((b) => b.slug === slug && !b.archived)) {
-        throw new StepError('verify', 'resource_missing', 'A Hermes resource disappeared during provisioning.', { retryable: true });
+        throw new StepError('verify', 'resource_missing', 'A Hermes resource disappeared during the sync.', { retryable: true });
       }
       const applied = hashOf(inv, team);
       if (hashOf(this.depts.getInventory(id), members(id, this.depts.agents(id))) !== applied) {
-        throw new StepError('verify', 'inventory_changed', 'The inventory or the team changed while provisioning; provision again to apply it.', { retryable: true });
+        throw new StepError('verify', 'inventory_changed', 'The inventory or the team changed during the sync; sync again to apply it.', { retryable: true });
       }
-      this.depts.patchRow(id, { inventory_applied_hash: applied, inventory_applied_at: now(), observed_config_json: JSON.stringify(observed) });
+      const obs: ObservedConfig = { at: now(), globalConcurrencyCap: await cap, agents: Object.fromEntries(team.map((m, i) => [m.key, observed[i]!])) as Record<string, ObservedRole> };
+      this.depts.patchRow(id, {
+        inventory_applied_hash: applied, observed_config_json: JSON.stringify(obs),
+        ...(changed || !row.inventory_applied_at ? { inventory_applied_at: now() } : {}),
+      });
     });
+    return changed;
   }
 
-  // ---- inventory application ----------------------------------------------------
+  // ---- one agent ----------------------------------------------------------------------
+
+  /** The agent as verified, or null when a check found it differs (nothing was written). */
+  private async syncAgent(id: string, m: Member, team: Member[], base: Inventory, existing: Set<string>, write: (what: string) => boolean): Promise<ObservedRole | null> {
+    const present = await this.step('agents', async () => {
+      if (!existing.has(m.profile)) {
+        if (!write(`${seatName(m)}: Hermes profile ${m.profile} is missing`)) return false;
+        await this.hermes.createProfile(m.profile, { description: `Agent ${m.key} of department "${this.depts.getRow(id).name}" (managed by Vibe City)` });
+        if (!(await this.hermes.listProfiles()).some((p) => p.name === m.profile)) {
+          throw new StepError('agents', 'profile_not_found_after_create', `Hermes did not report profile "${m.profile}" after creating it.`, { retryable: true });
+        }
+      }
+      // persisted right away, so a failure elsewhere resumes without recreating
+      this.depts.patchAgent(id, m.key, { profile_ref: m.profile, origin: m.origin });
+      return true;
+    });
+    if (!present) return null;
+    return this.step('inventory', async () => {
+      const want = agentInventory(base, { model: agentModel(m.a), skills: agentSkills(m.a) });
+      const block = this.block(id, m, team);
+      let { observed, soul } = await this.read(m, block);
+      // Converge: Hermes can change a profile underneath us (other `hermes` runs install newly bundled skills, enabled,
+      // into existing profiles), so a read-back that still differs gets one more apply. Bounded; then it is an error.
+      for (let round = 0; round < MAX_APPLY_ROUNDS; round++) {
+        const r = await this.apply(id, m, want, observed, soul, block, write);
+        if (r === 'differs') return null;
+        if (r === 'same') break;
+        ({ observed, soul } = await this.read(m, block));
+      }
+      const problems = diffObserved(want, observed);
+      if (problems.length) {
+        throw new StepError('inventory', 'inventory_verification_failed', `Applied inventory does not match what Hermes reports (${problems.length} difference(s)).`, { retryable: true });
+      }
+      this.depts.patchAgent(id, m.key, { verified_at: now() });
+      return observed;
+    });
+  }
 
   /** The block an agent's SOUL.md must contain: the same rules for everyone, plus who its teammates are. */
   private block(id: string, m: Member, team: Member[]): string {
@@ -386,142 +508,48 @@ export class ProvisioningService {
     });
   }
 
-  private async applyInventory(id: string, team: Member[]): Promise<ObservedConfig> {
-    const base = this.depts.getInventory(id);
-    const out: Record<string, ObservedRole> = {};
-    for (const m of team) {
-      const { profile } = m;
-      const inv = agentInventory(base, { model: agentModel(m.a), skills: agentSkills(m.a) });
-      // toolsets: every toolset Hermes lists is set explicitly, so nothing outside the allowance stays on.
-      const universe = Object.keys(await this.hermes.getToolsets(profile));
-      const want = desiredToolsetMap(universe, effectiveToolsets(inv));
-      await this.hermes.setToolsets(profile, {
-        enable: universe.filter((t) => want[t]),
-        disable: universe.filter((t) => !want[t]),
-      });
-      // skills: everything installed that is not allowed is disabled
-      const installed = (await this.hermes.listSkills(profile)).map((s) => s.name);
-      await this.hermes.setDisabledSkills(profile, skillsToDisable(inv, installed));
-      // model: only when the agent or the department chose one (provider + id, set together through Hermes)
-      const model = modelToApply(inv, await this.hermes.getModel(profile));
-      if (model) await this.hermes.setModel(profile, model);
-      // instructions: managed block only
-      const soul = await this.hermes.readInstructions(profile);
-      const next = upsertBlock(soul, this.block(id, m, team), id, m.key);
-      if (next !== soul) await this.hermes.writeInstructions(profile, next);
-      out[m.key] = await this.observe(id, m, team);
-    }
-    return { at: now(), globalConcurrencyCap: await this.hermes.getConcurrencyCap(), agents: out };
-  }
-
   /** Read-only: what Hermes currently reports for one agent's profile. */
-  private async observe(id: string, m: Member, team: Member[]): Promise<ObservedRole> {
-    const { profile } = m;
-    const skills = await this.hermes.listSkills(profile);
-    const soul = await this.hermes.readInstructions(profile);
-    const block = this.block(id, m, team);
+  private async read(m: Member, block: string): Promise<{ observed: ObservedRole; soul: string | null }> {
+    // The CLI read goes first: a `hermes` run can install newly bundled skills into the profile, so skills read alongside
+    // it can miss one that is enabled a moment later (seen on freshly cloned profiles). The rest is milliseconds.
+    const toolsets = await this.hermes.getToolsets(m.profile);
+    const [skills, model, soul] = await Promise.all([
+      this.hermes.listSkills(m.profile), this.hermes.getModel(m.profile), this.hermes.readInstructions(m.profile),
+    ]);
     return {
-      profile,
-      toolsets: await this.hermes.getToolsets(profile),
-      installedSkills: skills.map((s) => s.name),
-      enabledSkills: skills.filter((s) => s.enabled).map((s) => s.name),
-      ...(({ id, provider }) => ({ model: id, provider }))(await this.hermes.getModel(profile)),
-      instructionsPresent: hasBlock(soul, block),
+      soul,
+      observed: {
+        profile: m.profile, toolsets,
+        installedSkills: skills.map((s) => s.name), enabledSkills: skills.filter((s) => s.enabled).map((s) => s.name),
+        model: model.id, provider: model.provider, instructionsPresent: hasBlock(soul, block),
+      },
     };
   }
 
-  // ---- reconciliation ------------------------------------------------------------
-
-  /**
-   * Compares stored state with live Hermes. Ready departments go `disconnected` when Hermes is unreachable and
-   * come back to `ready` when everything verifies; missing resources or drift trigger an idempotent re-provision
-   * (which recreates Vibe City-created resources; an associated profile that vanished becomes an error).
-   */
-  async reconcile(id: string): Promise<ProvisioningStatus> {
-    const row = this.depts.getRow(id);
-    if (row.archived_at || this.inflight.has(id)) return this.status(id);
-    if (row.provisioning_state === 'unconfigured' || row.provisioning_state === 'provisioning') return this.status(id);
-    if (row.provisioning_state === 'error') return this.status(id); // explicit retry only
-
-    let health;
-    try {
-      health = await this.hermes.health();
-    } catch {
-      health = { dashboard: 'down', auth: 'unknown' } as const;
-    }
-    if (health.dashboard === 'down') {
-      this.depts.patchRow(id, {
-        provisioning_state: 'disconnected',
-        provisioning_error_json: JSON.stringify(this.err('health', 'hermes_unreachable', 'Hermes is unreachable.', true)),
-      });
-      return this.status(id);
-    }
-    if (health.auth === 'rejected') {
-      this.depts.patchRow(id, {
-        provisioning_state: 'error',
-        provisioning_error_json: JSON.stringify(this.err('health', 'hermes_auth', 'Hermes rejected the configured session token.', false)),
-      });
-      return this.status(id);
-    }
-
-    try {
-      const problems = await this.verifyLive(id);
-      if (problems.length === 0) {
-        this.depts.patchRow(id, { provisioning_state: 'ready', provisioning_error_json: null, last_reconciled_at: now() });
-        return this.status(id);
-      }
-    } catch (e) {
-      if (e instanceof HermesUnavailableError) {
-        this.depts.patchRow(id, {
-          provisioning_state: 'disconnected',
-          provisioning_error_json: JSON.stringify(this.err('verify', 'hermes_unreachable', 'Hermes is unreachable.', true)),
-        });
-        return this.status(id);
-      }
-      throw e;
-    }
-    // Something is missing or drifted: heal through the same idempotent path.
-    return this.provision(id);
-  }
-
-  async reconcileAll(): Promise<ProvisioningStatus[]> {
-    const out: ProvisioningStatus[] = [];
-    for (const id of this.depts.activeIds()) {
-      try {
-        out.push(await this.reconcile(id));
-      } catch { /* one department must not stop the sweep */ }
-    }
-    return out;
-  }
-
-  /** Empty = everything the stored state claims still holds in Hermes. */
-  private async verifyLive(id: string): Promise<string[]> {
-    const row = this.depts.getRow(id);
-    const problems: string[] = [];
-    const slug = boardSlugForDepartment(id);
-    const boards = await this.hermes.listBoards();
-    if (!boards.some((b) => b.slug === slug && !b.archived)) problems.push('board missing');
-    const inv = this.depts.getInventory(id);
-    const agents = this.depts.agents(id);
-    const profiles = await this.hermes.listProfiles();
-    for (const a of agents) {
-      if (!a.profile_ref || !profiles.some((p) => p.name === a.profile_ref)) problems.push(`profile of agent ${a.agent_key} missing`);
-    }
-    if (problems.length) return problems;
-    const team = members(id, agents);
-    if (row.inventory_applied_hash !== hashOf(inv, team)) return ['inventory not applied'];
-    const observed: Record<string, ObservedRole> = {};
-    for (const m of team) {
-      observed[m.key] = await this.observe(id, m, team);
-      const want = agentInventory(inv, { model: agentModel(m.a), skills: agentSkills(m.a) });
-      problems.push(...diffObserved(want, observed[m.key]!).map((d) => `${m.key}: ${d}`));
-    }
-    if (!problems.length) {
-      const prev = parseObserved(row.observed_config_json);
-      this.depts.patchRow(id, {
-        observed_config_json: JSON.stringify({ at: now(), globalConcurrencyCap: prev?.globalConcurrencyCap ?? null, agents: observed } satisfies ObservedConfig),
-      });
-    }
-    return problems;
+  /** Writes only what differs from `want`: 'same' = nothing to do, 'differs' = a check left it, 'written' = applied. */
+  private async apply(id: string, m: Member, want: Inventory, o: ObservedRole, soul: string | null, block: string, write: (what: string) => boolean): Promise<'same' | 'differs' | 'written'> {
+    // toolsets: every toolset Hermes lists has a wanted state, so nothing outside the allowance stays on
+    const wantTools = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(want));
+    const enable = Object.keys(wantTools).filter((t) => wantTools[t] && !o.toolsets[t]);
+    const disable = Object.keys(wantTools).filter((t) => !wantTools[t] && o.toolsets[t]);
+    const skillsOk = JSON.stringify(effectiveSkills(want, o.installedSkills)) === JSON.stringify([...o.enabledSkills].sort());
+    const model = modelToApply(want, { id: o.model, provider: o.provider });
+    const nextSoul = upsertBlock(soul, block, id, m.key);
+    const what = [
+      enable.length ? `${enable.join(', ')} off in Hermes (should be on)` : '', disable.length ? `${disable.join(', ')} on in Hermes (should be off)` : '',
+      skillsOk ? '' : 'skills differ', model ? `model is ${o.model ?? 'unset'} (should be ${model.id})` : '', nextSoul === soul ? '' : 'instructions are out of date',
+    ].filter(Boolean);
+    if (!what.length) return 'same';
+    if (!write(`${seatName(m)}: ${what.join('; ')}`)) return 'differs';
+    await Promise.all([
+      nextSoul !== soul ? this.hermes.writeInstructions(m.profile, nextSoul) : null,
+      // toolsets, skills and model all live in the profile's config.yaml: one writer at a time
+      (async () => {
+        if (enable.length || disable.length) await this.hermes.setToolsets(m.profile, { enable, disable });
+        if (!skillsOk) await this.hermes.setDisabledSkills(m.profile, skillsToDisable(want, o.installedSkills));
+        if (model) await this.hermes.setModel(m.profile, model);
+      })(),
+    ]);
+    return 'written';
   }
 }

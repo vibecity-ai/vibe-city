@@ -8,7 +8,7 @@ import {
   InventoryPatchSchema, InventorySchema,
 } from '@vibe-city/shared';
 import {
-  AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema,
+  AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema, SyncCheckSchema,
 } from '@vibe-city/shared';
 import type { HermesRuntime } from './hermes/ports.ts';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './hermes/ports.ts';
@@ -96,7 +96,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const hub = extra.live
     ? new LiveHub({ health: () => runtime.health(), cursors: new SqliteCursorStore(db), ...extra.live }, { graceMs: extra.live.graceMs })
     : null;
-  const allowedOrigins = extra.allowedOrigins ?? ['http://127.0.0.1:5173', 'http://localhost:5173', 'http://127.0.0.1:4100', 'http://localhost:4100'];
+  const allowedOrigins = extra.allowedOrigins ?? ['http://127.0.0.1:4200', 'http://localhost:4200', 'http://127.0.0.1:4100', 'http://localhost:4100'];
 
   app.setErrorHandler((err, _req, reply) => {
     if (err instanceof ZodError) {
@@ -171,6 +171,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const id = idOf(req.params);
     return parse(ProvisioningStatusSchema, await provisioning.retry(id));
   });
+
+  app.post('/api/departments/:id/check', async (req) => parse(SyncCheckSchema, await provisioning.check(idOf(req.params))));
 
   app.get('/api/departments/:id/provisioning', async (req) => {
     const id = idOf(req.params);

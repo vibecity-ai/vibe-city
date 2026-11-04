@@ -2,7 +2,7 @@
    allowed, what a form change sends. No React, no I/O: tested in views.test.ts. The wording rules come from the spec:
    configured is never "guaranteed", a requested cancel is never "cancelled". */
 import type {
-  CancellationStatus, CapabilityEntry, DepartmentUpdate, DepartmentView, ProvisioningStatus, TaskNode,
+  CancellationStatus, CapabilityEntry, DepartmentUpdate, DepartmentView, ProvisioningStatus, SyncCheck, TaskNode,
 } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
 import type { StatusKey } from '../ui/kit.tsx';
@@ -10,8 +10,8 @@ import type { StatusKey } from '../ui/kit.tsx';
 /* ---------- department settings ---------- */
 
 export const RESET_WARNING =
-  'Changing the name, purpose, inventory or profiles can return a provisioned department to “Not provisioned”. ' +
-  'Agents then get no new work until you provision again.';
+  'Changing the name, purpose, inventory or profiles takes the department out of sync with Hermes. ' +
+  'Agents then get no new work until you sync again.';
 
 export interface SettingsForm { name: string; purpose: string }
 
@@ -48,7 +48,7 @@ export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoar
     'Vibe City keeps the department record, its inventory and settings. You can still inspect it under Executive Office → Archived.',
     hermes.length
       ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every quest, result and attachment stay there.`
-      : 'It was never provisioned, so it has no Hermes resources.',
+      : 'It was never synced, so it has no Hermes resources.',
     'This is not Hermes resource deletion, and there is no restore in this version. Running Hermes tasks are not stopped: cancel active quests first.',
   ];
 }
@@ -64,12 +64,12 @@ export const LIMIT_COPY = {
   maxDelegationDepth: 'Fixed at 1: agents are told to do handed-over tasks themselves. Hermes cannot enforce it.',
 } as const;
 
-/** What to tell the user after an inventory save, based on the provisioning state before and after. */
+/** What to tell the user after an inventory save, based on the sync state before and after. */
 export function inventorySavedNotice(before: ProvisioningStatus['state'] | undefined, after: ProvisioningStatus['state'] | undefined): { text: string; tone: 'good' | 'warn' } {
   if (after === 'unconfigured' && before && before !== 'unconfigured' && before !== 'provisioning') {
-    return { text: 'Inventory saved. The department needs provisioning again before Hermes uses it.', tone: 'warn' };
+    return { text: 'Inventory saved. Sync the department so Hermes uses it.', tone: 'warn' };
   }
-  if (after === 'unconfigured') return { text: 'Inventory saved. It is applied when you provision the department.', tone: 'good' };
+  if (after === 'unconfigured') return { text: 'Inventory saved. It is applied when you sync the department.', tone: 'good' };
   return { text: 'Inventory saved.', tone: 'good' };
 }
 
@@ -88,31 +88,25 @@ export function capValue(v: unknown): string {
   return String(v);
 }
 
-/* ---------- provisioning ---------- */
+/* ---------- sync with Hermes ---------- */
 
-export interface ProvisioningActions {
-  provision: { show: boolean; label: string };
-  /** Retry is offered only where the backend accepts it AND it can help: a retryable error or a disconnect. */
-  retry: boolean;
-  hint: string | null;
-}
-
-export function provisioningActions(p: Pick<ProvisioningStatus, 'state' | 'error'> | null): ProvisioningActions {
-  if (!p) return { provision: { show: false, label: 'Provision' }, retry: false, hint: null };
+/**
+ * Whether the Sync button shows, and what to say. Sync is offered only when the floor is not in sync: never synced,
+ * edited since, failed, unverified, or a Refresh (check) found Hermes different.
+ */
+export function syncView(p: Pick<ProvisioningStatus, 'state' | 'error'> | null, check: Pick<SyncCheck, 'inSync'> | null): { sync: boolean; hint: string | null } {
+  if (!p) return { sync: false, hint: null };
   switch (p.state) {
-    case 'provisioning': return { provision: { show: false, label: 'Provision' }, retry: false, hint: 'Provisioning is running.' };
-    case 'unconfigured': return { provision: { show: true, label: 'Provision' }, retry: false, hint: null };
-    case 'ready': return { provision: { show: true, label: 'Provision again' }, retry: false, hint: 'Already verified. Provisioning again re-applies and re-verifies everything.' };
-    case 'disconnected': return { provision: { show: false, label: 'Provision' }, retry: true, hint: 'Hermes resources could not be verified. Retry once Hermes is reachable.' };
-    case 'error':
-      return p.error?.retryable
-        ? { provision: { show: false, label: 'Provision' }, retry: true, hint: 'This failure can be retried.' }
-        : { provision: { show: true, label: 'Provision again' }, retry: false, hint: 'Retrying alone will not help: change the configuration first, then provision again.' };
+    case 'provisioning': return { sync: false, hint: 'Syncing with Hermes…' };
+    case 'unconfigured': return { sync: true, hint: 'Hermes does not have this floor yet, or it changed since the last sync.' };
+    case 'disconnected': return { sync: true, hint: 'Hermes could not be reached to verify this floor. Sync once it is running.' };
+    case 'error': return { sync: true, hint: p.error?.retryable ? 'The last sync failed. You can try again.' : 'The last sync failed: change the configuration first, then sync.' };
+    case 'ready': return check && !check.inSync ? { sync: true, hint: 'Hermes does not match this floor.' } : { sync: false, hint: check ? 'Checked just now: Hermes matches this floor.' : null };
   }
 }
 
 export const PROVISIONING_STATE_LABEL: Record<ProvisioningStatus['state'], string> = {
-  unconfigured: 'Not provisioned', provisioning: 'Provisioning', ready: 'Ready (verified)', error: 'Provisioning failed', disconnected: 'Not verified (disconnected)',
+  unconfigured: 'Not synced', provisioning: 'Syncing', ready: 'In sync', error: 'Sync failed', disconnected: 'Not verified (Hermes unreachable)',
 };
 
 /* ---------- quest tasks ---------- */

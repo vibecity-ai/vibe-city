@@ -8,7 +8,7 @@ const backend = process.env.VIBE_CITY_BACKEND ?? 'http://127.0.0.1:4100';
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 5173,
+    port: 4200,
     proxy: {
       '/api': { target: backend, changeOrigin: false, ws: true },
     },

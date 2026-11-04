@@ -8,7 +8,7 @@
    - Mutations refresh the affected department only; create/archive (which change the floor order) refresh everything.
    - Sockets, coalescer timers and cancellation polls are closed when a department leaves the tower or the app unmounts. */
 import type {
-  CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
+  CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary, SyncCheck,
 } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
@@ -352,15 +352,15 @@ export async function loadHermesModels(): Promise<{ value: HermesModelsView | nu
   catch (e) { return { value: null, error: asApiError(e) }; }
 }
 
-/** Creates the department with its capabilities, then provisions it right away unless asked not to. */
+/** Creates the department with its capabilities, then syncs it right away unless asked not to. */
 export async function createDepartment(input: DepartmentCreate, provisionNow: boolean) {
   const v = await run('create', 'Could not create the department', () => api.createDepartment(input));
   if (!v) return;
   await refreshAll();
   st().ui$({ modal: null });
   st().openFloor(v.id);
-  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Provision it to bring in its agents.`); return; }
-  st().toast(`Floor added · ${v.name}. Provisioning…`);
+  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Sync it to bring in its agents.`); return; }
+  st().toast(`Floor added · ${v.name}. Syncing with Hermes…`);
   await provisionDepartment(v.id);
 }
 
@@ -370,7 +370,7 @@ export async function saveDepartmentSettings(id: string, patch: DepartmentUpdate
   const { value, error } = await attempt(`settings:${id}`, () => api.updateDepartment(id, patch));
   if (!value) return error;
   await refreshOne(id);
-  if (value.state === 'unconfigured' && before && before !== 'unconfigured') st().toast('Settings saved. The department must be provisioned again before agents get new work.', 'warn');
+  if (value.state === 'unconfigured' && before && before !== 'unconfigured') st().toast('Settings saved. Sync the department again before agents get new work.', 'warn');
   else st().toast('Settings saved.');
   return null;
 }
@@ -388,12 +388,12 @@ export async function archiveDepartment(id: string): Promise<ApiError | null> {
 
 export interface ProvisionOptions { leadProfileRef?: string | null; confirmModifyProfiles?: string[] }
 
-/** Provisioning is synchronous on the backend (it can take a while: profile creation). Existing profiles need explicit consent. */
-export async function provisionDepartment(id: string, opts: ProvisionOptions = {}, retry = false) {
-  const status = await run(`provision:${id}`, 'Provisioning failed', async () => {
+/** Sync with Hermes. It runs synchronously on the backend (it can take a while: profile creation). Existing profiles need explicit consent. */
+export async function provisionDepartment(id: string, opts: ProvisionOptions = {}) {
+  const status = await run(`provision:${id}`, 'Sync failed', async () => {
     if (opts.leadProfileRef !== undefined) await api.updateDepartment(id, { leadProfileRef: opts.leadProfileRef });
     if (opts.confirmModifyProfiles?.length) await api.updateDepartment(id, { confirmModifyProfiles: opts.confirmModifyProfiles });
-    return retry ? api.retryProvision(id) : api.provision(id);
+    return api.provision(id);
   });
   await refreshOne(id);
   if (!status) return;
@@ -474,11 +474,10 @@ export async function patchInventory(deptId: string, patch: InventoryPatch) {
   st().toast(n.text, n.tone);
 }
 
-export async function reconcileNow() {
-  const out = await run('reconcile', 'Reconcile failed', () => api.reconcile());
-  if (!out) return;
-  await refreshAll();
-  const open = st().ui.floorId;
-  if (open) void loadDeptInfo(open);
-  st().toast('Reconciled with Hermes.');
+/** Refresh: reads Hermes and compares it with the floor (nothing is changed), then reloads the floor. Null on failure. */
+export async function checkDepartment(id: string): Promise<SyncCheck | null> {
+  const out = await run(`check:${id}`, 'Could not check Hermes', () => api.checkSync(id));
+  await refreshOne(id);
+  void loadDeptInfo(id);
+  return out ?? null;
 }

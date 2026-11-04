@@ -49,6 +49,7 @@ Schema changes are append-only entries in `MIGRATIONS` (`PRAGMA user_version`); 
 | `GET/PATCH /api/departments/:id/inventory` | PATCH merges; `limits` merged field by field. Editing a provisioned department's inventory sets it back to `unconfigured` until re-provisioned |
 | `POST /api/departments/:id/provision` | idempotent; runs synchronously; 409 if already in progress |
 | `POST /api/departments/:id/provision/retry` | only from `error`/`disconnected` (409 otherwise) |
+| `POST /api/departments/:id/check` | Refresh: the sync with every write left out. `{inSync, differences, status}`; never changes Hermes (a department that fully verifies is marked ready). The UI shows Sync only when this or the state says the floor is not in sync; it never says "provision" or "reconcile" |
 | `GET /api/departments/:id/provisioning` | state, structured error, per-resource verified flags, inventory sync |
 | `GET /api/departments/:id/profiles` | every agent's profile with live Hermes data (`reachable:false` + stored refs when Hermes is down) |
 | `GET /api/departments/:id/effective-inventory` | per-role capability report (`enforced | configured | unverified | unsupported`) |
@@ -90,7 +91,7 @@ npm run gate0 -w @vibe-city/backend       # integration scripts: need Hermes das
 
 ## Hermes integration (Milestone 2)
 
-Vibe City talks to Hermes only through the `HermesRuntime` port. `RealHermesRuntime` uses supported interfaces: the dashboard REST API (`X-Hermes-Session-Token`, token held server-side, never serialized) for health, profile listing, boards and tasks, and the `hermes` CLI (`execFile`, no shell, validated names) for profile creation and per-profile configuration. It never reads or writes Hermes' databases or source. CLI stderr (which can contain host paths) goes to the server log, not API errors.
+Vibe City talks to Hermes only through the `HermesRuntime` port. `RealHermesRuntime` uses supported interfaces: the dashboard REST API (`X-Hermes-Session-Token`, token held server-side, never serialized) for health, profile listing, boards, tasks, per-profile skills, model and `SOUL.md` (milliseconds), and the `hermes` CLI (`execFile`, no shell, validated names; 2-5 s per call) for profile creation, toolsets (the read stays on the CLI: the dashboard's toolset view differs from what the CLI enforces) and the remaining per-profile configuration. It never reads or writes Hermes' databases or source. CLI stderr (which can contain host paths) goes to the server log, not API errors.
 
 Configuration (env): `HERMES_URL` (default `http://127.0.0.1:9119`), `HERMES_DASHBOARD_SESSION_TOKEN` (must equal the token the dashboard was started with), `HERMES_BIN`, `RECONCILE_INTERVAL_MS`. Vibe City does not start or reconfigure Hermes services; the dashboard and gateway must be running.
 
@@ -105,9 +106,9 @@ ready --resource missing or drift--> (reconcile re-runs provisioning)
 ready --inventory/profile/name/purpose edit--> unconfigured
 ```
 
-`disconnected` = temporary availability problem. `error` = something must change (token, missing associated profile, archived board) or verification failed; `error.retryable` says whether a plain retry can help. Steps are `health -> validate -> board -> agents (one profile each) -> inventory -> verify`; each verified resource is persisted immediately (`*_verified_at`, `*_origin`), and every run re-verifies against Hermes. Resources have deterministic names (`vc-<uuid>` board, `vc-<12hex>-chief` / `-w01`…), and an existing derived resource is adopted, so a crash between "create" and "record" cannot cause duplicates. A department is `ready` only after the final verification step; concurrent provisioning of one department is refused. A restart turns a stuck `provisioning` into a retryable `error: interrupted`.
+`disconnected` = temporary availability problem. `error` = something must change (token, missing associated profile, archived board) or verification failed; `error.retryable` says whether a plain retry can help. Provisioning and reconciliation are one idempotent **sync**: `health -> validate -> board -> agents (up to 4 at once: create the profile if missing, read it, write only what differs, read back; repeated up to 3 rounds because Hermes can install bundled skills into a profile mid-sync) -> verify`; each verified resource is persisted immediately (`*_verified_at`, `*_origin`), and every run re-verifies against Hermes. Resources have deterministic names (`vc-<uuid>` board, `vc-<12hex>-chief` / `-w01`…), and an existing derived resource is adopted, so a crash between "create" and "record" cannot cause duplicates. A department is `ready` only after the final verification step; a second CEO provisioning of one department while one runs is refused (409); a running background check is waited for instead. A restart turns a stuck `provisioning` into a retryable `error: interrupted`.
 
-Reconcile (background + `POST /api/runtime/reconcile`) only touches `ready`/`disconnected` departments: it marks them `disconnected` when Hermes is down, returns them to `ready` when everything verifies, and re-runs the idempotent provisioning when something vanished or drifted (an *associated* profile that vanished is an error; it is never recreated).
+Reconcile (background every `RECONCILE_INTERVAL_MS` + `POST /api/runtime/reconcile`, one sweep at a time) runs the same sync on `ready`/`disconnected` departments only: when nothing differs it only reads, never writes and never leaves `ready`; Hermes down -> `disconnected`, back and verified -> `ready`; something vanished or drifted -> the sync recreates or re-applies it (state `provisioning` only while writing). An *associated* profile that vanished is an error; it is never recreated. The MCP hook (per-department token) runs only after a sync that changed something or that the CEO started.
 
 ### Inventory application
 
@@ -187,7 +188,7 @@ Cancellation status is derived from Hermes (marker comment + task/run states), s
 
 ### Frontend (`apps/web`)
 
-React + Vite, no state library. Department picker, quest list, create form (stable `clientRequestId` per form content), quest detail (Overview / Tasks / Activity / Results), cancellation panel, and explicit loading, empty, stale, disconnected and failure states. On a failed refresh the last good data stays visible and is labelled out of date; nothing is invented. `npm run dev:web` serves on :5173 and proxies `/api` (including WebSocket) to the backend on :4100. No PixiJS yet (Milestone 4) and no drag-and-drop board.
+React + Vite, no state library. Department picker, quest list, create form (stable `clientRequestId` per form content), quest detail (Overview / Tasks / Activity / Results), cancellation panel, and explicit loading, empty, stale, disconnected and failure states. On a failed refresh the last good data stays visible and is labelled out of date; nothing is invented. `npm run dev:web` serves on :4200 and proxies `/api` (including WebSocket) to the backend on :4100. No PixiJS yet (Milestone 4) and no drag-and-drop board.
 
 ### Concurrency and permissions
 

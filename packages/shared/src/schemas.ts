@@ -195,6 +195,10 @@ export const ProvisioningStatusSchema = z.object({
 }).strict();
 export type ProvisioningStatus = z.infer<typeof ProvisioningStatusSchema>;
 
+/** Refresh: Hermes read and compared with the department, nothing written. `differences` empty = in sync. */
+export const SyncCheckSchema = z.object({ inSync: z.boolean(), differences: z.array(z.string()), status: ProvisioningStatusSchema }).strict();
+export type SyncCheck = z.infer<typeof SyncCheckSchema>;
+
 export const CAPABILITY_STATUSES = ['enforced', 'configured', 'unverified', 'unsupported'] as const;
 /**
  * enforced    - applied, read back from Hermes, AND restriction behavior was tested against real Hermes

@@ -220,7 +220,7 @@ test('a failed settings save keeps the last good state and returns the field err
   assert.equal(useStore.getState().busy[`settings:${DEPT_ID}`], undefined);
 });
 
-test('a successful settings save refreshes this department and says when it must be provisioned again', async () => {
+test('a successful settings save refreshes this department and says when it must be synced again', async () => {
   const { b, state } = backend();
   await refreshAll();
   b.on('PATCH', D, () => { state.depts = [deptView({ name: 'Research 2', state: 'unconfigured' })]; return { body: state.depts[0] }; });
@@ -229,11 +229,11 @@ test('a successful settings save refreshes this department and says when it must
   const s = useStore.getState();
   assert.equal(s.depts[0]!.name, 'Research 2');
   assert.equal(s.depts[0]!.provisioning, 'unconfigured');
-  assert.match(s.toasts.at(-1)!.text, /provisioned again/);
+  assert.match(s.toasts.at(-1)!.text, /Sync the department again/);
   assert.equal(b.count('GET', '/api/company'), n, 'only the affected department was refetched');
 });
 
-test('saving the inventory of a provisioned department warns that it needs provisioning again', async () => {
+test('saving the inventory of a synced department warns that it needs a sync', async () => {
   const { b, state } = backend();
   await refreshAll();
   b.on('PATCH', `${D}/inventory`, () => { state.depts = [deptView({ state: 'unconfigured' })]; return { body: { ...inventory(), sharedContextRefs: ['wiki:handbook'] } }; });
@@ -241,5 +241,5 @@ test('saving the inventory of a provisioned department warns that it needs provi
   assert.deepEqual(b.calls.find((c) => c.method === 'PATCH')!.body, { sharedContextRefs: ['wiki:handbook'] });
   const t = useStore.getState().toasts.at(-1)!;
   assert.equal(t.tone, 'warn');
-  assert.match(t.text, /provisioning again/);
+  assert.match(t.text, /Sync the department so Hermes uses it/);
 });

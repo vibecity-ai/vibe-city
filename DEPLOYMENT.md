@@ -24,6 +24,19 @@ docker compose up -d --build
 open http://127.0.0.1:4100
 ```
 
+### Develop (only Hermes in Docker)
+
+No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100.
+
+```
+npm run dev:hermes        # Hermes gateway + dashboard (docker-compose.dev.yml), data in ./.dev/hermes
+npm run dev:backend       # http://127.0.0.1:4100, restarts on save
+npm run dev:web           # http://localhost:4200, hot reload, proxies /api to the backend
+npm run dev:hermes:down   # stop Hermes (data stays in ./.dev/hermes; delete it for a fresh Hermes)
+```
+
+How the host backend reaches the container: HTTP on loopback (host networking; Hermes also reaches the backend's MCP server at 127.0.0.1:4100), the `hermes` CLI through `scripts/hermes-docker` (`HERMES_BIN`, a `docker exec` wrapper). Hermes' data is bind-mounted at `./.dev/hermes` so it survives container rebuilds; the container runs Hermes with uid/gid 1000 so those files stay yours; set `DEV_UID`/`DEV_GID` if yours differ. The backend's dev database is `apps/backend/data/vibe-city.sqlite`, separate from the container's.
+
 The Vibe City API has **no login**. It is published on loopback only. For remote use, tunnel (`ssh -L 4100:127.0.0.1:4100`) or put an authenticating reverse proxy in front, and set `ALLOWED_ORIGINS` to the public origin.
 
 ### Models: NEAR AI Cloud (default)

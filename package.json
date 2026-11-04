@@ -9,8 +9,10 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
-    "dev:backend": "npm run dev -w @vibe-city/backend",
+    "dev:backend": "npm run dev:docker -w @vibe-city/backend",
     "dev:web": "npm run dev -w @vibe-city/web",
-    "build": "npm run build -w @vibe-city/web"
+    "build": "npm run build -w @vibe-city/web",
+    "dev:hermes": "mkdir -p .dev/hermes && docker compose -f docker-compose.dev.yml up -d",
+    "dev:hermes:down": "docker compose -f docker-compose.dev.yml down"
   }
 }

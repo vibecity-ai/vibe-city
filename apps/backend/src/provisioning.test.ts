@@ -600,3 +600,104 @@ test('guarantee is true only for enforced capabilities; file isolation and deleg
   assert.equal(eff.agents[1].entries.find((e: any) => e.capability === 'toolsets.other').guarantee, false, 'configured != guaranteed');
   assert.equal(eff.departmentWide.find((x: any) => x.capability === 'limits.concurrency').guarantee, false, 'a host-wide cap is not a department guarantee');
 });
+
+test('a background check of an unchanged department only reads: no writes, and it never leaves ready', async () => {
+  const t = provApp();
+  const d = await t.create('Eng');
+  await t.provision(d.id);
+  const attempts = (await t.status(d.id)).attempts;
+  const before = t.hermes.calls.length;
+  const seen: string[] = [];
+  const read = t.hermes.getToolsets.bind(t.hermes);
+  t.hermes.getToolsets = async (p: string) => { seen.push(t.provisioning.status(d.id).state); return read(p); };
+  await t.provisioning.reconcile(d.id);
+  assert.deepEqual(t.hermes.calls.slice(before).filter((c) => /^(create|set|write)/.test(c)), []);
+  assert.ok(seen.length > 0 && seen.every((s) => s === 'ready'), seen.join());
+  const st = await t.status(d.id);
+  assert.equal(st.state, 'ready');
+  assert.equal(st.attempts, attempts);
+});
+
+test('provisioning while a background check runs waits for it instead of failing', async () => {
+  const t = provApp();
+  const d = await t.create('Eng');
+  await t.provision(d.id);
+  const bg = t.provisioning.reconcile(d.id);
+  const res = await t.provision(d.id);
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().state, 'ready');
+  assert.equal((await bg).state, 'ready');
+});
+
+test('overlapping reconcile sweeps share one run instead of stacking up', async () => {
+  const t = provApp();
+  const d = await t.create('A');
+  await t.provision(d.id);
+  const before = count(t.hermes, 'health');
+  const [a, b] = await Promise.all([t.provisioning.reconcileAll(), t.provisioning.reconcileAll()]);
+  assert.equal(a, b);
+  assert.equal(count(t.hermes, 'health'), before + 1, 'one sweep, one health check');
+});
+
+test('a skill Hermes installs mid-sync is caught by the read-back and disabled in another round', async () => {
+  const t = provApp();
+  const d = await t.create('Eng', { teammates: 0 });
+  const set = t.hermes.setDisabledSkills.bind(t.hermes);
+  let appeared = false;
+  t.hermes.setDisabledSkills = async (p: string, names: string[]) => {
+    await set(p, names);
+    // like a concurrent `hermes` run installing a newly bundled skill, enabled, into existing profiles
+    if (!appeared) { appeared = true; for (const prof of t.hermes.profiles.values()) prof.skills['late-skill'] = true; }
+  };
+  const st = (await t.provision(d.id)).json();
+  assert.equal(st.state, 'ready', JSON.stringify(st.error));
+  const { chief } = profiles(d.id);
+  assert.equal(t.hermes.profiles.get(chief)!.skills['late-skill'], false);
+  assert.equal(count(t.hermes, 'setDisabledSkills'), 2);
+});
+
+const check = async (t: ReturnType<typeof provApp>, id: string) => (await t.app.inject({ method: 'POST', url: `/api/departments/${id}/check` })).json();
+const writes = (t: ReturnType<typeof provApp>, from: number) => t.hermes.calls.slice(from).filter((c) => /^(create|set|write)/.test(c));
+
+test('check (Refresh) reports in sync for a synced department and writes nothing', async () => {
+  const t = provApp();
+  const d = await t.create('Eng');
+  await t.provision(d.id);
+  const before = t.hermes.calls.length;
+  const r = await check(t, d.id);
+  assert.equal(r.inSync, true);
+  assert.deepEqual(r.differences, []);
+  assert.equal(r.status.state, 'ready');
+  assert.deepEqual(writes(t, before), []);
+});
+
+test('check lists drift without fixing it; Sync then fixes it', async () => {
+  const t = provApp();
+  const d = await t.create('Eng');
+  await t.provision(d.id);
+  const { chief } = profiles(d.id);
+  const prof = t.hermes.profiles.get(chief)!;
+  const off = Object.keys(prof.toolsets).find((k) => !prof.toolsets[k])!;
+  prof.toolsets[off] = true;
+  const before = t.hermes.calls.length;
+  const r = await check(t, d.id);
+  assert.equal(r.inSync, false);
+  assert.ok(r.differences.some((x: string) => x.startsWith('Lead:') && x.includes(off)), r.differences.join(' | '));
+  assert.deepEqual(writes(t, before), []);
+  assert.equal(prof.toolsets[off], true, 'a check never changes Hermes');
+  assert.equal((await t.provision(d.id)).json().state, 'ready');
+  assert.equal(prof.toolsets[off], false);
+  assert.equal((await check(t, d.id)).inSync, true);
+});
+
+test('check of a department that was never synced lists what is missing and creates nothing', async () => {
+  const t = provApp();
+  const d = await t.create('Eng', { teammates: 0 });
+  const before = t.hermes.calls.length;
+  const r = await check(t, d.id);
+  assert.equal(r.inSync, false);
+  assert.ok(r.differences.some((x: string) => /board is missing/.test(x)));
+  assert.ok(r.differences.some((x: string) => /^Lead: Hermes profile .* is missing/.test(x)));
+  assert.equal(r.status.state, 'unconfigured');
+  assert.deepEqual(writes(t, before), []);
+});

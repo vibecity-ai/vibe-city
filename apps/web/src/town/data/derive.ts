@@ -91,7 +91,7 @@ export function deriveDept(i: DeriveInput): Dept {
   let state: DeptState;
   let attention: string | undefined;
   if (v.state === 'unconfigured' || v.state === 'provisioning') state = 'unconfigured';
-  else if (v.state === 'error') { state = 'attention'; attention = prov?.error?.message ?? 'Provisioning failed'; }
+  else if (v.state === 'error') { state = 'attention'; attention = prov?.error?.message ?? 'Sync with Hermes failed'; }
   else if (disconnected) { state = 'offline'; attention = i.hermesUp ? 'Hermes resources could not be verified' : 'Hermes is not reachable'; }
   else if (workers.some((w) => w.status === 'failed') || chief?.status === 'failed') {
     state = 'attention';

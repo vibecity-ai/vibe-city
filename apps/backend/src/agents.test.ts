@@ -14,7 +14,7 @@ test('before provisioning the agent view has no profile, no read-back and says w
   assert.equal(v.profileRef, null);
   assert.equal(v.observedAt, null);
   assert.deepEqual([v.skills, v.toolsets, v.sessions], [[], [], null]);
-  assert.match(v.sessionsError!, /Provision the department first/);
+  assert.match(v.sessionsError!, /Sync the department first/);
 });
 
 test('after provisioning: installed skills with their enabled state, toolsets and model come from the read-back', async () => {

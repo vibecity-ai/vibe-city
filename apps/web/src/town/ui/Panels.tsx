@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import { AGENT_EXCLUDED_TOOLSETS, PROVISIONING_STEPS, TOOLSETS, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type TaskNode, type Toolset } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, PROVISIONING_STEPS, TOOLSETS, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
   archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
-  reconcileNow, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
+  checkDepartment, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
 import {
@@ -13,7 +13,7 @@ import {
 } from '../data/company';
 import {
   CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL,
-  archiveConsequences, assigneeWarning, cancellationView, fieldErrors, provisioningActions,
+  archiveConsequences, assigneeWarning, cancellationView, fieldErrors, syncView,
   settingsFormFrom, settingsPatch, taskStatusView, settingsErrorField, type SettingsForm,
 } from '../data/views';
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
@@ -30,24 +30,10 @@ export function TopBar() {
   const company = useStore((s) => s.company);
   const conn = useStore((s) => s.conn);
   const stale = useStore((s) => s.stale);
-  const busy = useStore((s) => s.busy);
   const attn = useStore((s) => attentionCount(s.quests));
   const onBoard = useStore((s) => s.ui.panel === 'board');
   const openPanel = useStore((s) => s.openPanel);
   const closeFloor = useStore((s) => s.closeFloor);
-  const [open, setOpen] = useState(false);
-  const menu = useRef<HTMLDivElement>(null);
-  const trigger = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (open) menu.current?.querySelector<HTMLElement>('.menu-i:not([disabled])')?.focus(); }, [open]);
-  const close = () => { setOpen(false); trigger.current?.focus(); };
-  const onMenuKey = (e: React.KeyboardEvent) => {
-    const items = [...(menu.current?.querySelectorAll<HTMLElement>('.menu-i:not([disabled])') ?? [])];
-    const i = items.indexOf(document.activeElement as HTMLElement);
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length]?.focus(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length]?.focus(); }
-    else if (e.key === 'Tab') setOpen(false);
-  };
   const pill = (ok: boolean, label: string) => (
     <span className={`led${ok ? '' : ' bad'}`} title={ok ? `${label} connected` : `${label} not responding`}><i aria-hidden="true" />{label}<span className="sr">{ok ? ' connected' : ' not responding'}</span></span>
   );
@@ -63,15 +49,6 @@ export function TopBar() {
       {stale && <span className="demo" title="The last refresh failed; floors show the last data received"><span>Out of date</span></span>}
       <div className="conn">{pill(conn.backend, 'Backend')}{pill(conn.hermes, 'Hermes')}{pill(conn.gateway, 'Gateway')}</div>
       <span className="sr" aria-live="polite">{said}</span>
-      <div className="menu-wrap">
-        <button ref={trigger} className="btn tertiary sq" aria-label="Settings" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}><Icon n="sliders" /></button>
-        {open && (
-          <div className="menu card" role="menu" ref={menu} onKeyDown={onMenuKey}>
-            <button role="menuitem" className="menu-i" disabled={!!busy.reconcile} onClick={() => { close(); void reconcileNow(); }}>{busy.reconcile ? 'Reconciling…' : 'Reconcile with Hermes now'}</button>
-            <button role="menuitem" className="menu-i" onClick={() => { close(); void refreshAll(); }}>Refresh</button>
-          </div>
-        )}
-      </div>
     </header>
   );
 }
@@ -108,7 +85,7 @@ export function ExecPanel() {
                   <div className="tile" style={{ ['--bar' as string]: '#9B5CFF' }}><b>{depts.length}</b><span>Departments</span></div>
                   <div className="tile" style={{ ['--bar' as string]: '#2EE6F0' }}><b>{running}<Glyph k="running" size={12} /></b><span>Agents running</span></div>
                   <div className="tile" style={{ ['--bar' as string]: '#FF5C7A' }}><b>{attention.length}<Glyph k="failed" size={12} /></b><span>Need attention</span></div>
-                  <div className="tile" style={{ ['--bar' as string]: '#FFB547' }}><b>{unconf.length}<Glyph k="awaiting" size={12} /></b><span>Not provisioned</span></div>
+                  <div className="tile" style={{ ['--bar' as string]: '#FFB547' }}><b>{unconf.length}<Glyph k="awaiting" size={12} /></b><span>Not synced</span></div>
                 </div>
               </section>
               <section className="pane-sec">
@@ -203,14 +180,14 @@ export function DeptPanel() {
           <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={st.k} label={st.label} /></div>
           <p className="sub">{d.purpose}</p>
           <div className="actions">
-            <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs a provisioned department and a reachable Hermes'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New quest</button>
+            <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs the floor in sync with Hermes, and Hermes reachable'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New quest</button>
             <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Quests on the board</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('inventory')}>Inventory</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings</Btn>
             <Btn kind="secondary" onClick={() => void callAr(d.id)}><Icon n="phone" size={14} />Hire</Btn>
             <Btn kind="secondary" onClick={() => s.ui$({ execModal: 'calendar', scheduleDept: d.id })}>Schedules</Btn>
           </div>
-          {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New quests need a provisioned department.' : 'New quests need Hermes to be reachable.'}</p>}
+          {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New quests need the floor to be in sync with Hermes.' : 'New quests need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new quests wait in Queued until it starts.</p>}
           <Tabs label="Department sections" idBase="dept" value={tab} onChange={(t) => s.ui$({ deptTab: t })}
             options={(['overview', 'inventory', 'quests'] as const).map((t) => ({ key: t, label: <>{t[0]!.toUpperCase() + t.slice(1)}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
@@ -220,11 +197,11 @@ export function DeptPanel() {
             {s.liveDown[d.id] && <div className="banner warn"><Glyph k="disconnected" /><div><b>Live updates reconnecting</b><p>The live link to the backend dropped. The floor still refreshes every 30 seconds.</p></div></div>}
             {d.state === 'offline' && (
               <div className="banner bad"><Glyph k="disconnected" /><div><b>Hermes resources not verified</b><p>{d.attention}. Agents can’t receive new work until this floor is verified again.</p>
-                <Btn kind="destructive" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id, {}, true)}>{busyProv ? 'Retrying…' : 'Retry connection'}</Btn></div></div>
+                <Btn kind="destructive" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>
             )}
             {d.state === 'attention' && d.attention && <div className="banner bad"><Glyph k="failed" /><div><b>Needs attention</b><p>{d.attention}</p></div></div>}
-            {d.provisioning === 'unconfigured' && <div className="banner warn"><Glyph k="awaiting" /><div><b>Changes not applied</b><p>This department was edited after it was provisioned. Provision again to apply them in Hermes.</p>
-              <Btn kind="secondary" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
+            {d.provisioning === 'unconfigured' && <div className="banner warn"><Glyph k="awaiting" /><div><b>Not in sync with Hermes</b><p>Hermes does not have this floor yet, or it was edited since the last sync. Sync to apply it.</p>
+              <Btn kind="secondary" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>}
           </div>
           {tab === 'overview' && (
             <>
@@ -315,7 +292,7 @@ function InventorySummary({ d }: { d: Dept }) {
   );
 }
 
-/* ============ B2 · provisioning ============ */
+/* ============ B2 · first sync with Hermes ============ */
 function SetupPanel({ d }: { d: Dept }) {
   const s = useStore();
   const prov = s.info[d.id]?.provisioning ?? null;
@@ -337,8 +314,8 @@ function SetupPanel({ d }: { d: Dept }) {
     <div className="pane">
       <div className="pane-scroll">
         <section className="pane-head">
-          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)} tone="amber">{d.provisioning === 'error' ? 'Provisioning failed' : 'New department'}</Where><button className="x" onClick={s.closeFloor} aria-label="Close floor"><Icon n="x" /></button></div>
-          <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={d.state === 'attention' ? 'failed' : 'awaiting'} label={d.provisioning === 'provisioning' ? 'Provisioning' : d.state === 'attention' ? 'Needs attention' : 'Not provisioned'} /></div>
+          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)} tone="amber">{d.provisioning === 'error' ? 'Sync failed' : 'New department'}</Where><button className="x" onClick={s.closeFloor} aria-label="Close floor"><Icon n="x" /></button></div>
+          <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={d.state === 'attention' ? 'failed' : 'awaiting'} label={d.provisioning === 'provisioning' ? 'Syncing' : d.state === 'attention' ? 'Needs attention' : 'Not synced'} /></div>
           <p className="sub">{d.purpose}</p>
           <div className="actions"><Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings, profiles & archive</Btn></div>
         </section>
@@ -355,7 +332,7 @@ function SetupPanel({ d }: { d: Dept }) {
           <div className="step done"><Glyph k="completed" size={12} /><span><b>Inventory</b><small className="muted">{inv ? `${teamLine(d.teamSize)} · ${inv.allowedMcpTools.length} MCP tools` : 'Loading…'}</small></span><button className="link" onClick={() => s.openPanel('inventory')}>Edit</button></div>
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
-            <p className="fine">Provisioning creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the inventory and verifies it by reading it back. It can take a minute.</p>
+            <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the inventory and verifies it by reading it back. It can take a minute.</p>
             <fieldset className="plain">
               <legend className="sr">Profiles</legend>
               <label className={`radio${mode === 'managed' ? ' on' : ''}`}><input type="radio" name="m" checked={mode === 'managed'} onChange={() => setMode('managed')} />Create managed profiles (recommended)</label>
@@ -372,9 +349,9 @@ function SetupPanel({ d }: { d: Dept }) {
                 </label>
               </>
             )}
-            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes || !valid}>{busy ? 'Provisioning…' : err ? (err.retryable ? 'Retry provisioning' : 'Provision again') : 'Provision department'}</button>
+            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes || !valid}>{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
             {!s.conn.hermes && <small className="muted">Hermes is not reachable. Start the dashboard and gateway first.</small>}
-            {busy && <div className="steps-list" role="status">Provisioning: {PROVISIONING_STEPS.map((x) => <span key={x} className="mono muted">{x}</span>)}</div>}
+            {busy && <div className="steps-list" role="status">Syncing: {PROVISIONING_STEPS.map((x) => <span key={x} className="mono muted">{x}</span>)}</div>}
           </form>
         </section>
       </div>
@@ -382,7 +359,7 @@ function SetupPanel({ d }: { d: Dept }) {
   );
 }
 
-/* ============ G · department settings, provisioning inspector, archive ============ */
+/* ============ G · department settings, Hermes sync, archive ============ */
 export function SettingsSheet() {
   const s = useStore();
   const d = s.depts.find((x) => x.id === s.ui.floorId);
@@ -402,7 +379,7 @@ export function SettingsSheet() {
           <h3 className="sec-t">Work from other floors</h3>
           <QuestPolicyEditor deptId={d.id} />
         </section>
-        <ProvisioningInspector d={d} />
+        <SyncInspector d={d} />
         <section className="pane-sec danger">
           <h3 className="sec-t">Archive</h3>
           <p className="fine">Removes the floor from the tower. Nothing is deleted in Hermes.</p>
@@ -439,19 +416,23 @@ function SettingsForm({ d }: { d: Dept }) {
       {errs.form && <p className="field-err" role="alert"><Glyph k="failed" />{errs.form}</p>}
       <div className="row"><button className="btn primary" type="submit" disabled={!patch || busy} aria-busy={busy || undefined}>{busy ? 'Saving…' : 'Save changes'}</button>
         {patch && <Btn onClick={() => { setF(settingsFormFrom(d)); setErrs({}); }} disabled={busy}>Discard</Btn>}</div>
-      <p className="fine">The lead's profile is chosen in the provisioning flow, which asks for explicit consent before Vibe City modifies an existing profile. Teammates always get their own managed profiles.</p>
+      <p className="fine">The lead's profile is chosen when the floor is first synced, which asks for explicit consent before Vibe City modifies an existing profile. Teammates always get their own managed profiles.</p>
     </form>
   );
 }
 
-function ProvisioningInspector({ d }: { d: Dept }) {
+/** Hermes profiles of the floor. Refresh compares Hermes with the floor (nothing changes); Sync shows only when they differ. */
+function SyncInspector({ d }: { d: Dept }) {
   const s = useStore();
   const info = s.info[d.id];
   const prov = info?.provisioning ?? null;
   const profiles = info?.profiles ?? null;
-  const acts = provisioningActions(prov);
+  const [check, setCheck] = useState<SyncCheck | null>(null);
+  // a sync (or an edit) makes an earlier comparison stale
+  useEffect(() => setCheck(null), [prov?.attempts, d.view.updatedAt]);
+  const view = syncView(prov, check);
   const busy = !!s.busy[`provision:${d.id}`];
-  const [refreshing, setRefreshing] = useState(false);
+  const checking = !!s.busy[`check:${d.id}`];
   const syncRows: [string, boolean][] = [
     ...(prov?.agents ?? []).map((a): [string, boolean] => [
       `${a.key === 'chief' ? 'Lead' : a.key} · ${a.ref ?? 'no profile yet'}`,
@@ -461,15 +442,18 @@ function ProvisioningInspector({ d }: { d: Dept }) {
   ];
   return (
     <section className="pane-sec" aria-labelledby="pi-h">
-      <h3 className="sec-t" id="pi-h">Hermes profiles & provisioning</h3>
+      <h3 className="sec-t" id="pi-h">Hermes profiles</h3>
       <div aria-live="polite" role="status" className="prov-state">
-        {prov ? <><Chip k={prov.state === 'ready' ? 'completed' : prov.state === 'error' ? 'failed' : prov.state === 'disconnected' ? 'disconnected' : prov.state === 'provisioning' ? 'running' : 'awaiting'} label={PROVISIONING_STATE_LABEL[prov.state]} />
-          <span className="muted small">{prov.attempts} attempt{prov.attempts === 1 ? '' : 's'} · last reconciled {formatTime(prov.lastReconciledAt)}</span></> : <span className="muted">Loading provisioning status…</span>}
+        {prov ? <><Chip k={prov.state === 'ready' && check?.inSync !== false ? 'completed' : prov.state === 'error' ? 'failed' : prov.state === 'disconnected' ? 'disconnected' : prov.state === 'provisioning' ? 'running' : 'awaiting'} label={prov.state === 'ready' && check?.inSync === false ? 'Out of sync' : PROVISIONING_STATE_LABEL[prov.state]} />
+          <span className="muted small">last checked {formatTime(prov.lastReconciledAt)}</span></> : <span className="muted">Loading…</span>}
       </div>
       {info?.infoError && <p className="field-err" role="alert"><Glyph k="failed" />Could not refresh profile details: {info.infoError}{profiles ? ' Showing the last data received.' : ''}</p>}
       {prov?.error && (
         <div className="banner bad inline-b" role="alert"><Glyph k="failed" /><div><b>{prov.error.message}</b>
-          <KV rows={[['Code', <span className="mono">{prov.error.code}</span>], ['Step', prov.error.step], ['Retryable', prov.error.retryable ? 'Yes' : 'No: change the configuration first'], ['At', formatTime(prov.error.at)]]} /></div></div>
+          <KV rows={[['Code', <span className="mono">{prov.error.code}</span>], ['Step', prov.error.step], ['Can be tried again', prov.error.retryable ? 'Yes' : 'No: change the configuration first'], ['At', formatTime(prov.error.at)]]} /></div></div>
+      )}
+      {check && !check.inSync && check.differences.length > 0 && (
+        <ul className="sync-list">{check.differences.map((x) => <li key={x}><Glyph k="awaiting" size={12} />{x}</li>)}</ul>
       )}
       {prov && (
         <ul className="sync-list">
@@ -478,14 +462,12 @@ function ProvisioningInspector({ d }: { d: Dept }) {
           ))}
         </ul>
       )}
-      {acts.hint && <p className="fine">{acts.hint}</p>}
+      {view.hint && <p className="fine">{view.hint}</p>}
       <div className="row wrap">
-        {acts.provision.show && <Btn kind="primary" busy={busy} disabled={busy || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busy ? 'Provisioning…' : acts.provision.label}</Btn>}
-        {acts.retry && <Btn kind="warn" busy={busy} disabled={busy || !s.conn.hermes} onClick={() => void provisionDepartment(d.id, {}, true)}>{busy ? 'Retrying…' : 'Retry provisioning'}</Btn>}
-        <Btn kind="secondary" busy={!!s.busy.reconcile} disabled={!!s.busy.reconcile} onClick={() => void reconcileNow()}>{s.busy.reconcile ? 'Reconciling…' : 'Reconcile now'}</Btn>
-        <Btn busy={refreshing} disabled={refreshing} onClick={() => { setRefreshing(true); void refreshOne(d.id).finally(() => setRefreshing(false)); }}><Icon n="refresh" size={14} />{refreshing ? 'Refreshing…' : 'Refresh'}</Btn>
+        {view.sync && <Btn kind="primary" busy={busy} disabled={busy || checking || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busy ? 'Syncing…' : 'Sync'}</Btn>}
+        <Btn busy={checking} disabled={checking || busy} onClick={() => void checkDepartment(d.id).then((r) => r && setCheck(r))}><Icon n="refresh" size={14} />{checking ? 'Checking Hermes…' : 'Refresh'}</Btn>
       </div>
-      {(acts.provision.show || acts.retry) && !s.conn.hermes && <small className="muted">Hermes is not reachable, so provisioning is disabled.</small>}
+      {view.sync && !s.conn.hermes && <small className="muted">Hermes is not reachable, so syncing is disabled.</small>}
     </section>
   );
 }
@@ -685,7 +667,7 @@ export function AgentPanel() {
             <div>
               <div className="title-row"><h1 className="display sm" tabIndex={-1}>{name}</h1><Chip k={status} /></div>
               {agentKey && <PersonaLine deptId={d.id} agentKey={agentKey} />}
-              <p className="mono muted small">{role === 'chief' ? 'Lead' : `Teammate ${agentKey ?? ''}`} · Hermes profile {view?.profileRef ?? me?.profileRef ?? '— (not provisioned)'}</p>
+              <p className="mono muted small">{role === 'chief' ? 'Lead' : `Teammate ${agentKey ?? ''}`} · Hermes profile {view?.profileRef ?? me?.profileRef ?? '— (not synced yet)'}</p>
               <p className="mono small">model · {view?.model ?? '—'}{view?.observedAt && <span className="muted"> · read from Hermes {formatTime(view.observedAt)}</span>}</p>
               {(role === 'chief' ? !!d.chief : !!worker) && <button className="btn primary small" style={{ marginTop: 8 }} onClick={() => s.ui$({ talk: { deptId: d.id, agentKey: role === 'chief' ? 'chief' : worker!.id } })}>Talk</button>}
             </div>
@@ -747,8 +729,8 @@ export function AgentPanel() {
         {tab === 'loadout' && <>
         <section className="pane-sec">
           <h3 className="sec-t">Skills</h3>
-          <p className="fine">The toggles are the department's skills, which every agent gets.{me?.skills.length ? <> This agent also has its own: <span className="mono">{me.skills.join(', ')}</span>.</> : ''} Changes apply when you provision again.</p>
-          {!view?.observedAt && <p className="muted small">Hermes has not reported this profile’s skills yet (provision the department first). Allowed: {inv?.allowedSkillIds.join(', ') || 'none'}.</p>}
+          <p className="fine">The toggles are the department's skills, which every agent gets.{me?.skills.length ? <> This agent also has its own: <span className="mono">{me.skills.join(', ')}</span>.</> : ''} Changes apply when you sync again.</p>
+          {!view?.observedAt && <p className="muted small">Hermes has not reported this profile’s skills yet (sync the department first). Allowed: {inv?.allowedSkillIds.join(', ') || 'none'}.</p>}
           {view && view.skills.length > 0 && (() => {
             const own = new Set(me?.skills ?? []);
             const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name) || own.has(k.name);
@@ -775,7 +757,7 @@ export function AgentPanel() {
 
         <section className="pane-sec">
           <h3 className="sec-t">Model</h3>
-          <p className="fine">{me?.model ? <>This agent runs on its own model, <span className="mono">{me.model.id}</span> (from its hire). The picker sets the department's model for every agent without one.</> : 'The department’s model, used by every agent without its own.'} Set in Hermes when you provision. Hermes cannot stop an agent from picking another model for a task.</p>
+          <p className="fine">{me?.model ? <>This agent runs on its own model, <span className="mono">{me.model.id}</span> (from its hire). The picker sets the department's model for every agent without one.</> : 'The department’s model, used by every agent without its own.'} Set in Hermes when you sync. Hermes cannot stop an agent from picking another model for a task.</p>
           {inv && <ModelPicker label="Department model" hint={`From Hermes’ model list.${view?.provider ? ` This profile now uses ${view.model ?? '—'} via ${view.provider}.` : ''}`}
             models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
             value={inv.model} disabled={saving} onChange={(m) => save({ model: m })} />}
@@ -783,7 +765,7 @@ export function AgentPanel() {
 
         <section className="pane-sec">
           <h3 className="sec-t">Toolsets</h3>
-          <p className="fine">Every agent of the department gets these toolsets. Switched off in Hermes unless allowed; delegation and cronjob are never given to department agents. Changes apply when you provision again.</p>
+          <p className="fine">Every agent of the department gets these toolsets. Switched off in Hermes unless allowed; delegation and cronjob are never given to department agents. Changes apply when you sync again.</p>
           <div className="slot-grid">
             {[...TOOLSETS].map((t) => {
               const allowedT = !!inv?.allowedToolsets.includes(t);
@@ -842,7 +824,7 @@ export function QuestBoard() {
             <Where n="PH" tone="gold">Company</Where>
             <h1 className="display" tabIndex={-1}>Quest board</h1>
             <p className="sync" aria-live="polite"><Icon n="refresh" size={12} />{withBoards.length === 0
-              ? 'No department has a Hermes board yet. Provision a department to give it quests.'
+              ? 'No department has a Hermes board yet. Sync a department to give it quests.'
               : `Read from ${withBoards.length} Hermes board${withBoards.length === 1 ? '' : 's'}`}</p>
             <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={leave} aria-label="Close quest board"><Icon n="x" /></button></div>
           </div>
@@ -1270,7 +1252,7 @@ export function CreateDeptModal() {
             ['Agents', workers === 0 ? '1 · the lead alone' : `${workers + 1} · a lead + ${workers} teammate${workers === 1 ? '' : 's'}`],
           ]} />
           <label className="consent"><input type="checkbox" checked={provisionNow && canProvision} disabled={!canProvision} onChange={(e) => setProvisionNow(e.target.checked)} />
-            <span>Provision now: create the board and {workers > 0 ? `${workers + 1} agent profiles` : 'the lead\'s profile'} in Hermes and apply these settings.{!canProvision && ' Hermes is not reachable, so the department is only saved; provision it from its floor later.'}</span></label>
+            <span>Sync now: create the board and {workers > 0 ? `${workers + 1} agent profiles` : 'the lead\'s profile'} in Hermes and apply these settings.{!canProvision && ' Hermes is not reachable, so the department is only saved; sync it from its floor later.'}</span></label>
         </>}
 
         <div className="row end">
