@@ -19,22 +19,22 @@ const arModel = () => new FakeChatModel((turns: ChatTurn[]) => {
   return JSON.stringify({ say: 'Got it. Here is the brief.', mood: 'happy', replies: ['Looks good'], brief: { department: 'research', focus: 'Reads papers and PDFs', skills: ['pdf', 'arxiv', 'not-installed'], budgetPerDay: 300, notes: '' } });
 });
 
-test('AR rings when a floor with no workers has quests piling up, and only once', async () => {
+test('AR rings when a one-agent floor has quests piling up, and only once', async () => {
   const { app, readyDept, create } = questApp({ chatModel: arModel(), hiringScoutMs: 0 });
-  const d = await readyDept('Research', { limits: { maxConcurrentWorkers: 0 } });
+  const d = await readyDept('Research', {}, 0);
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);
   await create(d.id, { title: 'A' }); await create(d.id, { title: 'B' });
   const call = (await app.inject('/api/hiring/current')).json().request;
   assert.equal(call.state, 'ringing');
   assert.equal(call.trigger.kind, 'no_workers');
-  assert.match(call.trigger.reason, /Research has no workers/);
+  assert.match(call.trigger.reason, /Research has \d+ quests on the board and one agent doing everything alone/);
   // Declining closes it; the same reason does not ring again right away.
   await app.inject({ method: 'POST', url: `/api/hiring/requests/${call.id}/decline` });
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);
 });
 
-test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -> offer applies to the inventory', async () => {
-  const { app, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 0 });
+test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -> offer adds an agent with its own profile', async () => {
+  const { app, hermes, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 0 });
   const d = await readyDept('Research');
   const start = await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { departmentId: d.id } });
   assert.equal(start.statusCode, 201);
@@ -78,11 +78,20 @@ test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -
   const before = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
   const hired = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/offer`, payload: { candidateId: serious[0].id } })).json();
   assert.equal(hired.state, 'hired');
-  assert.equal(hired.applied.workersAfter, before.limits.maxConcurrentWorkers + 1);
-  const after = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
-  assert.equal(after.limits.maxConcurrentWorkers, before.limits.maxConcurrentWorkers + 1);
-  assert.ok(after.allowedSkillIds.includes('pdf'));
-  assert.deepEqual(after.model, serious[0].loadout.model);
+  assert.deepEqual([hired.applied.seat, hired.applied.teamBefore, hired.applied.teamAfter], ['W-02', 2, 3]);
+  assert.deepEqual(hired.applied.model, serious[0].loadout.model);
+  assert.deepEqual((await app.inject(`/api/departments/${d.id}/inventory`)).json(), before, 'the floor\'s own inventory is untouched');
+  // The re-provision runs in the background: wait for it, then the hire is a real profile with its own loadout.
+  let dept = (await app.inject(`/api/departments/${d.id}`)).json();
+  for (let i = 0; i < 200 && dept.state !== 'ready'; i++) { await new Promise((r) => setImmediate(r)); dept = (await app.inject(`/api/departments/${d.id}`)).json(); }
+  assert.equal(dept.state, 'ready');
+  const hire = dept.agents.find((a: any) => a.key === 'W-02');
+  assert.equal(hire.profileRef, hired.applied.profileRef);
+  assert.deepEqual(hire.model, serious[0].loadout.model);
+  assert.deepEqual(hire.skills, serious[0].loadout.skills);
+  const p = hermes.profiles.get(hire.profileRef)!;
+  assert.equal(p.model, serious[0].loadout.model.id);
+  assert.equal(p.skills.pdf, true);
   // The hire's persona sits on the new seat.
   const seat = (await app.inject(`/api/departments/${d.id}/characters/${hired.applied.seat}`)).json();
   assert.equal(seat.name, serious[0].character.name);

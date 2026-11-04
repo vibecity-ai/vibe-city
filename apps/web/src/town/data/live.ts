@@ -8,7 +8,7 @@
    - Mutations refresh the affected department only; create/archive (which change the floor order) refresh everything.
    - Sockets, coalescer timers and cancellation polls are closed when a department leaves the tower or the app unmounts. */
 import type {
-  AgentRole, CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary,
+  CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary, SyncCheck,
 } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
@@ -29,7 +29,6 @@ interface Raw {
   companyName: string | null;
 }
 const raw: Raw = { depts: [], prov: {}, inv: {}, quests: {}, live: {}, sync: {}, health: null, companyName: null };
-const slots = new Map<string, Map<string, number>>();
 /** Per-department state of the backend's own Hermes event stream. */
 const link = new Map<string, 'connected' | 'reconnecting' | 'dashboard_offline' | 'gateway_unavailable'>();
 const sockets = new Map<string, () => void>();
@@ -52,15 +51,10 @@ function commit() {
   const s = st();
   const hermesUp = connState().hermes;
   const sorted = [...raw.depts].filter((d) => !d.archivedAt).sort((a, b) => (a.floorPosition ?? 1e9) - (b.floorPosition ?? 1e9));
-  const depts: Dept[] = sorted.map((v) => {
-    const out = deriveDept({
-      dept: v, provisioning: raw.prov[v.id] ?? null, liveQuests: raw.live[v.id] ?? [],
-      maxWorkers: raw.inv[v.id]?.limits.maxConcurrentWorkers ?? 0, chiefModel: s.info[v.id]?.profiles?.chief.model ?? null,
-      slots: slots.get(v.id) ?? new Map(), hermesUp,
-    });
-    slots.set(v.id, out.slots);
-    return out.dept;
-  });
+  const depts: Dept[] = sorted.map((v) => deriveDept({
+    dept: v, provisioning: raw.prov[v.id] ?? null, liveQuests: raw.live[v.id] ?? [],
+    chiefModel: s.info[v.id]?.profiles?.agents.find((a) => a.key === 'chief')?.model ?? null, hermesUp,
+  }));
   const quests: QuestItem[] = sorted.flatMap((v) => (raw.quests[v.id] ?? []).map((summary) => ({ deptId: v.id, summary })));
   const questSync: Record<string, QuestSync> = {};
   for (const v of sorted) questSync[v.id] = raw.sync[v.id] ?? 'not_loaded';
@@ -92,13 +86,15 @@ function emitFx(prev: Dept[], next: Dept[], pq: QuestItem[], nq: QuestItem[]) {
     if (!p) { emit({ k: 'floorAdded', dept: d.id }); continue; }
     if (!p.chief && d.chief) emit({ k: 'chiefArrived', dept: d.id });
     if (p.chief?.status !== 'running' && d.chief?.status === 'running') emit({ k: 'plan', dept: d.id });
-    const had = new Map(p.workers.map((w) => [w.taskId, w]));
+    const had = new Map(p.workers.map((w) => [w.id, w]));
     for (const w of d.workers) {
-      const o = had.get(w.taskId);
+      const o = had.get(w.id);
       if (!o) { emit({ k: 'workerJoined', dept: d.id, worker: w.id }); if (w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id }); continue; }
-      if (o.status !== w.status && w.status === 'completed') emit({ k: 'taskDone', dept: d.id, worker: w.id });
-      if (o.status !== w.status && w.status === 'failed') emit({ k: 'taskFail', dept: d.id, worker: w.id });
-      if (o.status !== 'running' && w.status === 'running' && o.status !== 'completed') emit({ k: 'delegate', dept: d.id, to: w.id });
+      // A teammate keeps its desk across tasks: a new task counts as a change even when the status reads the same.
+      const changed = o.status !== w.status || o.taskId !== w.taskId;
+      if (changed && w.status === 'completed') emit({ k: 'taskDone', dept: d.id, worker: w.id });
+      if (changed && w.status === 'failed') emit({ k: 'taskFail', dept: d.id, worker: w.id });
+      if (changed && w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id });
     }
   }
   const was = new Map(pq.map((q) => [q.summary.id, q.summary.status]));
@@ -163,12 +159,12 @@ function setLiveDown(id: string, down: boolean) {
 /** Drops everything held for departments that left the tower (archived), including timers and sockets. */
 function forgetGone() {
   const active = new Set(raw.depts.filter((d) => !d.archivedAt).map((d) => d.id));
-  for (const id of new Set([...Object.keys(raw.prov), ...Object.keys(raw.quests), ...slots.keys(), ...[...polls.values()].map((p) => p.dept)])) {
+  for (const id of new Set([...Object.keys(raw.prov), ...Object.keys(raw.quests), ...[...polls.values()].map((p) => p.dept)])) {
     if (active.has(id)) continue;
     delete raw.prov[id]; delete raw.inv[id]; delete raw.quests[id]; delete raw.live[id]; delete raw.sync[id];
-    slots.delete(id); staleDepts.delete(id); hints.cancel(id);
+    staleDepts.delete(id); hints.cancel(id);
     for (const k of ['local', 'quests', 'info', 'dept']) gate.forget(`${k}:${id}`);
-    gate.forget(`agent:${id}:chief`); gate.forget(`agent:${id}:worker`);
+    gate.forgetPrefix(`agent:${id}:`);
     for (const p of [...polls.values()]) if (p.dept === id) p.stop();
   }
 }
@@ -292,14 +288,14 @@ export async function loadDeptInfo(deptId: string) {
   });
 }
 
-/** The agent view of one profile (chief or the department's worker profile). Keeps the last view on failure. */
-export async function loadAgent(deptId: string, role: AgentRole) {
-  const key = `${deptId}:${role}`;
+/** The agent view of one agent's own profile (the lead, or a teammate W-01…). Keeps the last view on failure. */
+export async function loadAgent(deptId: string, agentKey: string) {
+  const key = `${deptId}:${agentKey}`;
   const t = gate.begin(`agent:${key}`);
   const prev = () => st().agents[key] ?? { view: null, error: null, loading: false };
   useStore.setState((s) => ({ agents: { ...s.agents, [key]: { ...prev(), loading: true } } }));
   try {
-    const view = await api.agent(deptId, role);
+    const view = await api.agent(deptId, agentKey);
     if (!gate.current(`agent:${key}`, t)) return;
     useStore.setState((s) => ({ agents: { ...s.agents, [key]: { view, error: null, loading: false } } }));
   } catch (e) {
@@ -356,15 +352,15 @@ export async function loadHermesModels(): Promise<{ value: HermesModelsView | nu
   catch (e) { return { value: null, error: asApiError(e) }; }
 }
 
-/** Creates the department with its capabilities, then provisions it right away unless asked not to. */
+/** Creates the department with its capabilities, then syncs it right away unless asked not to. */
 export async function createDepartment(input: DepartmentCreate, provisionNow: boolean) {
   const v = await run('create', 'Could not create the department', () => api.createDepartment(input));
   if (!v) return;
   await refreshAll();
   st().ui$({ modal: null });
   st().openFloor(v.id);
-  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Provision it to bring in the chief.`); return; }
-  st().toast(`Floor added · ${v.name}. Provisioning…`);
+  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Sync it to bring in its agents.`); return; }
+  st().toast(`Floor added · ${v.name}. Syncing with Hermes…`);
   await provisionDepartment(v.id);
 }
 
@@ -374,7 +370,7 @@ export async function saveDepartmentSettings(id: string, patch: DepartmentUpdate
   const { value, error } = await attempt(`settings:${id}`, () => api.updateDepartment(id, patch));
   if (!value) return error;
   await refreshOne(id);
-  if (value.state === 'unconfigured' && before && before !== 'unconfigured') st().toast('Settings saved. The department must be provisioned again before agents get new work.', 'warn');
+  if (value.state === 'unconfigured' && before && before !== 'unconfigured') st().toast('Settings saved. Sync the department again before agents get new work.', 'warn');
   else st().toast('Settings saved.');
   return null;
 }
@@ -390,19 +386,18 @@ export async function archiveDepartment(id: string): Promise<ApiError | null> {
   return null;
 }
 
-export interface ProvisionOptions { chiefProfileRef?: string | null; workerProfileRef?: string | null; confirmModifyProfiles?: string[] }
+export interface ProvisionOptions { leadProfileRef?: string | null; confirmModifyProfiles?: string[] }
 
-/** Provisioning is synchronous on the backend (it can take a while: profile creation). Existing profiles need explicit consent. */
-export async function provisionDepartment(id: string, opts: ProvisionOptions = {}, retry = false) {
-  const status = await run(`provision:${id}`, 'Provisioning failed', async () => {
-    const refs = { ...(opts.chiefProfileRef !== undefined && { chiefProfileRef: opts.chiefProfileRef }), ...(opts.workerProfileRef !== undefined && { workerProfileRef: opts.workerProfileRef }) };
-    if (Object.keys(refs).length) await api.updateDepartment(id, refs);
+/** Sync with Hermes. It runs synchronously on the backend (it can take a while: profile creation). Existing profiles need explicit consent. */
+export async function provisionDepartment(id: string, opts: ProvisionOptions = {}) {
+  const status = await run(`provision:${id}`, 'Sync failed', async () => {
+    if (opts.leadProfileRef !== undefined) await api.updateDepartment(id, { leadProfileRef: opts.leadProfileRef });
     if (opts.confirmModifyProfiles?.length) await api.updateDepartment(id, { confirmModifyProfiles: opts.confirmModifyProfiles });
-    return retry ? api.retryProvision(id) : api.provision(id);
+    return api.provision(id);
   });
   await refreshOne(id);
   if (!status) return;
-  if (status.state === 'ready') st().toast(status.worker.ref ? 'Floor is ready. Chief and worker profiles are verified.' : 'Floor is ready. The chief profile is verified.');
+  if (status.state === 'ready') st().toast(status.agents.length > 1 ? `Floor is ready. All ${status.agents.length} agent profiles are verified.` : 'Floor is ready. The lead\'s profile is verified.');
   else if (status.error) st().toast(status.error.message, status.error.retryable ? 'warn' : 'bad');
 }
 
@@ -412,7 +407,7 @@ export async function createQuest(deptId: string, input: { clientRequestId: stri
   await refreshDept(deptId);
   for (const w of out.warnings) st().toast(w, 'warn');
   const d = st().depts.find((x) => x.id === deptId);
-  st().toast(`Quest created${d ? ` for ${d.name}` : ''} and assigned to ${d?.chief?.name ?? 'its chief'}.`);
+  st().toast(`Quest created${d ? ` for ${d.name}` : ''} and assigned to ${d?.chief?.name ?? 'its lead'}.`);
   return out.questId;
 }
 
@@ -479,11 +474,10 @@ export async function patchInventory(deptId: string, patch: InventoryPatch) {
   st().toast(n.text, n.tone);
 }
 
-export async function reconcileNow() {
-  const out = await run('reconcile', 'Reconcile failed', () => api.reconcile());
-  if (!out) return;
-  await refreshAll();
-  const open = st().ui.floorId;
-  if (open) void loadDeptInfo(open);
-  st().toast('Reconciled with Hermes.');
+/** Refresh: reads Hermes and compares it with the floor (nothing is changed), then reloads the floor. Null on failure. */
+export async function checkDepartment(id: string): Promise<SyncCheck | null> {
+  const out = await run(`check:${id}`, 'Could not check Hermes', () => api.checkSync(id));
+  await refreshOne(id);
+  void loadDeptInfo(id);
+  return out ?? null;
 }

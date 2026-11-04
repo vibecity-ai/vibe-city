@@ -6,6 +6,8 @@ export interface AppConfig {
   /** Server-side only. Never serialized into any API response. */
   hermesToken: string | null;
   hermesBin: string;
+  /** The Hermes gateway API server (same container: loopback). The dialogue window talks to agents' profiles through it. */
+  hermesApiUrl: string;
   reconcileIntervalMs: number;
   /** Browser origins allowed to open the live WebSocket. Undefined = built-in localhost defaults. */
   allowedOrigins?: string[];
@@ -25,6 +27,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     hermesUrl: env.HERMES_URL ?? 'http://127.0.0.1:9119',
     hermesToken: env.HERMES_DASHBOARD_SESSION_TOKEN || null,
     hermesBin: env.HERMES_BIN ?? 'hermes',
+    hermesApiUrl: env.HERMES_API_URL ?? 'http://127.0.0.1:8642',
     reconcileIntervalMs: Number(env.RECONCILE_INTERVAL_MS ?? 30_000),
     chat: {
       baseUrl: env.CHAT_BASE_URL ?? env.NEAR_AI_BASE_URL ?? 'https://cloud-api.near.ai/v1',

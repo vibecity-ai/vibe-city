@@ -33,20 +33,23 @@ export const iso = '2026-11-03T10:00:00.000Z';
 
 export const deptView = (o: Partial<DepartmentView> = {}): DepartmentView => ({
   id: DEPT_ID, name: 'Research', purpose: 'Find things', floorOrder: 1, floorPosition: 1, state: 'ready',
-  chiefProfileRef: 'vc-111111111111-chief', workerProfileRef: 'vc-111111111111-worker',
+  agents: [
+    { key: 'chief', lead: true, profileRef: 'vc-111111111111-chief', model: null, skills: [], createdAt: iso },
+    { key: 'W-01', lead: false, profileRef: 'vc-111111111111-w01', model: null, skills: [], createdAt: iso },
+  ],
   hermesBoardSlug: `vc-${DEPT_ID}`, hermesBoardRef: `vc-${DEPT_ID}`, boardSyncState: 'synced', archivedAt: null, createdAt: iso, updatedAt: iso, ...o,
 });
 
 const res = (ref: string | null) => ({ ref, verified: true, verifiedAt: iso, origin: 'created' as const, modificationConfirmed: null });
 export const provStatus = (o: Partial<ProvisioningStatus> = {}): ProvisioningStatus => ({
   departmentId: DEPT_ID, state: 'ready', attempts: 1, error: null,
-  board: res(`vc-${DEPT_ID}`), chief: res('vc-111111111111-chief'), worker: res('vc-111111111111-worker'),
+  board: res(`vc-${DEPT_ID}`), agents: [{ key: 'chief', ...res('vc-111111111111-chief') }, { key: 'W-01', ...res('vc-111111111111-w01') }],
   inventory: { applied: true, appliedAt: iso, inSync: true }, lastReconciledAt: iso, ...o,
 });
 
 export const inventory = () => ({
   allowedSkillIds: [], allowedMcpTools: [], model: null, allowedToolsets: ['file'], sharedContextRefs: [],
-  limits: { maxConcurrentWorkers: 1, maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
+  limits: { maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
 });
 
 export const health = (up = true) => ({
@@ -69,7 +72,7 @@ export const summary = (o: Partial<QuestSummary> = {}): QuestSummary => ({
 
 export const detail = (o: Partial<QuestDetail> = {}): QuestDetail => ({
   ...summary(), departmentId: DEPT_ID, objective: 'o',
-  tasks: [{ id: 't_root1', title: 'Quest one', role: 'chief', assignee: 'vc-111111111111-chief', status: 'running', parentIds: [], childIds: [], depth: 0, failed: false,
+  tasks: [{ id: 't_root1', title: 'Quest one', agentKey: 'chief', assignee: 'vc-111111111111-chief', status: 'running', parentIds: [], childIds: [], depth: 0, failed: false,
     createdAt: iso, startedAt: iso, completedAt: null, summary: null, error: null, attachmentCount: 0, runs: [] }],
   violations: [], warnings: [], truncated: false,
   cancellation: { state: 'none', requestedAt: null, confirmedAt: null, remaining: [], archivedTaskIds: [], alreadyFinishedTaskIds: [] }, ...o,

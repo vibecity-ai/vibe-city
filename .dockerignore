@@ -9,3 +9,4 @@ apps/backend/data
 .env.*
 !.env.example
 *.md
+.dev

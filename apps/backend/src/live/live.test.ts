@@ -225,13 +225,3 @@ test('/api/live relays to browsers, rejects bad origins/departments, and never e
   }
 });
 
-test('/api/live answers with a close when live events are not configured', async () => {
-  const t = questApp();
-  const d = await t.readyDept('Eng');
-  await t.app.listen({ host: '127.0.0.1', port: 0 });
-  const port = (t.app.server.address() as AddressInfo).port;
-  const ws = new WsClient(`ws://127.0.0.1:${port}/api/live?departmentId=${d.id}`);
-  const code = await new Promise<number>((r) => ws.on('close', (c) => r(c)));
-  assert.equal(code, 1013);
-  await t.app.close();
-});

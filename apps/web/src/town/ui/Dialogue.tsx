@@ -4,7 +4,7 @@
    what the city already shows. `DialogueFrame` is the shared window; agents (here), AR and job candidates (Hiring.tsx)
    each feed it their own lines and cards. */
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Character, ChatMessage, ChatProposal, Mood } from '@vibe-city/shared';
+import type { Character, ChatMessage, ChatProgress, ChatProposal, Mood } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { createQuest } from '../data/live';
@@ -71,9 +71,11 @@ export interface Line { id: string; from: 'user' | 'agent'; text: string; mood: 
 export interface Who { name: string; title: string; color: string; voice: number }
 
 /** The shared window. The parent owns the conversation (lines, waiting, error); the frame owns paging, typing and input. */
-export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, error, greeting, notReady, baseMood = 'neutral', defaultReplies = [],
+export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, status = null, error, greeting, notReady, baseMood = 'neutral', defaultReplies = [],
   onSend, onClose, onProfile, cards, below, hideInput, inputHint }: {
   who: Who | null; look: Look; gag?: Gag | null; lines: Line[]; ready: boolean; waiting: boolean; error: string | null;
+  /** What the speaker is doing while the user waits ("checking the board…"). */
+  status?: string | null;
   greeting: string; notReady?: string; baseMood?: Mood; defaultReplies?: string[];
   /** Resolves false when sending failed: the typed text goes back into the box. */
   onSend: (msg: string) => Promise<boolean>;
@@ -146,8 +148,8 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, er
       </div>
       <div className="dlg-bar bottom">
         <div className="dlg-text" onClick={advance} aria-live="polite">
-          <span className="sr">{waiting ? 'Thinking' : speech}</span>
-          <p aria-hidden="true">{shownText}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className={`dlg-caret${lastPage ? '' : ' more'}`}>{lastPage ? '■' : '▼'}</span>}</p>
+          <span className="sr">{waiting ? status ?? 'Thinking' : speech}</span>
+          <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className={`dlg-caret${lastPage ? '' : ' more'}`}>{lastPage ? '■' : '▼'}</span>}</p>
         </div>
         {below}
         {done && !error && cards?.(lastAgent)}
@@ -155,7 +157,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, er
         <form className="dlg-input" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
           {!hideInput && <>
             <span className="dlg-you">YOU&gt;</span>
-            <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} maxLength={2000} disabled={!ready || waiting} placeholder={ready ? (inputHint ?? 'Say something…') : 'Chat is off until a model is configured'} aria-label={`Message ${who?.name ?? 'agent'}`} />
+            <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} maxLength={2000} disabled={!ready || waiting} placeholder={ready ? (inputHint ?? 'Say something…') : 'Chat is off right now'} aria-label={`Message ${who?.name ?? 'agent'}`} />
             <button className="btn primary small" type="submit" disabled={!ready || waiting || !input.trim()}>Send</button>
           </>}
           {hideInput && <span className="dlg-spacer" />}
@@ -169,6 +171,14 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, er
 }
 
 /* ---------- talking to a department agent (chief or worker desk) ---------- */
+
+/** The agent's work while it answers, in the dialogue's words. */
+export function progressLabel(p: ChatProgress): string {
+  if (p.kind === 'thinking') return 'thinking';
+  if (p.kind === 'approval') return `waiting for approval${p.command ? `: ${p.command.slice(0, 60)}` : ''}`;
+  const name = p.name.replace(/^mcp_[a-z0-9]+_/, '').replace(/_/g, ' ');
+  return /kanban/.test(p.name) ? 'checking the board' : `using ${name}`;
+}
 
 export function DialogueWindow() {
   const talk = useStore((s) => s.ui.talk);
@@ -186,6 +196,7 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
   const [ready, setReady] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [waiting, setWaiting] = useState(false);
+  const [progress, setProgress] = useState<string | null>(null);
   const [proposalDone, setProposalDone] = useState<Record<string, 'started' | 'dismissed'>>({});
 
   useEffect(() => {
@@ -202,17 +213,17 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
     : `${ch.name}, desk ${agentKey}. ${worker ? `Working on "${worker.task}".` : ''} What's up, boss?`;
 
   const onSend = async (m: string) => {
-    setError(null); setWaiting(true);
+    setError(null); setWaiting(true); setProgress(null);
     setMessages((xs) => [...xs, { id: 'pending', from: 'user', text: m, mood: null, replies: [], proposal: null, at: new Date().toISOString() }]);
     try {
-      const r = await api.chat(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}) });
+      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}) }, (p) => setProgress(progressLabel(p)));
       setMessages((xs) => [...xs.filter((x) => x.id !== 'pending'), r.user, r.agent]);
       return true;
     } catch (e) {
       setMessages((xs) => xs.filter((x) => x.id !== 'pending'));
       setError(e instanceof ApiError ? e.message : 'Something went wrong.');
       return false;
-    } finally { setWaiting(false); }
+    } finally { setWaiting(false); setProgress(null); }
   };
 
   const startQuest = async (msgId: string, p: ChatProposal) => {
@@ -225,7 +236,8 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
   const last = [...messages].reverse().find((m) => m.from === 'agent') ?? null;
   return (
     <DialogueFrame
-      who={ch} look={look} lines={messages} ready={ready} waiting={waiting} error={error} greeting={greeting}
+      who={ch} look={look} lines={messages} ready={ready} waiting={waiting} status={progress} error={error} greeting={greeting}
+      notReady="I don't have a desk in Hermes yet. Sync this floor with Hermes first, then we can talk."
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
       defaultReplies={['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
       onSend={onSend} onClose={close}

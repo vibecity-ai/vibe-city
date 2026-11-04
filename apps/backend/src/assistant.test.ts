@@ -7,7 +7,7 @@ import { clampDraft } from './domain/assistantService.ts';
 test('the assistant drafts a floor limited to what Hermes has, and creates nothing', async () => {
   const model = new FakeChatModel(() => JSON.stringify({
     say: 'A Legal floor. Here is my pitch.', mood: 'happy', replies: ['Looks good'],
-    draft: { name: 'Legal', purpose: 'Review contracts.', skills: ['pdf', 'contract-wizard'], toolsets: ['web', 'file', 'delegation'], model: 'near-ai/model-a', workers: 2 },
+    draft: { name: 'Legal', purpose: 'Review contracts.', skills: ['pdf', 'contract-wizard'], toolsets: ['web', 'file', 'delegation'], model: 'near-ai/model-a', teammates: 2 },
   }));
   const { app } = questApp({ chatModel: model });
   const view = (await app.inject('/api/assistant')).json();
@@ -21,7 +21,7 @@ test('the assistant drafts a floor limited to what Hermes has, and creates nothi
   assert.deepEqual(d.skills, ['pdf']);
   assert.deepEqual(d.toolsets, ['web', 'file']);
   assert.deepEqual(d.model, { provider: 'near-ai', id: 'model-a' });
-  assert.equal(d.workers, 2);
+  assert.equal(d.teammates, 2);
   assert.ok(d.creditsPerDay > 0);
   assert.ok(d.dropped.some((x: string) => x.includes('contract-wizard')));
   assert.ok(d.dropped.some((x: string) => x.includes('delegation')));

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --experimental-strip-types src/server.ts",
+    "dev:docker": "HERMES_BIN=../../scripts/hermes-docker node --env-file-if-exists=../../.env --watch --experimental-strip-types src/server.ts",
     "typecheck": "tsc -p .",
     "test": "node --experimental-strip-types --test \"src/**/*.test.ts\"",
     "gate0": "node --experimental-strip-types scripts/gate0.ts",

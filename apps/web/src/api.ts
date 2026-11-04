@@ -1,11 +1,11 @@
 import {
   AgentViewSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
-  CharacterSchema, ChatHistorySchema, ChatReplySchema, type Character, type ChatHistory, type ChatReply, type ChatSend,
+  CharacterSchema, ChatHistorySchema, ChatProgressSchema, ChatReplySchema, type Character, type ChatHistory, type ChatProgress, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
-  QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
-  type ActivityEvent, type AgentRole, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
+  QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, SyncCheckSchema,
+  type ActivityEvent, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
   type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
-  type ProvisioningStatus, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
+  type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
 } from '@vibe-city/shared';
 import {
   InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
@@ -93,10 +93,9 @@ export const api = {
   effectiveInventory: (dept: string): Promise<EffectiveInventory> => request('GET', `${d(dept)}/effective-inventory`, EffectiveInventorySchema),
   provisioning: (dept: string): Promise<ProvisioningStatus> => request('GET', `${d(dept)}/provisioning`, ProvisioningStatusSchema),
   provision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision`, ProvisioningStatusSchema),
-  retryProvision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision/retry`, ProvisioningStatusSchema),
+  checkSync: (dept: string): Promise<SyncCheck> => request('POST', `${d(dept)}/check`, SyncCheckSchema),
   profiles: (dept: string): Promise<ProfilesView> => request('GET', `${d(dept)}/profiles`, ProfilesViewSchema),
-  agent: (dept: string, role: AgentRole): Promise<AgentView> => request('GET', `${d(dept)}/agents/${role}`, AgentViewSchema),
-  reconcile: async (): Promise<ProvisioningStatus[]> => (await request('POST', '/api/runtime/reconcile', ReconcileResultSchema)).departments,
+  agent: (dept: string, agentKey: string): Promise<AgentView> => request('GET', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, AgentViewSchema),
   health: (): Promise<HealthView> => request('GET', '/api/runtime/health', HealthViewSchema),
   hermesDefaults: (): Promise<HermesDefaultsView> => request('GET', '/api/runtime/defaults', HermesDefaultsViewSchema),
   hermesModels: (): Promise<HermesModelsView> => request('GET', '/api/runtime/models', HermesModelsViewSchema),
@@ -137,8 +136,44 @@ export const api = {
   interview: (id: string, cand: string, message: string): Promise<InterviewReply> => request('POST', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewReplySchema, { message }),
   hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
   chat: (dept: string, agentKey: string, input: ChatSend): Promise<ChatReply> => request('POST', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatReplySchema, input),
+  chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
+    chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),
   cancellation: (dept: string, quest: string): Promise<CancellationStatus> => request('GET', `${q(dept, quest)}/cancellation`, CancellationStatusSchema),
 };
+
+/** One agent turn over Server-Sent Events: `onProgress` while the agent works (tools can take minutes), then the reply. */
+async function chatStream(path: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream' }, body: JSON.stringify(input) });
+  } catch {
+    throw new ApiError(0, 'backend_unreachable', 'The Vibe City backend is not reachable.');
+  }
+  if (!res.ok || !res.body) throw errorFrom(res.status, await res.json().catch(() => undefined));
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value.replace(/\r\n/g, '\n');
+    let i: number;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+      const event = /^event: (.*)$/m.exec(frame)?.[1]?.trim();
+      const raw = /^data: (.*)$/m.exec(frame)?.[1];
+      if (!event || raw === undefined) continue;
+      const data: unknown = (() => { try { return JSON.parse(raw); } catch { return undefined; } })();
+      if (event === 'progress') { const p = ChatProgressSchema.safeParse(data); if (p.success) onProgress(p.data); }
+      else if (event === 'error') throw errorFrom(typeof (data as { status?: unknown })?.status === 'number' ? (data as { status: number }).status : 500, data);
+      else if (event === 'reply') {
+        const r = ChatReplySchema.safeParse(data);
+        if (!r.success) throw new ApiError(200, 'invalid_response', 'The backend sent a reply this app does not understand.');
+        return r.data;
+      }
+    }
+  }
+  throw new ApiError(0, 'stream_ended', 'The connection closed before the agent answered. The reply will appear when you reopen the chat.');
+}
 
 /** Live events from the Vibe City backend (never from Hermes directly). Reconnects automatically. */
 export function openLive(departmentId: string, onMessage: (m: LiveMessage) => void, onLink: (up: boolean) => void): () => void {

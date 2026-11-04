@@ -11,7 +11,7 @@ export interface AggNode {
   everStarted: boolean;
   /** a run exists that has not ended */
   activeRun: boolean;
-  /** same-department check: assignee is the department's chief or worker */
+  /** same-department check: assignee is one of the department's agents */
   authorized: boolean;
   hasChildren: boolean;
 }
@@ -33,14 +33,14 @@ const PENDING: TaskStatus[] = ['triage', 'todo', 'ready', 'scheduled'];
 
 /**
  * Derives a quest's status from its WHOLE task tree (root + all descendants). Hermes parent links are execution
- * dependencies, so the chief's task is routinely `done` while worker tasks have not started: root status alone
+ * dependencies, so the lead's task is routinely `done` while its teammates' tasks have not started: root status alone
  * says nothing about the quest. No percentages are produced, only counts.
  *
  * Rules, first match wins ("live" = not done and not archived):
  *  1. cancellation requested: no live task and no active run -> cancelled (or completed if everything had finished);
  *     otherwise cancelling.
  *  2. no live task: any archived task -> cancelled (stopped via Hermes), else completed.
- *  3. any running task or active run -> planning if only the chief is running and no worker tasks exist, else running.
+ *  3. any running task or active run -> planning if only the lead is running and it has handed out no tasks, else running.
  *  4. any live task that failed -> failed.
  *  5. any live task in review -> in_review.
  *  6. any live task blocked (not failed) -> awaiting_input.

@@ -3,7 +3,7 @@
 // Requirements: `hermes` on PATH, the Hermes gateway running (`hermes gateway status`), and model credentials
 // configured in the default profile (profiles are cloned from it). The script starts its OWN dashboard on
 // port M2_PORT (default 9129) with a random session token so it can stop/restart it, and removes every board and
-// profile it creates. It makes real model calls (one chief run and two worker runs).
+// profile it creates. It makes real model calls (one lead run and two teammate runs).
 //
 //   npm run m2:integration -w @vibe-city/backend
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
@@ -76,51 +76,51 @@ try {
     return `Hermes ${body.hermes.version}`;
   });
 
-  // Department: workers may use the file toolset but never terminal/web.
+  // Department: a lead and one teammate, each its own profile; agents may use the file toolset but never terminal/web.
   const dept = (await j('POST', '/api/departments', {
     name: 'M2 Integration', purpose: 'Integration test department',
-    inventory: { allowedToolsets: ['file'], allowedSkillIds: [], limits: { maxConcurrentWorkers: 1 } },
+    inventory: { allowedToolsets: ['file'], allowedSkillIds: [] }, teammates: 1,
   })).body;
   const names = { board: dept.hermesBoardSlug as string };
   created.boards.add(names.board);
 
   let chief = '', worker = '';
-  await check('provision: department becomes ready with verified board + chief + worker', async () => {
+  await check('provision: department becomes ready with a verified board and one profile per agent', async () => {
     const r = await j('POST', `/api/departments/${dept.id}/provision`);
     assert(r.code === 200 && r.body.state === 'ready', JSON.stringify(r.body));
-    chief = r.body.chief.ref; worker = r.body.worker.ref;
+    chief = r.body.agents[0].ref; worker = r.body.agents[1].ref;
     created.profiles.add(chief); created.profiles.add(worker);
-    assert([r.body.board, r.body.chief, r.body.worker].every((x: any) => x.verified), 'unverified resource');
-    assert(chief !== worker, 'chief and worker must differ');
+    assert([r.body.board, ...r.body.agents].every((x: any) => x.verified), 'unverified resource');
+    assert(chief !== worker, 'every agent has its own profile');
   });
 
-  await check('Hermes really contains the board and both profiles (independent check)', async () => {
+  await check('Hermes really contains the board and both agent profiles (independent check)', async () => {
     const boards = hermesCli('kanban', 'boards', 'list');
     assert(boards.includes(names.board), 'board missing in `hermes kanban boards list`');
     const profiles = hermesCli('profile', 'list');
     assert(profiles.includes(chief) && profiles.includes(worker), 'profiles missing in `hermes profile list`');
   });
 
-  await check('inventory applied: worker has file+kanban only; chief has kanban only; only the essential Hermes skill', async () => {
+  await check('inventory applied: both agents have file+kanban only; only the essential Hermes skill', async () => {
     const enabled = (p: string) => Object.entries(parseTools(hermesCli('-p', p, 'tools', 'list'))).filter(([, v]) => v).map(([k]) => k).sort();
     const w = enabled(worker), c = enabled(chief);
-    assert(JSON.stringify(w) === JSON.stringify(['file', 'kanban']), `worker toolsets: ${w}`);
-    assert(JSON.stringify(c) === JSON.stringify(['kanban']), `chief toolsets: ${c}`);
+    assert(JSON.stringify(w) === JSON.stringify(['file', 'kanban']), `teammate toolsets: ${w}`);
+    assert(JSON.stringify(c) === JSON.stringify(['file', 'kanban']), `lead toolsets: ${c}`);
     const skills = execFileSync('hermes', ['-p', worker, 'skills', 'list', '--enabled-only'], { encoding: 'utf8', env: { ...process.env, COLUMNS: '250', NO_COLOR: '1' } });
     const enabledSkills = skills.split('\n').filter((l) => l.trimStart().startsWith('│')).map((l) => l.split('│')[1]!.trim());
-    assert(JSON.stringify(enabledSkills) === JSON.stringify(['hermes-agent']), `worker enabled skills: ${enabledSkills}`);
+    assert(JSON.stringify(enabledSkills) === JSON.stringify(['hermes-agent']), `teammate enabled skills: ${enabledSkills}`);
     const soul = readFileSync(join(homedir(), '.hermes', 'profiles', worker, 'SOUL.md'), 'utf8');
-    assert(soul.includes('vibe-city:begin') && soul.includes('Worker Agent'), 'instruction block missing');
-    return `worker=${w.join(',')} chief=${c.join(',')}`;
+    assert(soul.includes('vibe-city:begin') && soul.includes(`"${chief}"`), 'instruction block missing or does not name the lead');
+    return `teammate=${w.join(',')} lead=${c.join(',')}`;
   });
 
   await check('effective inventory reports enforced toolsets and unsupported gaps', async () => {
     const { body } = await j('GET', `/api/departments/${dept.id}/effective-inventory`);
-    const tool = body.worker.entries.find((e: any) => e.capability === 'toolsets.behavior-tested');
+    const tool = body.agents[1].entries.find((e: any) => e.capability === 'toolsets.behavior-tested');
     assert(tool.status === 'enforced' && JSON.stringify(tool.effective) === JSON.stringify(['file']), JSON.stringify(tool));
     assert(body.departmentWide.find((e: any) => e.capability === 'files.isolation').status === 'unsupported', 'isolation overclaimed');
-    const conc = body.departmentWide.find((e: any) => e.capability === 'limits.maxConcurrentWorkers');
-    return `concurrency: ${conc.status} (host cap ${conc.effective})`;
+    const conc = body.departmentWide.find((e: any) => e.capability === 'limits.concurrency');
+    return `concurrency: ${JSON.stringify(conc.effective)}`;
   });
 
   await check('provisioning is idempotent against real Hermes (no duplicate board/profiles)', async () => {
@@ -131,11 +131,11 @@ try {
     assert(JSON.stringify(before) === JSON.stringify(after), `resource counts changed ${before} -> ${after}`);
   });
 
-  // ---- chief -> worker delegation (real model runs) ----
+  // ---- lead -> teammate hand-off (real model runs) ----
   let questId = '';
-  await check('chief delegates: quest -> chief creates worker tasks -> worker executes -> result retrievable', async () => {
+  await check('lead hands off: quest -> lead creates teammate tasks -> teammate executes -> result retrievable', async () => {
     const body = [
-      `You are the department chief. Do NOT do the work yourself. Create exactly TWO child tasks with your kanban create tool,`,
+      `You own this quest. Do NOT do the work yourself. Create exactly TWO child tasks with your kanban create tool,`,
       `each assigned to the profile "${worker}" with parents set to this task's id:`,
       `1. Title "Write result": use the file tool to create result.txt in your task workspace containing the text "m2 ok", then complete with a one-line summary.`,
       `2. Title "Boundary probe": try to run the shell command 'echo x' with a terminal tool. Complete with a summary that contains the exact token TERMINAL=available or TERMINAL=unavailable.`,
@@ -155,18 +155,18 @@ try {
     return all.map((t) => `${t.title}:${t.status}`).join(', ');
   });
 
-  await check('run references: real task/run ids recorded; chief and worker profiles match the department', async () => {
+  await check('run references: real task/run ids recorded; each run is attributed to the agent whose profile ran it', async () => {
     const tracker = new RunTracker(db, new DepartmentService(db, (db.prepare('SELECT id FROM company').get() as { id: string }).id));
     const { recorded, violations } = await tracker.observe(dept.id, kanban, questId);
     assert(violations.length === 0, violations.join('; '));
-    const chiefRuns = recorded.filter((r) => r.role === 'chief'), workerRuns = recorded.filter((r) => r.role === 'worker');
-    assert(chiefRuns.length >= 1 && workerRuns.length >= 2, `runs: chief=${chiefRuns.length} worker=${workerRuns.length}`);
-    assert(chiefRuns.every((r) => r.profileRef === chief) && workerRuns.every((r) => r.profileRef === worker), 'profile mismatch');
+    const leadRuns = recorded.filter((r) => r.agentKey === 'chief'), mateRuns = recorded.filter((r) => r.agentKey === 'W-01');
+    assert(leadRuns.length >= 1 && mateRuns.length >= 2, `runs: lead=${leadRuns.length} teammate=${mateRuns.length}`);
+    assert(leadRuns.every((r) => r.profileRef === chief) && mateRuns.every((r) => r.profileRef === worker), 'profile mismatch');
     assert(recorded.every((r) => r.hermesRunRef && r.state === 'completed'), JSON.stringify(recorded.map((r) => r.state)));
-    return recorded.map((r) => `${r.role}:task ${r.hermesTaskRef}/run ${r.hermesRunRef}`).join(' | ');
+    return recorded.map((r) => `${r.agentKey}:task ${r.hermesTaskRef}/run ${r.hermesRunRef}`).join(' | ');
   });
 
-  await check('restriction held: worker reported TERMINAL=unavailable; file result retrieved', async () => {
+  await check('restriction held: teammate reported TERMINAL=unavailable; file result retrieved', async () => {
     const q = await kanban.getTask(dept.hermesBoardSlug, questId);
     const kids = await Promise.all(q.links.children.map((id) => kanban.getTask(dept.hermesBoardSlug, id)));
     const probe = kids.find((k) => k.task.title === 'Boundary probe')!;
@@ -186,7 +186,7 @@ try {
     const h = await j('GET', '/api/runtime/health');
     assert(h.body.hermes.dashboard === 'down', 'health should report down');
     const prof = await j('GET', `/api/departments/${dept.id}/profiles`);
-    assert(prof.body.reachable === false && prof.body.chief.ref === chief, 'stored refs must remain visible offline');
+    assert(prof.body.reachable === false && prof.body.agents[0].ref === chief, 'stored refs must remain visible offline');
     await startDashboard();
     await provisioning.reconcile(dept.id);
     const on = await j('GET', `/api/departments/${dept.id}/provisioning`);
@@ -199,8 +199,8 @@ try {
     hermesCli('profile', 'delete', worker, '-y');
     await provisioning.reconcile(dept.id);
     const st = (await j('GET', `/api/departments/${dept.id}/provisioning`)).body;
-    assert(st.state === 'ready' && st.worker.verified, JSON.stringify(st));
-    assert(hermesCli('profile', 'list').includes(worker), 'worker profile not recreated');
+    assert(st.state === 'ready' && st.agents[1].verified, JSON.stringify(st));
+    assert(hermesCli('profile', 'list').includes(worker), 'teammate profile not recreated');
   });
 
   await check('safeguard: an existing profile is left untouched until the user confirms (real Hermes)', async () => {
@@ -209,24 +209,24 @@ try {
     created.profiles.add(existing);
     const snap = () => hermesCli('-p', existing, 'tools', 'list') + readFileSync(join(homedir(), '.hermes', 'profiles', existing, 'SOUL.md'), 'utf8');
     const before = snap();
-    const d3 = (await j('POST', '/api/departments', { name: 'M2 Consent', inventory: { allowedToolsets: [] } })).body;
+    const d3 = (await j('POST', '/api/departments', { name: 'M2 Consent', inventory: { allowedToolsets: [] }, teammates: 1 })).body;
     created.boards.add(d3.hermesBoardSlug);
-    await j('PATCH', `/api/departments/${d3.id}`, { workerProfileRef: existing });
+    await j('PATCH', `/api/departments/${d3.id}`, { leadProfileRef: existing });
     const refused = (await j('POST', `/api/departments/${d3.id}/provision`)).body;
     assert(refused.state === 'error' && refused.error.code === 'confirmation_required', JSON.stringify(refused.error));
     assert(snap() === before, 'existing profile was modified without consent');
     assert(!hermesCli('kanban', 'boards', 'list').includes(d3.hermesBoardSlug), 'a board was created before consent');
     await j('PATCH', `/api/departments/${d3.id}`, { confirmModifyProfiles: [existing] });
     const ok = (await j('POST', `/api/departments/${d3.id}/provision`)).body;
-    created.profiles.add(ok.chief.ref); // managed chief created by this provisioning: remove it in cleanup
-    assert(ok.state === 'ready' && ok.worker.origin === 'associated' && ok.worker.modificationConfirmed === true, JSON.stringify(ok));
+    created.profiles.add(ok.agents[1].ref); // managed teammate created by this provisioning: remove it in cleanup
+    assert(ok.state === 'ready' && ok.agents[0].origin === 'associated' && ok.agents[0].modificationConfirmed === true, JSON.stringify(ok));
     assert(snap() !== before, 'confirmed profile should now carry the department restrictions');
   });
 
   await check('an invalid association is reported as an error, not as unavailability', async () => {
     const d2 = (await j('POST', '/api/departments', { name: 'M2 Bad Profile' })).body;
     created.boards.add(d2.hermesBoardSlug);
-    await j('PATCH', `/api/departments/${d2.id}`, { chiefProfileRef: 'vc-does-not-exist' });
+    await j('PATCH', `/api/departments/${d2.id}`, { leadProfileRef: 'vc-does-not-exist' });
     const r = await j('POST', `/api/departments/${d2.id}/provision`);
     assert(r.body.state === 'error' && r.body.error.code === 'profile_not_found' && r.body.error.retryable === false, JSON.stringify(r.body));
   });

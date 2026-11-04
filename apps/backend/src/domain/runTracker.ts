@@ -12,7 +12,8 @@ export interface RunReference {
   hermesRunRef: string | null;
   parentTaskRef: string | null;
   profileRef: string;
-  role: 'chief' | 'worker';
+  /** The department agent whose profile ran it. */
+  agentKey: string;
   state: RunState;
   lastObservedAt: string;
 }
@@ -29,7 +30,7 @@ export function runState(r: Pick<HermesRun, 'status' | 'outcome' | 'ended_at'>):
 
 interface Row {
   id: string; department_id: string; hermes_task_ref: string; hermes_run_ref: string | null; parent_task_ref: string | null;
-  profile_ref: string; role: 'chief' | 'worker'; state: RunState; last_observed_at: string;
+  profile_ref: string; agent_key: string; state: RunState; last_observed_at: string;
 }
 
 /**
@@ -48,7 +49,7 @@ export class RunTracker {
     const rows = this.db.prepare('SELECT * FROM run_reference WHERE department_id = ? ORDER BY last_observed_at ASC, rowid ASC').all(departmentId) as unknown as Row[];
     return rows.map((r) => ({
       id: r.id, departmentId: r.department_id, hermesTaskRef: r.hermes_task_ref, hermesRunRef: r.hermes_run_ref,
-      parentTaskRef: r.parent_task_ref, profileRef: r.profile_ref, role: r.role, state: r.state, lastObservedAt: r.last_observed_at,
+      parentTaskRef: r.parent_task_ref, profileRef: r.profile_ref, agentKey: r.agent_key, state: r.state, lastObservedAt: r.last_observed_at,
     }));
   }
 
@@ -59,39 +60,40 @@ export class RunTracker {
       'SELECT id FROM run_reference WHERE department_id = ? AND hermes_task_ref = ? AND hermes_run_ref IS ?',
     ).get(departmentId, ref.hermesTaskRef, ref.hermesRunRef) as { id: string } | undefined;
     if (existing) {
-      this.db.prepare('UPDATE run_reference SET state = ?, last_observed_at = ?, profile_ref = ?, role = ? WHERE id = ?')
-        .run(ref.state, now, ref.profileRef, ref.role, existing.id);
+      this.db.prepare('UPDATE run_reference SET state = ?, last_observed_at = ?, profile_ref = ?, agent_key = ? WHERE id = ?')
+        .run(ref.state, now, ref.profileRef, ref.agentKey, existing.id);
       return existing.id;
     }
     const id = randomUUID();
     this.db.prepare(
-      `INSERT INTO run_reference (id, department_id, hermes_task_ref, hermes_run_ref, parent_task_ref, profile_ref, role, state, last_observed_at)
+      `INSERT INTO run_reference (id, department_id, hermes_task_ref, hermes_run_ref, parent_task_ref, profile_ref, agent_key, state, last_observed_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    ).run(id, departmentId, ref.hermesTaskRef, ref.hermesRunRef, ref.parentTaskRef, ref.profileRef, ref.role, ref.state, now);
+    ).run(id, departmentId, ref.hermesTaskRef, ref.hermesRunRef, ref.parentTaskRef, ref.profileRef, ref.agentKey, ref.state, now);
     return id;
   }
 
   /**
-   * Reads a quest task and its children from Hermes and records every run. A run is attributed to a role only if its
-   * profile is the department's chief/worker profile; anything else is reported as a violation, not recorded.
+   * Reads a quest task and its children from Hermes and records every run. A run is attributed to an agent only if its
+   * profile is one of the department's agent profiles; anything else is reported as a violation, not recorded.
    */
   async observe(departmentId: string, kanban: KanbanClient, questTaskId: string): Promise<{ recorded: RunReference[]; violations: string[] }> {
     const dept = this.depts.getRow(departmentId);
     const board = dept.hermes_board_ref;
-    if (!board || !dept.chief_profile_ref) throw new Error('department is not provisioned');
+    const agents = new Map(this.depts.agents(departmentId).filter((a) => a.profile_ref).map((a) => [a.profile_ref!, a.agent_key]));
+    if (!board || !agents.size) throw new Error('department is not provisioned');
     const violations: string[] = [];
     const quest = await kanban.getTask(board, questTaskId);
     const tasks: { id: string; parent: string | null; detail: typeof quest }[] = [{ id: questTaskId, parent: null, detail: quest }];
     for (const childId of quest.links.children) tasks.push({ id: childId, parent: questTaskId, detail: await kanban.getTask(board, childId) });
     for (const t of tasks) {
       for (const run of t.detail.runs) {
-        const role = run.profile === dept.chief_profile_ref ? 'chief' : dept.worker_profile_ref && run.profile === dept.worker_profile_ref ? 'worker' : null;
-        if (!role) {
-          violations.push(`run ${run.id} of task ${t.id} used profile "${run.profile}", which is not this department's chief or worker`);
+        const agentKey = run.profile ? agents.get(run.profile) : undefined;
+        if (!agentKey) {
+          violations.push(`run ${run.id} of task ${t.id} used profile "${run.profile}", which is not one of this department's agents`);
           continue;
         }
         this.record(departmentId, {
-          hermesTaskRef: t.id, hermesRunRef: String(run.id), parentTaskRef: t.parent, profileRef: run.profile!, role, state: runState(run),
+          hermesTaskRef: t.id, hermesRunRef: String(run.id), parentTaskRef: t.parent, profileRef: run.profile!, agentKey, state: runState(run),
         });
       }
     }

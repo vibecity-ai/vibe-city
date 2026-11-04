@@ -229,7 +229,7 @@ function InterviewDialogue({ reqId, candId }: { reqId: string; candId: string })
 
 function Shortlist({ reqId }: { reqId: string }) {
   const h = useStore((s) => (s.hiring?.id === reqId ? s.hiring : null));
-  const inv = useStore((s) => (h?.brief ? s.info[h.brief.departmentId]?.inventory ?? null : null));
+  const team = useStore((s) => (h?.brief ? s.depts.find((d) => d.id === h.brief!.departmentId)?.teamSize ?? null : null));
   const [confirm, setConfirm] = useState<Candidate | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -249,7 +249,6 @@ function Shortlist({ reqId }: { reqId: string }) {
     catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong.'); }
     finally { setBusy(false); }
   };
-  const workers = inv?.limits.maxConcurrentWorkers;
   return (
     <div className="hire-scrim">
       <div className="hire" ref={ref} role="dialog" aria-modal="true" aria-labelledby="hire-t">
@@ -291,10 +290,10 @@ function Shortlist({ reqId }: { reqId: string }) {
             <b id="hc-t">{confirm.serious ? `Hire ${confirm.character.name}?` : 'AR has concerns…'}</b>
             {!confirm.serious && <p className="bad">“{confirm.note} Boss, are you sure?”</p>}
             <ul>
-              <li>Adds a worker desk to {brief.departmentName}{workers != null ? ` (${workers} → ${Math.min(10, workers + 1)})` : ''}.</li>
-              {confirm.loadout.skills.length > 0 && <li>Allows skills: {confirm.loadout.skills.join(', ')}.</li>}
-              {confirm.loadout.model && <li>Switches the floor's model to <span className="mono">{confirm.loadout.model.id}</span>.</li>}
-              <li>Re-applies the floor's setup in Hermes.</li>
+              <li>Adds {confirm.character.name} to {brief.departmentName} as a new agent with its own Hermes profile{team != null ? ` (team ${team} → ${team + 1})` : ''}.</li>
+              {confirm.loadout.model && <li>Runs on its own model, <span className="mono">{confirm.loadout.model.id}</span>. The rest of the floor keeps theirs.</li>}
+              {confirm.loadout.skills.length > 0 && <li>Brings its own skills: {confirm.loadout.skills.join(', ')}.</li>}
+              <li>Re-applies the floor's setup in Hermes, so every teammate learns about the new hire.</li>
             </ul>
             {error && <p className="field-err" role="alert">{error}</p>}
             <div className="row">

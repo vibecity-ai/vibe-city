@@ -11,6 +11,7 @@ export function createGate() {
     begin(key: string): number { const t = ++n; seq.set(key, t); return t; },
     current(key: string, ticket: number): boolean { return seq.get(key) === ticket; },
     forget(key: string) { seq.delete(key); },
+    forgetPrefix(prefix: string) { for (const k of [...seq.keys()]) if (k.startsWith(prefix)) seq.delete(k); },
   };
 }
 

@@ -2,14 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from './db/db.ts';
 import { buildServices } from './app.ts';
-import { createDept } from './testUtils.ts';
-import { FakeChatModel, OpenAiCompatModel } from './model/chatModel.ts';
+import { createDept, questApp } from './testUtils.ts';
+import { OpenAiCompatModel } from './model/chatModel.ts';
+import { FakeHermes } from './testing/fakeHermes.ts';
+import { FakeAgentChat } from './testing/fakeAgentChat.ts';
+import { HermesAgentChat } from './hermes/agentChat.ts';
+import { HermesAuthError } from './hermes/ports.ts';
 import { parseAgentReply } from './domain/chatService.ts';
 import { generateCharacter } from './domain/characters.ts';
 
-const setup = (model?: FakeChatModel) => {
+const setup = () => {
   const db = openDb(':memory:');
-  const { app } = buildServices(db, undefined, model ? { chatModel: model } : {});
+  const { app } = buildServices(db);
   return { db, app };
 };
 
@@ -20,21 +24,14 @@ test('characters are deterministic per seat and stored on first use', async () =
   const b = (await app.inject(`/api/departments/${json.id}/characters/chief`)).json();
   assert.deepEqual(a, b);
   assert.equal(a.role, 'chief');
-  assert.equal(a.title, 'Research chief');
+  assert.equal(a.title, 'Research lead');
   const w = (await app.inject(`/api/departments/${json.id}/characters/W-01`)).json();
   assert.equal(w.role, 'worker');
   assert.notEqual(w.name, '');
   assert.deepEqual(generateCharacter(json.id, 'Research', 'W-01'), w);
 });
 
-test('unknown agent keys are 404', async () => {
-  const { app } = setup();
-  const { json } = await createDept(app, { name: 'Ops' });
-  assert.equal((await app.inject(`/api/departments/${json.id}/characters/boss`)).statusCode, 404);
-  assert.equal((await app.inject(`/api/departments/${json.id}/characters/W-1`)).statusCode, 404);
-});
-
-test('without a model, history says so and sending is 503', async () => {
+test('without a provisioned profile, history says so and sending is 503', async () => {
   const { app } = setup();
   const { json } = await createDept(app, { name: 'Legal' });
   const h = (await app.inject(`/api/departments/${json.id}/characters/chief/chat`)).json();
@@ -45,34 +42,81 @@ test('without a model, history says so and sending is 503', async () => {
   assert.equal(r.json().error, 'model_unavailable');
 });
 
-test('chat stores both turns, sends persona + history, and returns a quest proposal', async () => {
-  const model = new FakeChatModel((m) => m.length > 2
-    ? JSON.stringify({ say: 'I can have a brief by Friday.', mood: 'focused', replies: ['Do it', 'Not now'], proposal: { kind: 'quest', title: 'Competitor brief', objective: 'Summarise three competitors.' } })
-    : '```json\n{"say": "Hey boss.", "mood": "happy", "replies": ["What are you on?"], "proposal": null}\n```');
-  const { app } = setup(model);
-  const { json } = await createDept(app, { name: 'Research', purpose: 'Track competitors' });
-  const url = `/api/departments/${json.id}/characters/chief/chat`;
+/** A ready department whose agents chat through a scripted agent standing in for their Hermes profiles. */
+const agentApp = (answer?: ConstructorParameters<typeof FakeAgentChat>[1]) => {
+  const hermes = new FakeHermes();
+  const agentChat = new FakeAgentChat(hermes, answer);
+  const q = questApp({ agentChat, agentEnv: { NEAR_AI_API_KEY: 'near-secret' } }, hermes);
+  return { ...q, agentChat };
+};
+
+test('chat talks to the agent\'s own profile, in one session, with its own key, and returns a quest proposal', async () => {
+  const { app, hermes, agentChat, readyDept } = agentApp((t, history) => history.length
+    ? 'I can have a brief by Friday.\n<vc>{"mood":"focused","replies":["Do it","Not now"],"proposal":{"title":"Competitor brief","objective":"Summarise three competitors."}}</vc>'
+    : 'Hey boss.\n<vc>{"mood":"happy","replies":["What are you on?"],"proposal":null}</vc>');
+  const d = await readyDept('Research', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  assert.equal((await app.inject(url)).json().modelReady, true);
   const r1 = await app.inject({ method: 'POST', url, payload: { message: 'Hello' } });
   assert.equal(r1.statusCode, 200);
-  assert.equal(r1.json().agent.text, 'Hey boss.');
-  assert.equal(r1.json().agent.mood, 'happy');
+  assert.deepEqual([r1.json().agent.text, r1.json().agent.mood], ['Hey boss.', 'happy']);
   const r2 = await app.inject({ method: 'POST', url, payload: { message: 'Can you look at our competitors?' } });
   const reply = r2.json().agent;
+  assert.equal(reply.text, 'I can have a brief by Friday.');
   assert.equal(reply.proposal.title, 'Competitor brief');
   assert.deepEqual(reply.replies, ['Do it', 'Not now']);
-  const sys = model.calls[1]![0]!.content;
-  assert.match(sys, /Track competitors/);
-  assert.match(sys, /Research chief/);
-  assert.equal(model.calls[1]!.length, 4); // system + 2 past turns + new message
-  const hist = (await app.inject(url)).json();
-  assert.equal(hist.messages.length, 4);
-  assert.equal(hist.modelReady, true);
+  // Both turns went to the lead's profile, in the same session, with the key Vibe City set in that profile.
+  const [t1, t2] = agentChat.turns;
+  assert.equal(t1!.profile, d.lead);
+  assert.equal(t2!.sessionId, t1!.sessionId);
+  assert.equal(t1!.key, hermes.env.get(d.lead)?.API_SERVER_KEY);
+  assert.equal(hermes.env.get(d.lead)?.NEAR_AI_API_KEY, 'near-secret'); // multiplexed profiles read credentials only from their .env
+  assert.equal(t2!.message, 'Can you look at our competitors?'); // Hermes holds the history: only the new message is sent
+  assert.match(t1!.system, /Research/);
+  assert.match(t1!.system, /Research lead/);
+  assert.equal((await app.inject(url)).json().messages.length, 4);
+  // A teammate is its own profile, with its own key and session.
+  await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/W-01/chat`, payload: { message: 'Hi' } });
+  assert.equal(agentChat.turns[2]!.profile, d.teammate);
+  assert.notEqual(agentChat.turns[2]!.key, t1!.key);
 });
 
-test('parseAgentReply falls back to plain text and drops invalid fields', () => {
+test('a rejected key is replaced once and the turn retried', async () => {
+  const { app, hermes, agentChat, readyDept } = agentApp();
+  const d = await readyDept('Ops', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  await app.inject({ method: 'POST', url, payload: { message: 'one' } });
+  hermes.env.set(d.lead, { API_SERVER_KEY: 'changed-outside-vibe-city' });
+  const r = await app.inject({ method: 'POST', url, payload: { message: 'two' } });
+  assert.equal(r.statusCode, 200);
+  assert.equal(agentChat.turns.length, 2);
+  assert.equal(agentChat.turns[1]!.key, hermes.env.get(d.lead)?.API_SERVER_KEY);
+  assert.equal(agentChat.turns[1]!.sessionId, agentChat.turns[0]!.sessionId); // same conversation
+});
+
+test('the stream endpoint relays progress, then the reply; errors arrive as an error event', async () => {
+  const { app, agentChat, readyDept } = agentApp();
+  agentChat.events = [{ kind: 'thinking' }, { kind: 'tool', name: 'kanban_list', preview: 'board' }];
+  const d = await readyDept('Ops', {});
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat/stream`, payload: { message: 'status?' } });
+  assert.equal(r.statusCode, 200);
+  assert.match(r.headers['content-type'] as string, /text\/event-stream/);
+  const events = [...r.body.matchAll(/event: (\w+)\ndata: (.*)\n/g)].map((m) => [m[1], JSON.parse(m[2]!)]);
+  assert.deepEqual(events.map((e) => e[0]), ['progress', 'progress', 'reply']);
+  assert.deepEqual(events[1]![1], { kind: 'tool', name: 'kanban_list', preview: 'board' });
+  assert.equal(events[2]![1].agent.text, 'On it, boss.');
+  const bad = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/W-09/chat/stream`, payload: { message: 'x' } });
+  assert.match(bad.body, /event: error\ndata: .*"status":503/);
+  // Validation still answers with a plain HTTP error before any stream starts.
+  assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat/stream`, payload: { message: '' } })).statusCode, 400);
+});
+
+test('parseAgentReply splits the <vc> tag off and never loses the words', () => {
   assert.deepEqual(parseAgentReply('Just words.'), { text: 'Just words.', mood: 'neutral', replies: [], proposal: null });
-  const r = parseAgentReply('<think>hmm</think>{"say":"Yo","mood":"furious","replies":[1,"ok"],"proposal":{"title":""}}');
-  assert.equal(r.text, 'Yo'); assert.equal(r.mood, 'neutral'); assert.deepEqual(r.replies, ['ok']); assert.equal(r.proposal, null);
+  const r = parseAgentReply('<think>hmm</think>Yo boss.\n<vc>{"mood":"furious","replies":[1,"ok"],"proposal":{"title":""}}</vc>');
+  assert.equal(r.text, 'Yo boss.'); assert.equal(r.mood, 'neutral'); assert.deepEqual(r.replies, ['ok']); assert.equal(r.proposal, null);
+  assert.equal(parseAgentReply('Done.\n<vc>{"mood": "happy", broken').text, 'Done.');
+  assert.equal(parseAgentReply('Done.\n<vc>```json\n{"mood":"happy"}\n```</vc>').mood, 'happy');
 });
 
 test('the OpenAI-compatible model sends the key and never leaks it in errors', async () => {
@@ -85,4 +129,39 @@ test('the OpenAI-compatible model sends the key and never leaks it in errors', a
   assert.deepEqual(seen, { url: 'https://x.test/v1/chat/completions', auth: 'Bearer secret-key' });
   const bad = new OpenAiCompatModel({ baseUrl: 'https://x.test/v1', apiKey: 'secret-key', model: 'm', fetch: (async () => new Response('nope secret-key', { status: 401 })) as typeof fetch });
   await assert.rejects(bad.complete([]), (e: Error) => !e.message.includes('secret-key') && /rejected the API key/.test(e.message));
+});
+
+test('the Hermes agent client creates the session, follows the stream and maps auth errors', async () => {
+  const seen: { url: string; auth: string | null; body: any }[] = [];
+  const frames = [
+    'event: run.started\ndata: {"run_id":"r1"}\n\n', ': keepalive\n\n',
+    'event: tool.progress\ndata: {"tool_name":"_thinking","delta":"hm"}\n\n',
+    'event: tool.started\ndata: {"tool_name":"terminal","preview":"ls"}\n\n',
+    'event: assistant.completed\ndata: {"content":"Found it, boss."}\n\n', 'event: done\ndata: {}\n\n',
+  ];
+  const fetch_ = (async (url: string, init: RequestInit) => {
+    seen.push({ url, auth: new Headers(init.headers).get('authorization'), body: JSON.parse(String(init.body)) });
+    if (url.endsWith('/api/sessions')) return new Response('{"error":{"message":"exists"}}', { status: seen.length === 1 ? 201 : 409 });
+    // Frames split across chunks, as a real socket delivers them.
+    const bytes = new TextEncoder().encode(frames.join(''));
+    return new Response(new ReadableStream({ start(c) { for (let i = 0; i < bytes.length; i += 7) c.enqueue(bytes.slice(i, i + 7)); c.close(); } }), { status: 200 });
+  }) as typeof fetch;
+  const client = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642/', fetch: fetch_ });
+  const events: unknown[] = [];
+  const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', message: 'what did you find?', system: 'persona' };
+  assert.equal(await client.turn(turn, (e) => events.push(e)), 'Found it, boss.');
+  assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }]);
+  assert.equal(seen[1]!.url, 'http://hermes.test:8642/p/vc-abc-chief/api/sessions/vibecity-ceo-1/chat/stream');
+  assert.equal(seen[1]!.auth, `Bearer ${'k'.repeat(48)}`);
+  assert.deepEqual(seen[1]!.body, { message: 'what did you find?', system_message: 'persona' });
+  assert.equal(await client.turn(turn), 'Found it, boss.'); // 409 on create = the session already exists
+
+  const unfinished = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642', fetch: (async (url: string) => url.endsWith('/api/sessions')
+    ? new Response('{}', { status: 201 })
+    : new Response('event: assistant.completed\ndata: {"content":"I couldn\'t connect to the AI model service","completed":false}\n\n', { status: 200 })) as typeof fetch });
+  await assert.rejects(unfinished.turn(turn), /could not finish: I couldn't connect/);
+
+  const denied = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642', fetch: (async () => new Response('{"error":{"message":"Invalid gateway API key"}}', { status: 401 })) as typeof fetch });
+  await assert.rejects(denied.turn(turn), HermesAuthError);
+  await assert.rejects(client.turn({ ...turn, profile: '../x' }), /invalid profile/);
 });

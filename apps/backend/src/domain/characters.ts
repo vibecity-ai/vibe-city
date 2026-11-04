@@ -1,4 +1,4 @@
-/* Characters: one persona per agent seat (the department chief, or a worker desk W-01…).
+/* Characters: one persona per agent (the department lead, or a teammate desk W-01…).
    Generated deterministically from the department id + seat, stored on first use so a later edit sticks.
    A persona changes how an agent talks in the dialogue window. It never changes what the agent may do. */
 import type { DatabaseSync } from 'node:sqlite';
@@ -45,7 +45,7 @@ export function generateCharacter(departmentId: string, deptName: string, agentK
   return CharacterSchema.parse({
     departmentId, agentKey, role,
     name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`,
-    title: role === 'chief' ? `${deptName} chief` : `${deptName} specialist, desk ${agentKey}`,
+    title: role === 'chief' ? `${deptName} lead` : `${deptName} specialist, desk ${agentKey}`,
     traits: [t1, t2],
     speechStyle: pick(STYLES, seed, 5),
     quirk: pick(QUIRKS, seed, 6),

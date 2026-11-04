@@ -169,6 +169,50 @@ export const MIGRATIONS: readonly string[] = [
      error TEXT,
      PRIMARY KEY (schedule_id, fire_at)
    );`,
+  // v10: one Hermes profile per agent. The chief becomes the lead (seat 0, key 'chief'); the shared worker profile
+  // becomes W-01; any further worker desks become agents W-02… that get their own profiles on the next provision.
+  // A hire's model and skills now belong to its agent, not the department.
+  `CREATE TABLE department_agent (
+     department_id TEXT NOT NULL REFERENCES department(id),
+     agent_key TEXT NOT NULL,
+     seat INTEGER NOT NULL,
+     profile_ref TEXT,
+     origin TEXT CHECK (origin IN ('created','associated')),
+     verified_at TEXT,
+     model_json TEXT,
+     skills_json TEXT NOT NULL DEFAULT '[]',
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (department_id, agent_key),
+     UNIQUE (department_id, seat)
+   );
+   INSERT INTO department_agent (department_id, agent_key, seat, profile_ref, origin, verified_at, created_at)
+     SELECT id, 'chief', 0, chief_profile_ref, chief_origin, chief_verified_at, created_at FROM department;
+   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10)
+   INSERT INTO department_agent (department_id, agent_key, seat, profile_ref, origin, verified_at, created_at)
+     SELECT d.id, 'W-' || printf('%02d', n.i), n.i,
+       CASE WHEN n.i = 1 THEN d.worker_profile_ref END, CASE WHEN n.i = 1 THEN d.worker_origin END,
+       CASE WHEN n.i = 1 THEN d.worker_verified_at END, d.created_at
+     FROM department d
+     JOIN department_inventory inv ON inv.department_id = d.id
+     JOIN n ON n.i <= COALESCE(json_extract(inv.inventory_json, '$.limits.maxConcurrentWorkers'), 0);
+   UPDATE department_inventory SET inventory_json = json_remove(inventory_json, '$.limits.maxConcurrentWorkers');
+   ALTER TABLE department DROP COLUMN chief_profile_ref;
+   ALTER TABLE department DROP COLUMN worker_profile_ref;
+   ALTER TABLE department DROP COLUMN chief_verified_at;
+   ALTER TABLE department DROP COLUMN worker_verified_at;
+   ALTER TABLE department DROP COLUMN chief_origin;
+   ALTER TABLE department DROP COLUMN worker_origin;
+   ALTER TABLE run_reference ADD COLUMN agent_key TEXT;
+   UPDATE run_reference SET agent_key = CASE role WHEN 'chief' THEN 'chief' ELSE 'W-01' END;
+   ALTER TABLE run_reference DROP COLUMN role;`,
+  // v11: the dialogue window talks to the agent's own Hermes profile through the gateway API server. Per profile: the
+  // API_SERVER_KEY Vibe City set in its .env, and the Hermes session that holds the conversation with the CEO.
+  `CREATE TABLE agent_chat (
+     profile TEXT PRIMARY KEY,
+     api_key TEXT NOT NULL,
+     session_id TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

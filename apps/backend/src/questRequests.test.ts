@@ -8,7 +8,7 @@ async function setup() {
   const qa = questApp({ mcpUrl: MCP });
   const research = await qa.readyDept('Research');
   const growth = await qa.readyDept('Growth');
-  const cfg = qa.hermes.mcpServers.get(growth.chief)!.vibecity!;
+  const cfg = qa.hermes.mcpServers.get(growth.lead)!.vibecity!;
   const token = cfg.headers.Authorization!.slice(7);
   const rpc = async (method: string, params: Record<string, unknown> = {}, auth = token) =>
     qa.app.inject({ method: 'POST', url: '/mcp', headers: { authorization: `Bearer ${auth}`, 'content-type': 'application/json' }, payload: { jsonrpc: '2.0', id: 1, method, params } });
@@ -16,20 +16,20 @@ async function setup() {
   return { ...qa, research, growth, token, rpc, tool };
 }
 
-test('provisioning gives each chief the Vibe City MCP server with its own token and only the three tools', async () => {
+test('provisioning gives every agent the Vibe City MCP server with its department\'s token and only the three tools', async () => {
   const { hermes, research, growth, rpc } = await setup();
-  const a = hermes.mcpServers.get(research.chief)!.vibecity!, b = hermes.mcpServers.get(growth.chief)!.vibecity!;
+  const a = hermes.mcpServers.get(research.lead)!.vibecity!, b = hermes.mcpServers.get(growth.lead)!.vibecity!;
   assert.equal(a.url, MCP);
   assert.deepEqual(a.tools.include, ['list_departments', 'request_quest', 'check_request']);
   assert.notEqual(a.headers.Authorization, b.headers.Authorization);
-  assert.equal(hermes.mcpServers.get(research.worker), undefined, 'workers do not get it');
+  assert.deepEqual(hermes.mcpServers.get(research.teammate)!.vibecity, a, 'teammates share their department\'s token');
   const init = (await rpc('initialize', { protocolVersion: '2025-06-18' })).json();
   assert.equal(init.result.serverInfo.name, 'vibe-city');
   assert.deepEqual((await rpc('tools/list')).json().result.tools.map((t: any) => t.name), ['list_departments', 'request_quest', 'check_request']);
   assert.equal((await rpc('tools/list', {}, 'vc_wrong')).statusCode, 401);
 });
 
-test('a chief requests a quest from another department: it lands on that board, assigned to that chief, origin recorded', async () => {
+test('an agent requests a quest from another department: it lands on that board, assigned to its lead, origin recorded', async () => {
   const { app, kanban, research, growth, tool } = await setup();
   const list = await tool('list_departments', {});
   assert.match(list.content[0].text, /Research/);

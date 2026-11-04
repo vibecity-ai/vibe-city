@@ -90,4 +90,7 @@ export interface HermesRuntime {
   getConcurrencyCap(): Promise<number | null>;
   /** Adds (or replaces) one MCP server in a profile's config (`mcp_servers.<name>`). Optional: not every runtime has it. */
   setMcpServer?(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void>;
+  /** Writes variables into the profile's own .env. Under gateway multiplexing a profile reads credentials only from its
+      .env (never the process env): its API_SERVER_KEY for /p/<profile>/ requests, and its model provider's key. */
+  setProfileEnv?(profile: string, vars: Record<string, string>): Promise<void>;
 }

@@ -6,7 +6,7 @@ import type { CancellationStatus, QuestDetail } from '@vibe-city/shared';
 import { DEPT_ID, company, deptView, detail, fakeBackend, health, inventory, iso, provStatus, summary } from '../../testing/fakeBackend.ts';
 import { useStore } from '../store.ts';
 import {
-  archiveDepartment, cancelQuest, patchInventory, refreshAll, saveDepartmentSettings, stopLive,
+  archiveDepartment, cancelQuest, refreshAll, saveDepartmentSettings, stopLive,
 } from './live.ts';
 
 class FakeWS {
@@ -220,7 +220,7 @@ test('a failed settings save keeps the last good state and returns the field err
   assert.equal(useStore.getState().busy[`settings:${DEPT_ID}`], undefined);
 });
 
-test('a successful settings save refreshes this department and says when it must be provisioned again', async () => {
+test('a successful settings save refreshes this department and says when it must be synced again', async () => {
   const { b, state } = backend();
   await refreshAll();
   b.on('PATCH', D, () => { state.depts = [deptView({ name: 'Research 2', state: 'unconfigured' })]; return { body: state.depts[0] }; });
@@ -229,17 +229,7 @@ test('a successful settings save refreshes this department and says when it must
   const s = useStore.getState();
   assert.equal(s.depts[0]!.name, 'Research 2');
   assert.equal(s.depts[0]!.provisioning, 'unconfigured');
-  assert.match(s.toasts.at(-1)!.text, /provisioned again/);
+  assert.match(s.toasts.at(-1)!.text, /Sync the department again/);
   assert.equal(b.count('GET', '/api/company'), n, 'only the affected department was refetched');
 });
 
-test('saving the inventory of a provisioned department warns that it needs provisioning again', async () => {
-  const { b, state } = backend();
-  await refreshAll();
-  b.on('PATCH', `${D}/inventory`, () => { state.depts = [deptView({ state: 'unconfigured' })]; return { body: { ...inventory(), sharedContextRefs: ['wiki:handbook'] } }; });
-  await patchInventory(DEPT_ID, { sharedContextRefs: ['wiki:handbook'] });
-  assert.deepEqual(b.calls.find((c) => c.method === 'PATCH')!.body, { sharedContextRefs: ['wiki:handbook'] });
-  const t = useStore.getState().toasts.at(-1)!;
-  assert.equal(t.tone, 'warn');
-  assert.match(t.text, /provisioning again/);
-});

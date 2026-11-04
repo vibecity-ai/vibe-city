@@ -50,7 +50,7 @@ export class AssistantService {
     const system = [
       `You are ${me.name}, ${me.title} at ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents running on Hermes.`,
       `Personality: ${me.traits.join(', ')}. Way of speaking: ${me.speechStyle}. You call the user "boss".`,
-      'You are helping the boss add a new department (a floor of the tower). A department has a chief agent and optional workers.',
+      'You are helping the boss add a new department (a floor of the tower). A department has a lead agent and optional teammates; every agent is its own Hermes agent and they work in parallel.',
       `Existing floors (do not duplicate them):\n${floors.join('\n') || '- none yet'}`,
       `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
       `Toolsets that can be granted: ${toolsets.join(', ')}`,
@@ -59,7 +59,7 @@ export class AssistantService {
       'Ask at most one short question if the purpose is unclear; otherwise propose the floor right away. Keep it small: grant only what the purpose needs.',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
       '- Reply with JSON only, no other text:',
-      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"name": "<2-3 words>", "purpose": "<1-2 sentences>", "skills": ["<installed skill>"], "toolsets": ["<toolset>"], "model": "<provider/model or null>", "workers": <0-4>}}`,
+      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"name": "<2-3 words>", "purpose": "<1-2 sentences>", "skills": ["<installed skill>"], "toolsets": ["<toolset>"], "model": "<provider/model or null>", "teammates": <0-4>}}`,
     ].join('\n');
     const turns: ChatTurn[] = [
       { role: 'system', content: system },
@@ -91,10 +91,10 @@ export function clampDraft(raw: unknown, have: { skills: string[]; toolsets: str
     model = have.offered.find((o) => `${o.provider}/${o.id}` === m) ?? have.offered.find((o) => o.id === m || m.endsWith(`/${o.id}`)) ?? null;
     if (!model) dropped.push(`model "${m}" (Hermes does not offer it; the floor keeps the default)`);
   }
-  const workers = Math.max(0, Math.min(4, Math.round(Number(r.workers ?? 1)) || 0));
+  const teammates = Math.max(0, Math.min(4, Math.round(Number(r.teammates ?? r.workers ?? 1)) || 0));
   const tier = model ? modelTier(model.id) : 2;
   return {
     name, purpose: typeof r.purpose === 'string' ? r.purpose.trim().slice(0, 2000) : '',
-    skills, toolsets, model, workers, creditsPerDay: TIER_COST[tier] * (1 + workers), dropped,
+    skills, toolsets, model, teammates, creditsPerDay: TIER_COST[tier] * (1 + teammates), dropped,
   };
 }

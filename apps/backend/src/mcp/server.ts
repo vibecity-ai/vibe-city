@@ -1,4 +1,4 @@
-/* The Vibe City MCP server (feature spec 2.4). Hermes chiefs reach it over Streamable HTTP (JSON responses) with a
+/* The Vibe City MCP server (feature spec 2.4). Hermes department agents reach it over Streamable HTTP (JSON responses) with a
    per-department bearer token, which is how Vibe City knows who is asking. It exposes three narrow tools instead of
    Hermes' delegation toolset, so every cross-department request goes through Vibe City's guardrails:
      list_departments   who you can ask, and what they do
@@ -21,14 +21,14 @@ const TOOLS = [
   },
   {
     name: 'request_quest',
-    description: 'Ask another department to do a piece of work. It becomes a quest on that department\'s board, assigned to its chief. Use it only for work that belongs to the other department; plan your own work on your own board. Returns a request id: check it later with check_request. Some requests wait for the CEO\'s approval.',
+    description: 'Ask another department to do a piece of work. It becomes a quest on that department\'s board, assigned to its lead agent. Use it only for work that belongs to the other department; plan your own work on your own board. Returns a request id: check it later with check_request. Some requests wait for the CEO\'s approval.',
     inputSchema: {
       type: 'object',
       properties: {
         department: { type: 'string', description: 'Name of the department to ask (see list_departments).' },
         title: { type: 'string', description: 'Short quest title, under 80 characters.' },
         objective: { type: 'string', description: 'What you need, in 1-4 sentences, with what "done" looks like.' },
-        reason: { type: 'string', description: 'Why your department needs it (shown to the CEO and the other chief).' },
+        reason: { type: 'string', description: 'Why your department needs it (shown to the CEO and the other department).' },
       },
       required: ['department', 'title', 'objective'],
       additionalProperties: false,
