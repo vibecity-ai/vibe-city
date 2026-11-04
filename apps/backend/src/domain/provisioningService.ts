@@ -12,7 +12,7 @@ import { agentModel, agentSkills, type AgentRow, type DepartmentService } from '
 import { buildBlock, hasBlock, upsertBlock } from './instructions.ts';
 import {
   ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, desiredToolsetMap, diffObserved,
-  effectiveSkills, effectiveToolsets, modelToApply, parseObserved, skillsToDisable, type ObservedConfig, type ObservedRole,
+  effectiveSkills, effectiveToolsets, modelToApply, parseObserved, skillsToDisable, withBaseline, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
 type Step = ProvisioningError['step'];
@@ -138,7 +138,7 @@ export class ProvisioningService {
       inSync,
       agents: agents.map((a) => ({
         agentKey: a.agent_key, profileRef: a.profile_ref,
-        entries: buildAgentReport(agentInventory(inv, { model: agentModel(a), skills: agentSkills(a) }), usable?.agents[a.agent_key] ?? null),
+        entries: buildAgentReport(agentInventory(withBaseline(inv, usable?.baseline), { model: agentModel(a), skills: agentSkills(a) }), usable?.agents[a.agent_key] ?? null),
       })),
       departmentWide: buildDepartmentWideReport(inv, agents.length, obs?.globalConcurrencyCap),
     };
@@ -401,6 +401,14 @@ export class ProvisioningService {
       if (h.auth === 'rejected') throw new StepError('health', 'hermes_auth', 'Hermes rejected the configured session token.', { retryable: false });
     });
 
+    // An empty allowance means Hermes' defaults: read what the `default` profile has on, so every agent can do the work.
+    const baseline = inv.allowedToolsets.length && inv.allowedSkillIds.length ? null : await this.step('validate', async () => {
+      const [toolsets, skills] = await Promise.all([this.hermes.getToolsets('default'), this.hermes.listSkills('default')]);
+      const known = new Set<string>(TOOLSETS);
+      return { toolsets: Object.keys(toolsets).filter((t) => toolsets[t] && known.has(t)).sort(), skills: skills.filter((x) => x.enabled).map((x) => x.name).sort() };
+    });
+    const base = withBaseline(inv, baseline);
+
     // 2. validate profile choices
     const existing = await this.step('validate', () => this.hermes.listProfiles());
     for (const { key, profile: name, origin } of team) {
@@ -438,7 +446,7 @@ export class ProvisioningService {
     const prevCap = parseObserved(row.observed_config_json)?.globalConcurrencyCap ?? null;
     const cap = prevCap === null || row.provisioning_state !== 'ready' ? this.hermes.getConcurrencyCap().catch(() => null) : Promise.resolve(prevCap);
     const names = new Set(existing.map((p) => p.name));
-    const observed = await settleAll(team, AGENT_PARALLELISM, (m) => this.syncAgent(id, m, team, inv, names, write));
+    const observed = await settleAll(team, AGENT_PARALLELISM, (m) => this.syncAgent(id, m, team, base, names, write));
     if (differs) return false;
 
     // 5. final verification: everything still present and neither the inventory nor the team changed mid-run
@@ -452,7 +460,7 @@ export class ProvisioningService {
       if (hashOf(this.depts.getInventory(id), members(id, this.depts.agents(id))) !== applied) {
         throw new StepError('verify', 'inventory_changed', 'The inventory or the team changed during the sync; sync again to apply it.', { retryable: true });
       }
-      const obs: ObservedConfig = { at: now(), globalConcurrencyCap: await cap, agents: Object.fromEntries(team.map((m, i) => [m.key, observed[i]!])) as Record<string, ObservedRole> };
+      const obs: ObservedConfig = { at: now(), globalConcurrencyCap: await cap, baseline, agents: Object.fromEntries(team.map((m, i) => [m.key, observed[i]!])) as Record<string, ObservedRole> };
       this.depts.patchRow(id, {
         inventory_applied_hash: applied, observed_config_json: JSON.stringify(obs),
         ...(changed || !row.inventory_applied_at ? { inventory_applied_at: now() } : {}),

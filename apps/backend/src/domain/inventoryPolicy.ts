@@ -26,6 +26,19 @@ export function agentInventory(inv: Inventory, agent: { model: ModelChoice | nul
   return { ...inv, model: agent.model ?? inv.model, allowedSkillIds: [...new Set([...inv.allowedSkillIds, ...agent.skills])] };
 }
 
+/** What Hermes' `default` profile has enabled: what an empty allowance falls back to, so agents can always do the work. */
+export interface HermesBaseline { toolsets: string[]; skills: string[] }
+
+/** An empty toolset or skill allowance means "Hermes defaults" (every agent profile is a clone of `default`), not "nothing". */
+export function withBaseline(inv: Inventory, b: HermesBaseline | null | undefined): Inventory {
+  if (!b) return inv;
+  return {
+    ...inv,
+    allowedToolsets: inv.allowedToolsets.length ? inv.allowedToolsets : b.toolsets as Inventory['allowedToolsets'],
+    allowedSkillIds: inv.allowedSkillIds.length ? inv.allowedSkillIds : b.skills,
+  };
+}
+
 /** Desired state for every toolset Hermes reports: enabled iff in the effective set. */
 export function desiredToolsetMap(universe: string[], effective: string[]): Record<string, boolean> {
   const eff = new Set(effective);
@@ -77,6 +90,8 @@ export interface ObservedRole {
 export interface ObservedConfig {
   at: string;
   globalConcurrencyCap: number | null;
+  /** The defaults an empty allowance resolved to at sync time (absent when the department lists both). */
+  baseline?: HermesBaseline | null;
   /** Agent key -> what its profile reported. */
   agents: Record<string, ObservedRole>;
 }

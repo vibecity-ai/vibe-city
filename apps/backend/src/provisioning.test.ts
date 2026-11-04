@@ -61,6 +61,21 @@ test('inventory is applied: toolsets, skills, instructions; other profiles and u
   assert.ok(t.hermes.calls.every((c2) => !/\(default[,)]/.test(c2) || c2.startsWith('listProfiles')), 'no profile-scoped call targeted default');
 });
 
+test('an empty allowance gives every agent Hermes\' default toolsets and skills, never delegation/cronjob', async () => {
+  const t = provApp();
+  t.hermes.profiles.get('default')!.toolsets.tts = false;
+  const d = await t.create('Eng');
+  assert.equal((await t.provision(d.id)).json().state, 'ready');
+  const { chief, worker } = profiles(d.id);
+  for (const n of [chief, worker]) {
+    const p = t.hermes.profiles.get(n)!;
+    assert.deepEqual(Object.keys(p.toolsets).filter((k) => !p.toolsets[k]).sort(), ['cronjob', 'delegation', 'tts'], n);
+    assert.ok(Object.values(p.skills).every(Boolean), n);
+  }
+  const eff = (await t.app.inject(`/api/departments/${d.id}/effective-inventory`)).json();
+  assert.equal(eff.agents[1].entries.find((e: any) => e.capability === 'toolsets.behavior-tested').status, 'enforced', 'no false drift');
+});
+
 test('chosen model: every agent profile gets the provider + model pair, set through Hermes', async () => {
   const t = provApp();
   const d = await t.create('Eng', { inventory: { model: { provider: 'anthropic', id: 'claude-x' } } });
