@@ -4,7 +4,7 @@ import type { ModelChoice } from '@vibe-city/shared';
 import { HermesHttp } from './http.ts';
 import {
   HermesAuthError, HermesCliMissingError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SkillInfo,
+  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo,
 } from './ports.ts';
 
 const execFileP = promisify(execFile);
@@ -21,6 +21,7 @@ export interface RealRuntimeOptions {
 const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const TOOLSET_RE = /^[a-z0-9_]{1,64}$/;
 const MODEL_RE = /^[A-Za-z0-9._:/@+-]{1,128}$/;
+const SESSION_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 // ---- parsers for `hermes` CLI output (exported for fixture tests) ------------
 
@@ -95,6 +96,17 @@ export class RealHermesRuntime implements HermesRuntime {
       startedAt: num(r.started_at), endedAt: num(r.ended_at), lastActive: num(r.last_active), active: r.is_active === true,
       messageCount: num(r.message_count), toolCallCount: num(r.tool_call_count), endReason: str(r.end_reason),
     }));
+  }
+
+  async sessionMessages(profile: string, sessionId: string, limit: number): Promise<SessionMessage[]> {
+    if (!PROFILE_RE.test(profile)) throw new HermesRejectedError('invalid profile name');
+    if (!SESSION_RE.test(sessionId)) throw new HermesRejectedError('invalid session id');
+    const n = Math.min(Math.max(Math.floor(limit), 1), 500);
+    const j = await this.http<{ messages: { role?: unknown; content?: unknown; timestamp?: unknown }[] }>(
+      'GET', `/api/sessions/${encodeURIComponent(sessionId)}/messages?profile=${encodeURIComponent(profile)}&limit=${n}&order=latest`);
+    return (j.messages ?? []).flatMap((m) => ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()
+      ? [{ role: m.role, content: m.content, at: typeof m.timestamp === 'number' ? new Date(m.timestamp * 1000).toISOString() : null }]
+      : []));
   }
 
   async listBoards(): Promise<BoardInfo[]> {

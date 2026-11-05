@@ -222,6 +222,12 @@ export const MIGRATIONS: readonly string[] = [
   // v14: the safe (feature spec 6.1). Public account ids and settings only: Vibe City never stores keys.
   `CREATE TABLE money_settings (id INTEGER PRIMARY KEY CHECK (id = 1), settings_json TEXT NOT NULL);
    CREATE TABLE near_wallet (account_id TEXT NOT NULL, network TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, linked_at TEXT NOT NULL, PRIMARY KEY (account_id, network));`,
+  // v15: an agent has many chats (Hermes sessions); each stored message belongs to one. agent_chat.session_id is the
+  // chat the dialogue window opens on (the last one used).
+  `ALTER TABLE chat_message ADD COLUMN session_id TEXT;
+   UPDATE chat_message SET session_id = (SELECT c.session_id FROM agent_chat c JOIN department_agent a ON a.profile_ref = c.profile
+     WHERE a.department_id = chat_message.department_id AND a.agent_key = chat_message.agent_key);
+   CREATE INDEX chat_message_session_idx ON chat_message(session_id, seq);`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

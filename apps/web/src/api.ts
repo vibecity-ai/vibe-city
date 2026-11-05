@@ -111,7 +111,9 @@ export const api = {
   results: (dept: string, quest: string): Promise<QuestResults> => request('GET', `${q(dept, quest)}/results`, QuestResultsSchema),
   cancel: (dept: string, quest: string): Promise<CancellationStatus> => request('POST', `${q(dept, quest)}/cancel`, CancellationStatusSchema),
   character: (dept: string, agentKey: string): Promise<Character> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}`, CharacterSchema),
-  chatHistory: (dept: string, agentKey: string): Promise<ChatHistory> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatHistorySchema),
+  /** One chat with the agent: a Hermes session id, 'new', or omitted for the last one used. */
+  chatHistory: (dept: string, agentKey: string, session?: string): Promise<ChatHistory> =>
+    request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat${session ? `?session=${encodeURIComponent(session)}` : ''}`, ChatHistorySchema),
   money: (fresh = false): Promise<MoneyView> => request('GET', `/api/money${fresh ? '?fresh=1' : ''}`, MoneyViewSchema),
   setMoneySettings: (patch: Partial<MoneySettings>): Promise<MoneySettings> => request('PATCH', '/api/money/settings', MoneySettingsSchema, patch),
   linkWallet: (accountId: string): Promise<MoneyView> => request('POST', '/api/money/wallets', MoneyViewSchema, { accountId }),

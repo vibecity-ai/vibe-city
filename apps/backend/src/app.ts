@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
   CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, DepartmentUpdateSchema, DepartmentViewSchema,
-  InventoryPatchSchema, InventorySchema,
+  InventoryPatchSchema, InventorySchema, ChatSessionIdSchema,
 } from '@vibe-city/shared';
 import {
   AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema, SyncCheckSchema,
@@ -227,6 +227,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     db, departments, characters, hermes: runtime, companyName: () => company.view().name,
     ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), ...(extra.agentEnv ? { agentEnv: extra.agentEnv } : {}),
   });
+  /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */
+  const sessionOf = (query: unknown): string | undefined => {
+    const s = (query as { session?: unknown }).session;
+    return s === undefined || s === 'new' ? s : parse(ChatSessionIdSchema, s);
+  };
   const agentKeyOf = (params: unknown): string => {
     const key = (params as { agentKey?: string }).agentKey ?? '';
     if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
@@ -235,7 +240,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.get('/api/departments/:id/characters/:agentKey', async (req) =>
     parse(CharacterSchema, chat.character(idOf(req.params), agentKeyOf(req.params))));
   app.get('/api/departments/:id/characters/:agentKey/chat', async (req) =>
-    parse(ChatHistorySchema, chat.history(idOf(req.params), agentKeyOf(req.params))));
+    parse(ChatHistorySchema, await chat.history(idOf(req.params), agentKeyOf(req.params), sessionOf(req.query))));
   app.post('/api/departments/:id/characters/:agentKey/chat', async (req) =>
     parse(ChatReplySchema, await chat.send(idOf(req.params), agentKeyOf(req.params), parse(ChatSendSchema, req.body))));
   /** Same turn as POST .../chat, as Server-Sent Events: `progress` (thinking, tool use, waiting for an approval) while the

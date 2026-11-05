@@ -1,5 +1,6 @@
 /* Dialogue-window chat with one agent: the CEO talks to the agent's own Hermes profile (its model, tools, skills,
-   memory and SOUL.md) through the gateway API server, in one Hermes session per profile that holds the conversation.
+   memory and SOUL.md) through the gateway API server. Each chat is one Hermes session of the profile; the window opens on
+   the last one used, and any earlier chat can be reopened and continued.
    Vibe City adds only the persona and the dialogue conventions, as an ephemeral system message, and keeps its own copy
    of the transcript for the window. For bigger work the agent can still propose a quest; the user's Accept creates it
    through the quest API. */
@@ -10,7 +11,7 @@ import {
   type Character, type ChatHistory, type ChatMessage, type ChatReply, type ChatSend, type Mood,
 } from '@vibe-city/shared';
 import { ModelUnavailableError } from '../model/chatModel.ts';
-import { HermesAuthError, type HermesRuntime } from '../hermes/ports.ts';
+import { HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime } from '../hermes/ports.ts';
 import type { AgentChat, AgentChatEvent } from '../hermes/agentChat.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { CharacterService } from './characters.ts';
@@ -31,6 +32,7 @@ export interface ChatDeps {
 interface ChatCreds { profile: string; api_key: string; session_id: string }
 
 const newKey = () => randomBytes(24).toString('hex');
+const newSession = () => `vibecity-ceo-${randomBytes(4).toString('hex')}`;
 
 export class ChatService {
   private d: ChatDeps;
@@ -45,8 +47,34 @@ export class ChatService {
     return this.d.characters.get(departmentId, dept.name, agentKey);
   }
 
-  history(departmentId: string, agentKey: string): ChatHistory {
-    return { character: this.character(departmentId, agentKey), messages: this.load(departmentId, agentKey, 200), modelReady: this.profileOf(departmentId, agentKey) !== null };
+  /**
+   * One chat: `session` (a Hermes session id), or 'new' for a fresh one, or omitted for the last one used. Messages come
+   * from Vibe City's copy; a chat it has no copy of (started before it kept one, or outside it) is read from Hermes.
+   */
+  async history(departmentId: string, agentKey: string, session?: string): Promise<ChatHistory> {
+    const character = this.character(departmentId, agentKey);
+    const profile = this.profileOf(departmentId, agentKey);
+    const sessionId = session === 'new' ? newSession() : session ?? (profile && this.currentSession(profile)) ?? newSession();
+    let messages = session === 'new' ? [] : this.load(departmentId, agentKey, sessionId, 200);
+    if (!messages.length && session && session !== 'new' && profile) messages = await this.fromHermes(profile, sessionId);
+    return { character, sessionId, messages, modelReady: profile !== null };
+  }
+
+  private currentSession(profile: string): string | null {
+    return (this.d.db.prepare('SELECT session_id FROM agent_chat WHERE profile = ?').get(profile) as { session_id: string } | undefined)?.session_id ?? null;
+  }
+
+  private async fromHermes(profile: string, sessionId: string): Promise<ChatMessage[]> {
+    try {
+      return (await this.d.hermes.sessionMessages(profile, sessionId, 200)).map((m, i) => ChatMessageSchema.parse({
+        id: `${sessionId}:${i}`, from: m.role === 'user' ? 'user' : 'agent', at: m.at ?? new Date(0).toISOString(),
+        ...(m.role === 'user' ? { text: m.content.slice(0, 4000), mood: null, replies: [], proposal: null } : parseAgentReply(m.content)),
+      }));
+    } catch (e) {
+      // Not found or Hermes away: the chat shows empty and can still be continued.
+      if (e instanceof HermesRejectedError || e instanceof HermesUnavailableError || e instanceof HermesAuthError) return [];
+      throw e;
+    }
   }
 
   /** The agent's Hermes profile, once provisioning has created it; null when chat cannot reach the agent. */
@@ -65,38 +93,42 @@ export class ChatService {
     try {
       const ch = this.character(departmentId, agentKey);
       const system = this.systemMessage(departmentId, ch, input.taskTitle);
-      let creds = await this.creds(profile);
+      let creds = await this.creds(profile, input.sessionId);
+      const turn = (c: ChatCreds) => this.d.agentChat!.turn({ profile, key: c.api_key, sessionId: c.session_id, title: input.message.slice(0, 60), message: input.message, system }, onEvent);
       let raw: string;
       try {
-        raw = await this.d.agentChat.turn({ profile, key: creds.api_key, sessionId: creds.session_id, message: input.message, system }, onEvent);
+        raw = await turn(creds);
       } catch (e) {
         // The profile's .env lost or changed the key (re-created profile, manual edit): set a fresh one and retry once.
         if (!(e instanceof HermesAuthError)) throw e;
-        creds = await this.creds(profile, true);
-        raw = await this.d.agentChat.turn({ profile, key: creds.api_key, sessionId: creds.session_id, message: input.message, system }, onEvent);
+        creds = await this.creds(profile, input.sessionId, true);
+        raw = await turn(creds);
       }
       const at = new Date().toISOString();
       const user = ChatMessageSchema.parse({ id: randomUUID(), from: 'user', text: input.message, mood: null, replies: [], proposal: null, at });
       const agent = ChatMessageSchema.parse({ id: randomUUID(), from: 'agent', ...parseAgentReply(raw), at: new Date().toISOString() });
-      this.store(departmentId, agentKey, user);
-      this.store(departmentId, agentKey, agent);
+      this.store(departmentId, agentKey, creds.session_id, user);
+      this.store(departmentId, agentKey, creds.session_id, agent);
       return { user, agent };
     } finally {
       this.busy.delete(profile);
     }
   }
 
-  /** The profile's API key and session, set up on first chat (or with a new key when `rotate`). The key and the
-      provider credentials are written to the profile's .env on first use in this process. */
-  private async creds(profile: string, rotate = false): Promise<ChatCreds> {
+  /** The profile's API key (set up on first chat, or fresh when `rotate`) and the chat to talk in, which becomes the
+      one the window opens on next. The key and the provider credentials are written to the profile's .env on first
+      use in this process. */
+  private async creds(profile: string, sessionId: string | undefined, rotate = false): Promise<ChatCreds> {
     const row = this.d.db.prepare('SELECT profile, api_key, session_id FROM agent_chat WHERE profile = ?').get(profile) as ChatCreds | undefined;
-    if (row && !rotate && this.synced.has(profile)) return row;
-    const key = row && !rotate ? row.api_key : newKey();
-    await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv, API_SERVER_KEY: key });
-    this.synced.add(profile);
-    const session = row?.session_id ?? `vibecity-ceo-${randomBytes(4).toString('hex')}`;
+    const session = sessionId ?? row?.session_id ?? newSession();
+    let key = row?.api_key;
+    if (!key || rotate || !this.synced.has(profile)) {
+      key = key && !rotate ? key : newKey();
+      await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv, API_SERVER_KEY: key });
+      this.synced.add(profile);
+    }
     this.d.db.prepare(`INSERT INTO agent_chat (profile, api_key, session_id, created_at) VALUES (?, ?, ?, ?)
-      ON CONFLICT(profile) DO UPDATE SET api_key = excluded.api_key`).run(profile, key, session, new Date().toISOString());
+      ON CONFLICT(profile) DO UPDATE SET api_key = excluded.api_key, session_id = excluded.session_id`).run(profile, key, session, new Date().toISOString());
     return { profile, api_key: key, session_id: session };
   }
 
@@ -118,17 +150,17 @@ export class ChatService {
     ].filter(Boolean).join('\n');
   }
 
-  private load(departmentId: string, agentKey: string, limit: number): ChatMessage[] {
-    const rows = this.d.db.prepare('SELECT message_json FROM chat_message WHERE department_id = ? AND agent_key = ? ORDER BY seq DESC LIMIT ?')
-      .all(departmentId, agentKey, limit) as { message_json: string }[];
+  private load(departmentId: string, agentKey: string, sessionId: string, limit: number): ChatMessage[] {
+    const rows = this.d.db.prepare('SELECT message_json FROM chat_message WHERE department_id = ? AND agent_key = ? AND session_id = ? ORDER BY seq DESC LIMIT ?')
+      .all(departmentId, agentKey, sessionId, limit) as { message_json: string }[];
     return rows.reverse().map((r) => ChatMessageSchema.parse(JSON.parse(r.message_json)));
   }
 
-  private store(departmentId: string, agentKey: string, m: ChatMessage) {
+  private store(departmentId: string, agentKey: string, sessionId: string, m: ChatMessage) {
     const next = (this.d.db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM chat_message WHERE department_id = ? AND agent_key = ?')
       .get(departmentId, agentKey) as { n: number }).n;
-    this.d.db.prepare('INSERT INTO chat_message (id, department_id, agent_key, seq, message_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(m.id, departmentId, agentKey, next, JSON.stringify(m), m.at);
+    this.d.db.prepare('INSERT INTO chat_message (id, department_id, agent_key, seq, session_id, message_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(m.id, departmentId, agentKey, next, sessionId, JSON.stringify(m), m.at);
   }
 }
 

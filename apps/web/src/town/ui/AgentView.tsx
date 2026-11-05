@@ -2,10 +2,11 @@
    read from the backend (persona, stored chat, quests and tasks Hermes reports); numbers the game cannot know yet
    (cost, review grades) say so instead of guessing. */
 import { useEffect, useMemo, useState } from 'react';
-import type { Character, ChatMessage } from '@vibe-city/shared';
+import type { AgentSession, Character, ChatHistory, ChatMessage } from '@vibe-city/shared';
 import { useStore } from '../store';
 import type { Dept, AgentStatus } from '../data/types';
 import { api, ApiError } from '../../api';
+import { loadAgent } from '../data/live';
 import { lookFor, quirkProp } from '../world/sprites';
 import { PortraitCanvas } from './Dialogue';
 import { formatTime } from './format';
@@ -58,22 +59,45 @@ export function PersonaLine({ deptId, agentKey }: { deptId: string; agentKey: st
   );
 }
 
-export function ChatTranscript({ deptId, agentKey, onTalk }: { deptId: string; agentKey: string; onTalk: () => void }) {
+/** A chat's name: its Hermes title (the opening line), or its date for chats titled before that ("CEO chat 1a2b3c"). */
+export const chatTitle = (x: AgentSession) => (x.title && !/^CEO chat [0-9a-f]{6}$/.test(x.title) ? x.title : `Chat from ${formatTime(x.startedAt)}`);
+
+/** The agent's chats (its Hermes chat sessions): pick one to read it, resume it in the dialogue window, or start a new one. */
+export function ChatTranscript({ deptId, agentKey, sessions, sessionsError }: { deptId: string; agentKey: string; sessions: AgentSession[] | null; sessionsError: string | null }) {
   const ch = usePersona(deptId, agentKey);
-  const [messages, setMessages] = useState<ChatMessage[] | null>(null);
+  const talking = useStore((s) => !!s.ui.talk);
+  const [sel, setSel] = useState<string | undefined>(undefined);
+  const [h, setH] = useState<ChatHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
-  useEffect(() => { api.chatHistory(deptId, agentKey).then((h) => setMessages(h.messages)).catch((e: ApiError) => setError(e.message)); }, [deptId, agentKey]);
+  // Reloaded when the dialogue window closes: the chat just used is now the last one, and Hermes lists it.
+  useEffect(() => {
+    if (talking) return;
+    setError(null);
+    api.chatHistory(deptId, agentKey, sel).then(setH).catch((e: ApiError) => setError(e.message));
+    void loadAgent(deptId, agentKey);
+  }, [deptId, agentKey, sel, talking]);
+  const talk = (session?: string) => { setSel(undefined); useStore.getState().ui$({ talk: { deptId, agentKey, ...(session ? { session } : {}) } }); };
+  const chats = (sessions ?? []).filter((x) => x.source === 'api_server');
+  const messages = h?.messages ?? null;
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = (messages ?? []).filter((m) => words.every((w) => m.text.toLowerCase().includes(w)));
   return (
     <section className="pane-sec">
-      <div className="head-row"><h3 className="sec-t">Conversations {messages && <span className="count">{messages.length}</span>}</h3><button className="btn primary small" onClick={onTalk}>Talk</button></div>
-      <p className="fine">Every dialogue-window conversation with {ch?.name ?? 'this agent'}. Chat never starts work: a request becomes a quest proposal you accept.</p>
-      {messages && messages.length > 0 && <input className="input" type="search" placeholder="Search this transcript" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the transcript" />}
+      <div className="head-row"><h3 className="sec-t">Chats {sessions && <span className="count">{chats.length}</span>}</h3>
+        <span className="row"><button className="btn small" onClick={() => talk('new')}>New chat</button>{h && <button className="btn primary small" onClick={() => talk(h.sessionId)}>{messages?.length ? 'Resume' : 'Talk'}</button>}</span></div>
+      <p className="fine">Every chat with {ch?.name ?? 'this agent'} is a session in Hermes, with its memory of what was said. Resume one to carry on where you left off. Chat never starts work: a request becomes a quest proposal you accept.</p>
+      {sessionsError && <p className="muted small"><Glyph k="disconnected" /> {sessionsError}</p>}
+      {chats.length > 0 && <ul className="stack tight chats">{chats.map((x) => (
+        <li key={x.id}><button className={`link session${x.id === h?.sessionId ? ' sel' : ''}`} aria-current={x.id === h?.sessionId || undefined} onClick={() => setSel(x.id)}>
+          <Glyph k={x.active ? 'running' : 'idle'} />
+          <span><b>{chatTitle(x)}</b><small className="muted">{[formatTime(x.lastActiveAt ?? x.startedAt), x.messageCount != null ? `${x.messageCount} messages` : null, x.active ? 'answering now' : null].filter(Boolean).join(' · ')}</small></span>
+        </button></li>
+      ))}</ul>}
+      {messages && messages.length > 0 && <input className="input" type="search" placeholder="Search this chat" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search this chat" />}
       {error && <p className="field-err" role="alert">{error}</p>}
       {!messages && !error && <p className="muted" aria-busy="true">Loading…</p>}
-      {messages?.length === 0 && <p className="muted">No conversations yet. Press Talk to start one.</p>}
+      {messages?.length === 0 && <p className="muted">{chats.length ? 'Nothing to show for this chat.' : 'No chats yet. Press Talk to start one.'}</p>}
       <ol className="transcript">
         {shown.map((m) => (
           <li key={m.id} className={m.from}>

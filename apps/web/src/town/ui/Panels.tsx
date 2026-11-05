@@ -704,7 +704,7 @@ export function AgentPanel() {
             options={[{ key: 'now', label: 'Now' }, { key: 'chat', label: 'Chat' }, { key: 'loadout', label: 'Loadout' }, { key: 'record', label: 'Record' }, { key: 'schedule', label: 'Schedule' }]} />
         </div>
         <div id="agent-panel" role="tabpanel" aria-labelledby={`agent-tab-${tab}`}>
-        {tab === 'chat' && (agentKey ? <ChatTranscript deptId={d.id} agentKey={agentKey} onTalk={() => s.ui$({ talk: { deptId: d.id, agentKey } })} /> : <section className="pane-sec"><p className="muted">Pick an agent to see its conversations.</p></section>)}
+        {tab === 'chat' && (agentKey ? <ChatTranscript deptId={d.id} agentKey={agentKey} sessions={view?.sessions ?? null} sessionsError={view?.sessionsError ?? null} /> : <section className="pane-sec"><p className="muted">Pick an agent to see its conversations.</p></section>)}
         {tab === 'record' && agentKey && <AgentRecord d={d} agentKey={agentKey} />}
         {tab === 'schedule' && (
           <section className="pane-sec">
@@ -735,16 +735,6 @@ export function AgentPanel() {
           {log.length > 0 && <ol className="feed">{log.map((l, i) => <li key={i}><span className="mono muted">{l.t}</span><Glyph k={(l.kind === 'chief' ? 'awaiting' : l.kind) as StatusKey} /><span>{l.text}</span></li>)}</ol>}
         </section>
 
-        <section className="pane-sec" aria-busy={a?.loading}>
-          <h3 className="sec-t">Sessions in Hermes {view?.sessions && <span className="count">{view.sessions.length}</span>}</h3>
-          {!view && a?.loading && <p className="muted">Loading…</p>}
-          {view?.sessionsError && <p className="muted small"><Glyph k="disconnected" /> {view.sessionsError}</p>}
-          {view?.sessions?.length === 0 && <p className="muted small">No sessions yet for this profile.</p>}
-          <ul className="stack tight">{view?.sessions?.map((x) => (
-            <li key={x.id} className="session"><Glyph k={x.active ? 'running' : x.endedAt ? 'completed' : 'idle'} />
-              <span><b>{x.title ?? 'Untitled session'}</b><small className="mono muted">{[x.source, x.model, formatTime(x.startedAt), x.active ? 'active now' : x.endedAt ? `ended ${formatTime(x.endedAt)}` : 'not ended', x.messageCount != null ? `${x.messageCount} messages` : null, x.toolCallCount != null ? `${x.toolCallCount} tool calls` : null].filter(Boolean).join(' · ')}</small></span></li>
-          ))}</ul>
-        </section>
 
         </>}
         {tab === 'loadout' && (

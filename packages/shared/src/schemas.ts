@@ -611,8 +611,13 @@ export const ChatMessageSchema = z.object({
 }).strict();
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
+/** A Hermes session id: one chat with an agent. */
+export const ChatSessionIdSchema = z.string().regex(/^[A-Za-z0-9._-]{1,128}$/, 'invalid chat');
+
 export const ChatHistorySchema = z.object({
   character: CharacterSchema,
+  /** The chat these messages belong to; send it back to continue it. A new chat has an id but no messages yet. */
+  sessionId: ChatSessionIdSchema,
   messages: z.array(ChatMessageSchema),
   /** False when no chat model is configured (NEAR_AI_API_KEY unset): the window shows why instead of a chat box. */
   modelReady: z.boolean(),
@@ -623,6 +628,8 @@ export const ChatSendSchema = z.object({
   message: z.string().trim().min(1, 'say something').max(2000),
   /** The agent's current task title, as context for the persona. */
   taskTitle: z.string().trim().max(300).optional(),
+  /** The chat to continue (from the history); omitted = the agent's last chat. */
+  sessionId: ChatSessionIdSchema.optional(),
 }).strict();
 export type ChatSend = z.infer<typeof ChatSendSchema>;
 

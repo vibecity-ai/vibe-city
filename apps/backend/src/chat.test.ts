@@ -94,6 +94,36 @@ test('a rejected key is replaced once and the turn retried', async () => {
   assert.equal(agentChat.turns[1]!.sessionId, agentChat.turns[0]!.sessionId); // same conversation
 });
 
+test('an agent has many chats: a new one, then resuming the old one; a chat Vibe City never saw is read from Hermes', async () => {
+  const { app, hermes, agentChat, readyDept } = agentApp();
+  const d = await readyDept('Chats', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  await app.inject({ method: 'POST', url, payload: { message: 'first chat' } });
+  const first = (await app.inject(url)).json();
+  assert.equal(first.messages.length, 2);
+  assert.equal(agentChat.turns[0]!.title, 'first chat'); // the Hermes session is named after its opening line
+
+  const fresh = (await app.inject(`${url}?session=new`)).json();
+  assert.notEqual(fresh.sessionId, first.sessionId);
+  assert.deepEqual(fresh.messages, []);
+  await app.inject({ method: 'POST', url, payload: { message: 'second chat', sessionId: fresh.sessionId } });
+  assert.equal(agentChat.turns[1]!.sessionId, fresh.sessionId);
+  assert.equal((await app.inject(url)).json().sessionId, fresh.sessionId, 'the window reopens on the last chat used');
+
+  await app.inject({ method: 'POST', url, payload: { message: 'back to the first', sessionId: first.sessionId } });
+  assert.equal(agentChat.turns[2]!.sessionId, first.sessionId);
+  assert.deepEqual((await app.inject(`${url}?session=${first.sessionId}`)).json().messages.map((m: any) => m.text).filter((_: string, i: number) => i % 2 === 0), ['first chat', 'back to the first']);
+
+  hermes.sessionLog.set(`${d.lead}/cli-chat-1`, [
+    { role: 'user', content: 'hi from the terminal', at: '2026-11-01T10:00:00.000Z' },
+    { role: 'assistant', content: 'Hello.\n<vc>{"mood":"happy","replies":["Thanks"],"proposal":null}</vc>', at: '2026-11-01T10:00:05.000Z' },
+  ]);
+  const old = (await app.inject(`${url}?session=cli-chat-1`)).json();
+  assert.deepEqual(old.messages.map((m: any) => [m.from, m.text, m.mood]), [['user', 'hi from the terminal', null], ['agent', 'Hello.', 'happy']]);
+  assert.deepEqual((await app.inject(`${url}?session=gone-1`)).json().messages, []);
+  assert.equal((await app.inject(`${url}?session=..%2Fx`)).statusCode, 400);
+});
+
 test('the stream endpoint relays progress, then the reply; errors arrive as an error event', async () => {
   const { app, agentChat, readyDept } = agentApp();
   agentChat.events = [{ kind: 'thinking' }, { kind: 'tool', name: 'kanban_list', preview: 'board' }];
@@ -148,7 +178,7 @@ test('the Hermes agent client creates the session, follows the stream and maps a
   }) as typeof fetch;
   const client = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642/', fetch: fetch_ });
   const events: unknown[] = [];
-  const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', message: 'what did you find?', system: 'persona' };
+  const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', title: 'what did you find?', message: 'what did you find?', system: 'persona' };
   assert.equal(await client.turn(turn, (e) => events.push(e)), 'Found it, boss.');
   assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }]);
   assert.equal(seen[1]!.url, 'http://hermes.test:8642/p/vc-abc-chief/api/sessions/vibecity-ceo-1/chat/stream');

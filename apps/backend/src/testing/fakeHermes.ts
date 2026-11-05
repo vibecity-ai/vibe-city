@@ -1,7 +1,7 @@
 import type { ModelChoice } from '@vibe-city/shared';
 import {
-  HermesAuthError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type HermesRuntime, type ModelCatalog, type ProfileInfo, type SessionInfo, type SkillInfo,
+  HermesAuthError, HermesNotFoundError, HermesRejectedError, HermesUnavailableError,
+  type BoardInfo, type HermesHealth, type HermesRuntime, type ModelCatalog, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo,
 } from '../hermes/ports.ts';
 
 type Method = keyof HermesRuntime;
@@ -153,6 +153,15 @@ export class FakeHermes implements HermesRuntime {
   async writeInstructions(profile: string, text: string) {
     this.enter('writeInstructions', [profile]);
     this.profile(profile).soul = text;
+  }
+
+  /** Session transcripts, keyed `profile/sessionId`. */
+  sessionLog = new Map<string, SessionMessage[]>();
+  async sessionMessages(profile: string, sessionId: string, limit: number) {
+    this.enter('sessionMessages', [profile]);
+    const log = this.sessionLog.get(`${profile}/${sessionId}`);
+    if (!log) throw new HermesNotFoundError('Hermes: not found');
+    return log.slice(-limit);
   }
 
   async listSessions(profile: string, limit: number) {

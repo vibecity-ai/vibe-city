@@ -30,6 +30,8 @@ export interface SkillInfo {
 }
 
 /** A Hermes session row reduced to the fields Vibe City may relay (times are epoch seconds). */
+export interface SessionMessage { role: 'user' | 'assistant'; content: string; at: string | null }
+
 export interface SessionInfo {
   id: string;
   title: string | null;
@@ -85,6 +87,8 @@ export interface HermesRuntime {
 
   /** Most recent sessions of one profile (dashboard `GET /api/sessions?profile=`), newest activity first. */
   listSessions(profile: string, limit: number): Promise<SessionInfo[]>;
+  /** The last `limit` user and assistant messages of one session, oldest first (tool calls and empty turns left out). */
+  sessionMessages(profile: string, sessionId: string, limit: number): Promise<SessionMessage[]>;
 
   /** Host-wide `kanban.max_in_progress_per_profile`, or null when unset/unlimited. */
   getConcurrencyCap(): Promise<number | null>;

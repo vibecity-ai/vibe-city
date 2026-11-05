@@ -74,7 +74,7 @@ export interface Who { name: string; title: string; color: string; voice: number
 
 /** The shared window. The parent owns the conversation (lines, waiting, error); the frame owns paging, typing and input. */
 export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, status = null, error, greeting, notReady, baseMood = 'neutral', defaultReplies = [],
-  onSend, onClose, onProfile, cards, below, hideInput, inputHint }: {
+  onSend, onClose, onProfile, onNewChat, cards, below, hideInput, inputHint }: {
   who: Who | null; look: Look; gag?: Gag | null; lines: Line[]; ready: boolean; waiting: boolean; error: string | null;
   /** What the speaker is doing while the user waits ("checking the board…"). */
   status?: string | null;
@@ -82,6 +82,8 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   /** Resolves false when sending failed: the typed text goes back into the box. */
   onSend: (msg: string) => Promise<boolean>;
   onClose: () => void; onProfile?: () => void;
+  /** Starts a fresh chat with the same speaker. */
+  onNewChat?: () => void;
   /** Shown once the speaker has finished talking (proposal cards, brief cards…). */
   cards?: (lastAgent: Line | null) => ReactNode;
   /** A small line under the text bar (interview stats, scouting timer). */
@@ -169,6 +171,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
           </>}
           {hideInput && <span className="dlg-spacer" />}
           <button type="button" className="dlg-icon" onClick={() => { const v = !muted; setMuted(v); saveMuted(v); }} aria-label={muted ? 'Turn voice blips on' : 'Turn voice blips off'} title={muted ? 'Sound off' : 'Sound on'}>{muted ? '♪̸' : '♪'}</button>
+          {onNewChat && <button type="button" className="dlg-icon" onClick={onNewChat} disabled={waiting} title="New chat" aria-label="Start a new chat"><Icon n="plus" size={14} /></button>}
           {onProfile && <button type="button" className="dlg-icon" onClick={onProfile} title="Open profile" aria-label="Open agent profile"><Icon n="sliders" size={14} /></button>}
           <button type="button" className="dlg-icon" onClick={onClose} aria-label="Close dialogue (Esc)" title="Close (Esc)"><Icon n="x" size={14} /></button>
         </form>
@@ -203,15 +206,16 @@ export function progressLabel(p: ChatProgress): string {
 export function DialogueWindow() {
   const talk = useStore((s) => s.ui.talk);
   if (!talk) return null;
-  return <AgentDialogue key={`${talk.deptId}:${talk.agentKey}`} deptId={talk.deptId} agentKey={talk.agentKey} />;
+  return <AgentDialogue key={`${talk.deptId}:${talk.agentKey}:${talk.session ?? ''}`} deptId={talk.deptId} agentKey={talk.agentKey} session={talk.session} />;
 }
 
-function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string }) {
+function AgentDialogue({ deptId, agentKey, session }: { deptId: string; agentKey: string; session?: string }) {
   const d = useStore((s) => s.depts.find((x) => x.id === deptId));
   const worker = agentKey === 'chief' ? null : d?.workers.find((w) => w.id === agentKey) ?? null;
   const close = useCallback(() => useStore.getState().ui$({ talk: null }), []);
 
   const [ch, setCh] = useState<Character | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [ready, setReady] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -221,10 +225,10 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
 
   useEffect(() => {
     let live = true;
-    api.chatHistory(deptId, agentKey).then((h) => { if (!live) return; setCh(h.character); setMessages(h.messages); setReady(h.modelReady); })
+    api.chatHistory(deptId, agentKey, session).then((h) => { if (!live) return; setCh(h.character); setSessionId(h.sessionId); setMessages(h.messages); setReady(h.modelReady); })
       .catch((e: ApiError) => { if (live) setError(e.message); });
     return () => { live = false; };
-  }, [deptId, agentKey]);
+  }, [deptId, agentKey, session]);
 
   const look = useMemo(() => ({ ...lookFor(deptId + ':' + agentKey, worker?.shirt ?? '#FFFFFF', agentKey === 'chief'), prop: quirkProp(ch?.quirk) }), [deptId, agentKey, worker?.shirt, ch?.quirk]);
   const status = agentKey === 'chief' ? d?.chief?.status : worker?.status;
@@ -236,7 +240,7 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
     setError(null); setWaiting(true); setProgress(null);
     setMessages((xs) => [...xs, { id: 'pending', from: 'user', text: m, mood: null, replies: [], proposal: null, at: new Date().toISOString() }]);
     try {
-      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}) }, (p) => setProgress(progressLabel(p)));
+      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}) }, (p) => setProgress(progressLabel(p)));
       setMessages((xs) => [...xs.filter((x) => x.id !== 'pending'), r.user, r.agent]);
       return true;
     } catch (e) {
@@ -261,6 +265,7 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
       defaultReplies={['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
       onSend={onSend} onClose={close}
+      onNewChat={() => useStore.getState().ui$({ talk: { deptId, agentKey, session: 'new' } })}
       onProfile={() => { close(); useStore.getState().ui$({ agent: agentKey, panel: 'agent' }); }}
       cards={() => {
         if (!last) return null;

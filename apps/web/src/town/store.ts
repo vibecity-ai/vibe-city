@@ -53,8 +53,9 @@ interface UI {
   questFrom: 'board' | 'dept';
   /** Executive Office list: active floors or the read-only archived list. */
   execView: 'active' | 'archived';
-  /** The dialogue window: who you are talking to (a chief or a worker desk). */
-  talk: { deptId: string; agentKey: string } | null;
+  /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
+      'new'; omitted = their last chat). */
+  talk: { deptId: string; agentKey: string; session?: string } | null;
   /** AR hiring: the dialogue window on AR's head (intake) or on a candidate (interview), or the shortlist popup. */
   call: { mode: 'ar' | 'interview' | 'shortlist'; reqId: string; candId?: string } | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */

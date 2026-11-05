@@ -1,7 +1,7 @@
 /* Talking to an agent's own Hermes profile: the gateway's API server (OpenAI-compatible, plus session chat), with
    profiles multiplexed under /p/<profile>/. Each profile authenticates with its own API_SERVER_KEY (Hermes never lets a
    named profile borrow the owner's key), which Vibe City sets in the profile's .env. The agent answers with its own
-   model, tools, skills, memory and SOUL.md; the conversation lives in one Hermes session per profile. */
+   model, tools, skills, memory and SOUL.md; each conversation is one Hermes session of that profile. */
 import type { ChatProgress } from '@vibe-city/shared';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError } from './ports.ts';
 
@@ -13,6 +13,8 @@ export interface AgentTurn {
   /** The profile's API_SERVER_KEY. */
   key: string;
   sessionId: string;
+  /** The session's title in Hermes, set when this turn creates it. */
+  title: string;
   message: string;
   /** Ephemeral system message for this turn (persona and dialogue conventions); not stored in the session. */
   system: string;
@@ -47,7 +49,7 @@ export class HermesAgentChat implements AgentChat {
     const timer = setTimeout(() => ctl.abort(), this.o.turnTimeoutMs);
     try {
       // The session must exist before chatting; 409 = it already does.
-      const created = await this.call(`${base}/api/sessions`, { method: 'POST', headers, signal: ctl.signal, body: JSON.stringify({ id: t.sessionId, title: `CEO chat ${t.sessionId.slice(-6)}` }) });
+      const created = await this.call(`${base}/api/sessions`, { method: 'POST', headers, signal: ctl.signal, body: JSON.stringify({ id: t.sessionId, title: t.title }) });
       if (created.status !== 409) await this.check(created);
       // Disconnecting interrupts the run in Hermes, so the stream is read to the end.
       const res = await this.call(`${base}/api/sessions/${t.sessionId}/chat/stream`, {
