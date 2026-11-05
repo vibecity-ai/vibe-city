@@ -1,5 +1,6 @@
 # Development: only Hermes runs in Docker; the backend and web app run on the host with Node (see DEPLOYMENT.md, "Develop").
 #
+#   npm run dev           # all three below in one terminal (Ctrl+C stops backend + web; Hermes keeps running)
 #   npm run dev:hermes    # this file: Hermes gateway + dashboard
 #   npm run dev:backend   # http://127.0.0.1:4100, restarts on save, drives this container (scripts/hermes-docker)
 #   npm run dev:web       # http://localhost:4200, hot reload, proxies /api to the backend

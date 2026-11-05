@@ -80,7 +80,7 @@ export class RunTracker {
     const dept = this.depts.getRow(departmentId);
     const board = dept.hermes_board_ref;
     const agents = new Map(this.depts.agents(departmentId).filter((a) => a.profile_ref).map((a) => [a.profile_ref!, a.agent_key]));
-    if (!board || !agents.size) throw new Error('department is not provisioned');
+    if (!board || !agents.size) throw new Error('department is not synced with Hermes');
     const violations: string[] = [];
     const quest = await kanban.getTask(board, questTaskId);
     const tasks: { id: string; parent: string | null; detail: typeof quest }[] = [{ id: questTaskId, parent: null, detail: quest }];

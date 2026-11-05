@@ -65,7 +65,7 @@ export function questTargets(depts: Dept[], hermesUp: boolean): DeptOption[] {
   return depts.map((d, i) => {
     const label = `F${depts.length - i} · ${d.name}`;
     const disabled = d.provisioning !== 'ready'
-      ? (d.provisioning === 'unconfigured' ? 'not provisioned' : d.provisioning === 'disconnected' ? 'Hermes resources not verified' : d.provisioning === 'provisioning' ? 'provisioning' : 'provisioning failed')
+      ? (d.provisioning === 'unconfigured' ? 'not synced' : d.provisioning === 'disconnected' ? 'Hermes resources not verified' : d.provisioning === 'provisioning' ? 'syncing' : 'sync failed')
       : !hermesUp ? 'Hermes not reachable' : null;
     return { id: d.id, label, chief: d.chief?.name ?? null, disabled };
   });

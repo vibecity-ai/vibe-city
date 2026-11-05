@@ -49,5 +49,5 @@ test('observe refuses an unprovisioned department', async () => {
   const c = new CompanyService(db).ensureCompany();
   const depts = new DepartmentService(db, c.id);
   const d = depts.create({ name: 'Eng', purpose: '', teammates: 0 });
-  await assert.rejects(new RunTracker(db, depts).observe(d.id, {} as KanbanClient, 'x'), /not provisioned/);
+  await assert.rejects(new RunTracker(db, depts).observe(d.id, {} as KanbanClient, 'x'), /not synced/);
 });

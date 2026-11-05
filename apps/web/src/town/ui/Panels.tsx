@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AGENT_EXCLUDED_TOOLSETS, PROVISIONING_STEPS, TOOLSETS, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
@@ -19,11 +19,10 @@ import {
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { callAr } from './Hiring';
-import { PendingRequests, QuestPolicyEditor } from './Requests';
+import { PendingRequests } from './Requests';
 import { AgentPortrait, AgentRecord, ChatTranscript, PersonaLine } from './AgentView';
 import { SchedulesView } from './Schedules';
 
-const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
 /* ============ top bar ============ */
 export function TopBar() {
@@ -297,18 +296,11 @@ function SetupPanel({ d }: { d: Dept }) {
   const s = useStore();
   const prov = s.info[d.id]?.provisioning ?? null;
   const inv = s.info[d.id]?.inventory ?? null;
-  const leadRef = d.view.agents.find((a) => a.lead)?.profileRef ?? null;
-  const [mode, setMode] = useState<'managed' | 'link'>(leadRef && prov?.agents[0]?.origin === 'associated' ? 'link' : 'managed');
-  const [chief, setChief] = useState(leadRef ?? '');
-  const [consent, setConsent] = useState(false);
   const busy = !!s.busy[`provision:${d.id}`];
   const err = prov?.error ?? null;
-  const valid = mode === 'managed' || (PROFILE_RE.test(chief.trim()) && consent);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
-    void provisionDepartment(d.id, mode === 'managed'
-      ? { leadProfileRef: null }
-      : { leadProfileRef: chief.trim(), confirmModifyProfiles: [chief.trim()] });
+    void provisionDepartment(d.id, { leadProfileRef: null });
   };
   return (
     <div className="pane">
@@ -333,25 +325,14 @@ function SetupPanel({ d }: { d: Dept }) {
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
             <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the inventory and verifies it by reading it back. It can take a minute.</p>
-            <fieldset className="plain">
-              <legend className="sr">Profiles</legend>
-              <label className={`radio${mode === 'managed' ? ' on' : ''}`}><input type="radio" name="m" checked={mode === 'managed'} onChange={() => setMode('managed')} />Create managed profiles (recommended)</label>
-              <label className={`radio${mode === 'link' ? ' on' : ''}`}><input type="radio" name="m" checked={mode === 'link'} onChange={() => setMode('link')} />Use an existing Hermes profile for the lead</label>
-            </fieldset>
-            {mode === 'link' && (
-              <>
-                <Field label="Lead profile" hint={d.teamSize > 1 ? 'Teammates always get their own Vibe City-managed profiles.' : undefined} error={chief.trim() && !PROFILE_RE.test(chief.trim()) ? 'Lowercase letters, digits, - and _ only.' : null}>
-                  {(p) => <input {...p} className="input mono" value={chief} onChange={(e) => setChief(e.target.value)} placeholder="existing-profile-name" />}
-                </Field>
-                <label className="consent">
-                  <input type="checkbox" checked={consent} onChange={(e) => setConsent(e.target.checked)} />
-                  <span>Allow Vibe City to modify <b className="mono">{chief.trim() || 'the lead profile'}</b>: toolsets, skills, default model and a block in SOUL.md. This also changes how it behaves <b>outside</b> Vibe City.</span>
-                </label>
-              </>
-            )}
-            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes || !valid}>{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
+            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes}>{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
             {!s.conn.hermes && <small className="muted">Hermes is not reachable. Start the dashboard and gateway first.</small>}
-            {busy && <div className="steps-list" role="status">Syncing: {PROVISIONING_STEPS.map((x) => <span key={x} className="mono muted">{x}</span>)}</div>}
+            {busy && (
+              <div className="sync-wait" role="status">
+                <div className="sync-bar" aria-hidden="true"><i /></div>
+                <small className="muted">Setting up the board and profiles in Hermes. This can take a minute, keep this open.</small>
+              </div>
+            )}
           </form>
         </section>
       </div>
@@ -375,10 +356,6 @@ export function SettingsSheet() {
           <p className="sub">Edit the department, inspect what Vibe City created or linked in Hermes, or archive the floor.</p>
         </section>
         <SettingsForm key={`${d.id}|${d.name}|${d.purpose}`} d={d} />
-        <section className="pane-sec">
-          <h3 className="sec-t">Work from other floors</h3>
-          <QuestPolicyEditor deptId={d.id} />
-        </section>
         <SyncInspector d={d} />
         <section className="pane-sec danger">
           <h3 className="sec-t">Archive</h3>
@@ -416,7 +393,6 @@ function SettingsForm({ d }: { d: Dept }) {
       {errs.form && <p className="field-err" role="alert"><Glyph k="failed" />{errs.form}</p>}
       <div className="row"><button className="btn primary" type="submit" disabled={!patch || busy} aria-busy={busy || undefined}>{busy ? 'Saving…' : 'Save changes'}</button>
         {patch && <Btn onClick={() => { setF(settingsFormFrom(d)); setErrs({}); }} disabled={busy}>Discard</Btn>}</div>
-      <p className="fine">The lead's profile is chosen when the floor is first synced, which asks for explicit consent before Vibe City modifies an existing profile. Teammates always get their own managed profiles.</p>
     </form>
   );
 }
@@ -596,8 +572,8 @@ export function InventorySheet() {
           <div className="inv-body" aria-busy={saving}><div className="inv-main">
             <div aria-live="polite">
               {saving && <p className="muted small" role="status">Saving…</p>}
-              {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs provisioning again</b><p>Saved changes are not in Hermes yet. Agents keep their previous configuration until you provision again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
-              {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this inventory.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
+              {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs syncing again</b><p>Saved changes are not in Hermes yet. Agents keep their previous configuration until you sync again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
+              {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this inventory.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
             </div>
             <h3 className="inv-h">Agents <span>{teamLine(d.teamSize)}</span></h3>
             <div className="kv-card block">
@@ -675,7 +651,7 @@ export function AgentPanel() {
         </section>
         <div aria-live="polite">
           {a?.error && <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>{view ? 'Refresh failed: showing the last data received' : 'Could not load this agent'}</b><p>{a.error}</p><Btn kind="destructive" onClick={() => agentKey && void loadAgent(d.id, agentKey)}>Retry</Btn></div></div>}
-          {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs provisioning again</b><p>Saved changes are not in Hermes yet. The agent keeps its previous skills and model until you provision again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Provisioning…' : 'Provision again'}</Btn></div></div>}
+          {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs syncing again</b><p>Saved changes are not in Hermes yet. The agent keeps its previous skills and model until you sync again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
         </div>
 
         <div className="pane-sec agent-tabs-wrap">
@@ -1259,7 +1235,7 @@ export function CreateDeptModal() {
           {step === 0 ? <Btn onClick={() => s.ui$({ modal: null })}>Cancel</Btn> : <Btn onClick={() => setStep(step - 1)} disabled={busy}>Back</Btn>}
           {step < 2
             ? <button className="btn primary lg" type="submit" disabled={!name.trim() || (step === 1 && loading)}>{step === 1 && !defaults ? 'Continue without defaults' : 'Next'}</button>
-            : <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={!name.trim() || busy}>{busy ? (s.busy.create ? 'Creating…' : 'Provisioning…') : provisionNow && canProvision ? 'Create and provision' : 'Create department'}</button>}
+            : <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={!name.trim() || busy}>{busy ? (s.busy.create ? 'Creating…' : 'Syncing…') : provisionNow && canProvision ? 'Create and sync' : 'Create department'}</button>}
         </div>
       </form>
     </div>

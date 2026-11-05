@@ -9,6 +9,7 @@
   "scripts": {
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
+    "dev": "npm run dev:hermes && (trap \"kill 0\" EXIT; npm run dev:backend & npm run dev:web & wait)",
     "dev:backend": "npm run dev:docker -w @vibe-city/backend",
     "dev:web": "npm run dev -w @vibe-city/web",
     "build": "npm run build -w @vibe-city/web",

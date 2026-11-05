@@ -11,8 +11,8 @@ import {
   InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
   type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
   AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply,
-  QuestOriginListSchema, QuestPolicySchema, QuestRequestListSchema, QuestRequestViewSchema,
-  type QuestOrigin, type QuestPolicy, type QuestRequestView,
+  QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
+  type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
@@ -121,8 +121,6 @@ export const api = {
   approveRequest: (id: string): Promise<QuestRequestView> => request('POST', `/api/quest-requests/${encodeURIComponent(id)}/approve`, QuestRequestViewSchema),
   rejectRequest: (id: string): Promise<QuestRequestView> => request('POST', `/api/quest-requests/${encodeURIComponent(id)}/reject`, QuestRequestViewSchema),
   questOrigins: async (): Promise<QuestOrigin[]> => (await request('GET', '/api/quest-origins', QuestOriginListSchema)).origins,
-  questPolicy: (dept: string): Promise<QuestPolicy> => request('GET', `${d(dept)}/quest-policy`, QuestPolicySchema),
-  setQuestPolicy: (dept: string, patch: Partial<QuestPolicy>): Promise<QuestPolicy> => request('PATCH', `${d(dept)}/quest-policy`, QuestPolicySchema, patch),
   assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
   departmentDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> => request('POST', '/api/assistant/department-draft', DeptDraftReplySchema, { messages }),
   hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,

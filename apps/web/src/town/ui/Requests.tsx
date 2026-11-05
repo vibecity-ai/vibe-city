@@ -1,8 +1,8 @@
 /* Quests between departments (feature spec 2.4), browser side. Polls the requests and quest origins, flies a gold
    packet between floors when a chief hands work to another department, lists requests that wait for the CEO's
-   approval, and edits a floor's policy (who may give it work, and its own daily cap). */
+   approval. */
 import { useEffect, useState } from 'react';
-import type { QuestPolicy, QuestRequestView } from '@vibe-city/shared';
+import type { QuestRequestView } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { refreshOne } from '../data/live';
@@ -80,51 +80,5 @@ export function PendingRequests() {
         ))}
       </ul>
     </section>
-  );
-}
-
-/** Settings: who may give this floor work, and how many quests its own chief may request per day. */
-export function QuestPolicyEditor({ deptId }: { deptId: string }) {
-  const allDepts = useStore((s) => s.depts);
-  const depts = allDepts.filter((d) => d.id !== deptId);
-  const [p, setP] = useState<QuestPolicy | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  useEffect(() => { api.questPolicy(deptId).then(setP).catch((e: ApiError) => setError(e.message)); }, [deptId]);
-  const save = async (patch: Partial<QuestPolicy>) => {
-    setSaving(true); setError(null);
-    try { setP(await api.setQuestPolicy(deptId, patch)); } catch (e) { setError(e instanceof ApiError ? e.message : 'Could not save.'); }
-    finally { setSaving(false); }
-  };
-  if (!p) return error ? <p className="field-err">{error}</p> : <p className="muted" aria-busy="true">Loading…</p>;
-  const all = p.allowFrom === '*';
-  const allowed = all ? depts.map((d) => d.id) : (p.allowFrom as string[]);
-  return (
-    <div className="policy" aria-busy={saving}>
-      <p className="fine">Agents can hand work to other floors with the Vibe City tool <span className="mono">request_quest</span>. Each request becomes a quest on the other floor’s board.</p>
-      <div className="field">
-        <span className="lbl">Who can give this floor work</span>
-        <div className="seg-row" role="group" aria-label="Who can give this floor work">
-          <button aria-pressed={all} className={all ? 'on' : ''} disabled={saving} onClick={() => void save({ allowFrom: '*' })}>Every floor</button>
-          <button aria-pressed={!all} className={!all ? 'on' : ''} disabled={saving} onClick={() => void save({ allowFrom: allowed })}>Only these</button>
-        </div>
-        {!all && (
-          <div className="chips-toggle">
-            {depts.length === 0 && <span className="muted">No other floors yet.</span>}
-            {depts.map((d) => {
-              const on = allowed.includes(d.id);
-              return <button key={d.id} aria-pressed={on} className={`chip-t${on ? ' on' : ''}`} disabled={saving} onClick={() => void save({ allowFrom: on ? allowed.filter((x) => x !== d.id) : [...allowed, d.id] })}>{on ? '✓ ' : ''}{d.name}</button>;
-            })}
-          </div>
-        )}
-      </div>
-      <label className="field">
-        <span className="lbl">Quests this floor’s agents may request per day without your OK</span>
-        <input className="input policy-cap" type="number" min={0} max={100} value={p.dailyCap} disabled={saving}
-          onChange={(e) => setP({ ...p, dailyCap: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
-          onBlur={(e) => void save({ dailyCap: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })} />
-      </label>
-      {error && <p className="field-err" role="alert">{error}</p>}
-    </div>
   );
 }

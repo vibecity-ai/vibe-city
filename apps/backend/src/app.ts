@@ -414,7 +414,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
       } catch {
         return reject(1008, 'unknown department');
       }
-      if (!board) return reject(1008, 'department is not provisioned');
+      if (!board) return reject(1008, 'department is not synced with Hermes');
       const unsubscribe = hub.subscribe(raw, board, (m) => {
         if (socket.readyState === 1) socket.send(JSON.stringify(parse(LiveMessageSchema, m)));
       });
