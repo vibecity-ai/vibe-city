@@ -3,7 +3,7 @@ import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type DepartmentView,
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
-  archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, setAgentModel, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
+  archiveDepartment, cancelQuest, createDepartment, createQuest, fireAgent, loadAgent, loadArchived, setAgentModel, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
   checkDepartment, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
@@ -170,7 +170,7 @@ export function DeptPanel() {
   const sel = s.ui.agent;
   const canWork = s.conn.hermes && d.provisioning === 'ready';
   const running = d.workers.filter((w) => w.status === 'running').length;
-  const busyProv = !!s.busy[`provision:${d.id}`];
+  const busyProv = syncing(s.busy, d);
   return (
     <div className="pane">
       <div className="pane-scroll">
@@ -270,6 +270,8 @@ function QuestMini({ q }: { q: QuestItem }) {
   );
 }
 
+/** A sync started here, or one already running on the server (background check, another tab, before a reload). */
+const syncing = (busy: Record<string, true>, d: Dept) => !!busy[`provision:${d.id}`] || d.provisioning === 'provisioning';
 const teamLine = (n: number) => (n <= 1 ? '1 · the lead works alone' : `${n} · a lead + ${n - 1} teammate${n === 2 ? '' : 's'}, one Hermes profile each`);
 
 /** The department's loadout: what every agent gets by default (skills, model, toolsets, MCP tools) and its limits.
@@ -282,7 +284,7 @@ function DeptLoadout({ d }: { d: Dept }) {
   const eff = info?.effective ?? null;
   const view = s.agents[`${d.id}:chief`]?.view ?? null;
   const saving = !!s.busy[`inv:${d.id}`];
-  const busyProv = !!s.busy[`provision:${d.id}`];
+  const busyProv = syncing(s.busy, d);
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
   const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
   const allowed = new Set(inv?.allowedSkillIds ?? []);
@@ -399,7 +401,7 @@ function SetupPanel({ d }: { d: Dept }) {
   const s = useStore();
   const prov = s.info[d.id]?.provisioning ?? null;
   const inv = s.info[d.id]?.inventory ?? null;
-  const busy = !!s.busy[`provision:${d.id}`];
+  const busy = syncing(s.busy, d);
   const err = prov?.error ?? null;
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -428,7 +430,7 @@ function SetupPanel({ d }: { d: Dept }) {
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
             <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the loadout and verifies it by reading it back. It can take a minute.</p>
-            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes}>{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
+            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes}>{busy && <span className="pulse-dot" aria-hidden="true" />}{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
             {!s.conn.hermes && <small className="muted">Hermes is not reachable. Start the dashboard and gateway first.</small>}
             {busy && (
               <div className="sync-wait" role="status">
@@ -510,7 +512,7 @@ function SyncInspector({ d }: { d: Dept }) {
   // a sync (or an edit) makes an earlier comparison stale
   useEffect(() => setCheck(null), [prov?.attempts, d.view.updatedAt]);
   const view = syncView(prov, check);
-  const busy = !!s.busy[`provision:${d.id}`];
+  const busy = syncing(s.busy, d);
   const checking = !!s.busy[`check:${d.id}`];
   const syncRows: [string, boolean][] = [
     ...(prov?.agents ?? []).map((a): [string, boolean] => [
@@ -648,6 +650,7 @@ export function AgentPanel() {
   useEffect(() => { if (id && loadKey) void loadAgent(id, loadKey); }, [id, loadKey, d?.provisioning]);
   useEffect(() => { if (id) void loadDeptInfo(id); }, [id]);
   const [tab, setTab] = useState<'now' | 'chat' | 'loadout' | 'record' | 'schedule'>('now');
+  const [firing, setFiring] = useState(false);
   const agentKey = loadKey;
   const hermesModels = useHermesModels();
   if (!d) return null;
@@ -656,7 +659,7 @@ export function AgentPanel() {
   const view = a?.view ?? null;
   const inv = s.info[d.id]?.inventory ?? null;
   const saving = !!s.busy[`inv:${d.id}`];
-  const busyProv = !!s.busy[`provision:${d.id}`];
+  const busyProv = syncing(s.busy, d);
   const wasProvisioned = !!s.info[d.id]?.provisioning?.inventory.appliedAt;
   const name = agentLabel(agentKey, agentKey ? s.personas[`${d.id}:${agentKey}`] : null);
   const status = role === 'chief' ? d.chief?.status ?? 'awaiting' : worker?.status ?? 'idle';
@@ -680,9 +683,17 @@ export function AgentPanel() {
               <p className="muted small">{role === 'chief' ? 'Lead' : 'Teammate'}{view?.profileRef ?? me?.profileRef ? '' : ' · not synced yet'}</p>
               <p className="mono small">model · {view?.model ?? '—'}{view?.observedAt && <span className="muted"> · read from Hermes {formatTime(view.observedAt)}</span>}</p>
               {(role === 'chief' ? !!d.chief : !!worker) && <button className="btn primary small" style={{ marginTop: 8 }} onClick={() => s.ui$({ talk: { deptId: d.id, agentKey: role === 'chief' ? 'chief' : worker!.id } })}>Talk</button>}
+              {worker && !firing && <button className="btn destructive small" style={{ marginTop: 8, marginLeft: 8 }} disabled={worker.status === 'running' || !!s.busy[`fire:${d.id}`]} title={worker.status === 'running' ? 'Wait until this agent finishes its task' : ''} onClick={() => setFiring(true)}>Fire</button>}
             </div>
           </div>
         </section>
+        {worker && firing && agentKey && (
+          <div className="banner bad" role="alertdialog" aria-labelledby="fire-h"><Glyph k="failed" /><div>
+            <b id="fire-h">Fire {name}?</b>
+            <p>{name} leaves {d.name} and the team stops handing them work. Their Hermes profile, memory and sessions are archived, not deleted, and past results stay on the board.</p>
+            <div className="row"><Btn kind="destructive" busy={!!s.busy[`fire:${d.id}`]} disabled={!!s.busy[`fire:${d.id}`]} onClick={() => void fireAgent(d.id, agentKey, name).then((ok) => { setFiring(false); if (ok) s.openPanel('dept', { agent: null }); })}>Yes, fire {name}</Btn><Btn onClick={() => setFiring(false)}>Keep them</Btn></div>
+          </div></div>
+        )}
         <div aria-live="polite">
           {a?.error && <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>{view ? 'Refresh failed: showing the last data received' : 'Could not load this agent'}</b><p>{a.error}</p><Btn kind="destructive" onClick={() => agentKey && void loadAgent(d.id, agentKey)}>Retry</Btn></div></div>}
           {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs syncing again</b><p>Saved changes are not in Hermes yet. The agent keeps its previous skills and model until you sync again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}

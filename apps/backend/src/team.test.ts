@@ -129,3 +129,19 @@ test('an agent can get its own model; the department must sync again and Hermes 
   assert.equal(t.hermes.profiles.get(profileNameForAgent(d.id, 'W-01'))!.model, 'model-b');
   assert.equal((await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}/agents/W-09`, payload: { model: null } })).statusCode, 404);
 });
+
+test('a teammate can be fired; the lead cannot; a later hire never reuses its seat', async () => {
+  const t = provApp();
+  const d = await t.create('Firing', { teammates: 2 });
+  assert.equal((await t.provision(d.id)).json().state, 'ready');
+  const fire = (k: string) => t.app.inject({ method: 'DELETE', url: `/api/departments/${d.id}/agents/${k}` });
+  assert.equal((await fire('chief')).statusCode, 409);
+  assert.deepEqual((await fire('W-02')).json().agents.map((a: any) => a.key), ['chief', 'W-01']);
+  assert.equal((await fire('W-02')).statusCode, 404);
+  assert.ok(t.hermes.profiles.has(profileNameForAgent(d.id, 'W-02')), 'the fired agent\'s profile is archived, not deleted');
+  const res = await t.app.inject({ method: 'POST', url: '/api/runtime/reconcile' });
+  assert.equal((await t.status(d.id)).state, 'ready', res.body);
+  assert.ok(!t.hermes.profiles.get(profileNameForAgent(d.id, 'W-01'))!.soul.includes(profileNameForAgent(d.id, 'W-02')), 'the others forget the fired teammate');
+  const svc = new DepartmentService(t.db, (await t.app.inject('/api/company')).json().id);
+  assert.equal(svc.addAgent(d.id, { model: null, skills: [] }).agent_key, 'W-03');
+});

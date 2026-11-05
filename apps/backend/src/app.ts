@@ -206,6 +206,16 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(DepartmentAgentSchema, departments.setAgentModel(id, key, parse(AgentPatchSchema, req.body).model));
   });
 
+  app.delete('/api/departments/:id/agents/:agentKey', async (req) => {
+    const id = idOf(req.params);
+    const key = (req.params as { agentKey?: string }).agentKey ?? '';
+    if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
+    departments.fireAgent(id, key);
+    // Tell the rest of the team now rather than at the next 30 s check; firing itself never waits on Hermes.
+    provisioning.reconcile(id).catch(() => undefined);
+    return parse(DepartmentViewSchema, departments.get(id));
+  });
+
   // ---- Characters and dialogue-window chat (feature spec 2.1, 2.2, 2.5) ----
   const noModel: ChatModel = { ready: false, complete: async () => { throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.'); } };
   const characters = new CharacterService(db);

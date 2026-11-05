@@ -213,6 +213,12 @@ export const MIGRATIONS: readonly string[] = [
      session_id TEXT NOT NULL,
      created_at TEXT NOT NULL
    );`,
+  // v12: firing a teammate removes its seat; seats are never handed out again, so a later hire never gets the fired
+  // agent's key (and with it its Hermes profile, persona and chat).
+  `ALTER TABLE department ADD COLUMN last_seat INTEGER NOT NULL DEFAULT 0;
+   UPDATE department SET last_seat = (SELECT COALESCE(MAX(seat), 0) FROM department_agent WHERE department_id = department.id);`,
+  // v13: a fired teammate is archived, not deleted: the row (and its Hermes profile, memory and sessions) stays.
+  `ALTER TABLE department_agent ADD COLUMN fired_at TEXT;`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

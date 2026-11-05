@@ -90,6 +90,7 @@ export const api = {
   archiveDepartment: (dept: string): Promise<DepartmentArchived> => request('DELETE', d(dept), DepartmentArchivedSchema),
   inventory: (dept: string): Promise<Inventory> => request('GET', `${d(dept)}/inventory`, InventorySchema),
   patchInventory: (dept: string, input: InventoryPatch): Promise<Inventory> => request('PATCH', `${d(dept)}/inventory`, InventorySchema, input),
+  fireAgent: (dept: string, agentKey: string): Promise<DepartmentView> => request('DELETE', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, DepartmentViewSchema),
   patchAgent: (dept: string, agentKey: string, input: AgentPatch): Promise<DepartmentAgent> => request('PATCH', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, DepartmentAgentSchema, input),
   effectiveInventory: (dept: string): Promise<EffectiveInventory> => request('GET', `${d(dept)}/effective-inventory`, EffectiveInventorySchema),
   provisioning: (dept: string): Promise<ProvisioningStatus> => request('GET', `${d(dept)}/provisioning`, ProvisioningStatusSchema),

@@ -86,7 +86,7 @@ export function Portrait({ shirt, chief, size = 40, ghost }: { shirt: string; ch
 }
 
 export function Btn({ kind = 'tertiary', children, onClick, disabled, title, type, busy }: { kind?: 'primary' | 'secondary' | 'tertiary' | 'destructive' | 'warn'; children: ReactNode; onClick?: () => void; disabled?: boolean; title?: string; type?: 'button' | 'submit'; busy?: boolean }) {
-  return <button type={type ?? 'button'} className={`btn ${kind}`} onClick={onClick} disabled={disabled} title={title} aria-busy={busy || undefined}>{children}</button>;
+  return <button type={type ?? 'button'} className={`btn ${kind}`} onClick={onClick} disabled={disabled} title={title} aria-busy={busy || undefined}>{busy && <span className="pulse-dot" aria-hidden="true" />}{children}</button>;
 }
 
 /* ---- accessibility helpers ---- */

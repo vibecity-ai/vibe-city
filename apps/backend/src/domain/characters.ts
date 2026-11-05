@@ -45,7 +45,7 @@ export function generateCharacter(departmentId: string, deptName: string, agentK
   return CharacterSchema.parse({
     departmentId, agentKey, role,
     name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`,
-    title: role === 'chief' ? `${deptName} lead` : `${deptName} specialist, desk ${agentKey}`,
+    title: role === 'chief' ? `${deptName} lead` : `${deptName} specialist`,
     traits: [t1, t2],
     speechStyle: pick(STYLES, seed, 5),
     quirk: pick(QUIRKS, seed, 6),

@@ -219,7 +219,7 @@ export class HiringService {
     // The hire is its own agent: its own Hermes profile, with the candidate's model and skills (the floor's are untouched).
     const agent = this.d.departments.addAgent(brief.departmentId, { model: c.loadout.model, skills: c.loadout.skills });
     const seat = agent.agent_key;
-    this.d.savePersona?.(brief.departmentId, seat, { ...c.character, departmentId: brief.departmentId, agentKey: seat, role: 'worker', title: `${brief.departmentName} specialist, desk ${seat}` });
+    this.d.savePersona?.(brief.departmentId, seat, { ...c.character, departmentId: brief.departmentId, agentKey: seat, role: 'worker', title: `${brief.departmentName} specialist` });
     // Re-apply the inventory to Hermes through the normal path. It runs in the background; the floor shows progress.
     let provisioning = 'started';
     try { void this.d.provisioning.provision(brief.departmentId).catch(() => undefined); } catch (e) { provisioning = (e as Error).message; }

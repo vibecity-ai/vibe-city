@@ -474,6 +474,15 @@ export async function patchInventory(deptId: string, patch: InventoryPatch) {
   st().toast(n.text, n.tone);
 }
 
+/** Fires a teammate; the floor needs a sync so the others stop handing it work. */
+export async function fireAgent(deptId: string, agentKey: string, name: string): Promise<boolean> {
+  const out = await run(`fire:${deptId}`, `Could not fire ${name}`, async () => { await api.fireAgent(deptId, agentKey); return true; });
+  if (!out) return false;
+  await refreshOne(deptId);
+  st().toast(`${name} was fired. Their profile is archived.`);
+  return true;
+}
+
 /** One agent's own model (null = the department's). Like a loadout change, Hermes gets it on the next sync. */
 export async function setAgentModel(deptId: string, agentKey: string, model: ModelChoice | null) {
   const before = raw.prov[deptId]?.state;

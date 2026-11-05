@@ -23,7 +23,7 @@ export type DepartmentRow = Row;
 export interface AgentRow {
   department_id: string; agent_key: string; seat: number;
   profile_ref: string | null; origin: 'created' | 'associated' | null; verified_at: string | null;
-  model_json: string | null; skills_json: string; created_at: string;
+  model_json: string | null; skills_json: string; created_at: string; fired_at: string | null;
 }
 
 export const LEAD_KEY = 'chief';
@@ -133,7 +133,7 @@ export class DepartmentService {
 
   /** The department's agents, lead first. */
   agents(id: string): AgentRow[] {
-    return this.db.prepare('SELECT * FROM department_agent WHERE department_id = ? ORDER BY seat').all(id) as unknown as AgentRow[];
+    return this.db.prepare('SELECT * FROM department_agent WHERE department_id = ? AND fired_at IS NULL ORDER BY seat').all(id) as unknown as AgentRow[];
   }
 
   lead(id: string): AgentRow {
@@ -147,7 +147,7 @@ export class DepartmentService {
     if (this.row(id).archived_at) throw new ConflictError('department is archived');
     const keys = Object.keys(cols) as (keyof typeof cols)[];
     if (!keys.length) return;
-    this.db.prepare(`UPDATE department_agent SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE department_id = ? AND agent_key = ?`)
+    this.db.prepare(`UPDATE department_agent SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE department_id = ? AND agent_key = ? AND fired_at IS NULL`)
       .run(...keys.map((k) => cols[k] ?? null), id, agentKey);
   }
 
@@ -159,9 +159,10 @@ export class DepartmentService {
     return this.tx(() => {
       const cur = this.row(id);
       if (cur.archived_at) throw new ConflictError('department is archived');
-      const seat = (this.db.prepare('SELECT COALESCE(MAX(seat), 0) + 1 AS n FROM department_agent WHERE department_id = ?').get(id) as { n: number }).n;
-      if (seat > MAX_TEAMMATES) throw new ConflictError(`${cur.name} already has the maximum of ${MAX_TEAMMATES} teammates`);
+      if (this.agents(id).length > MAX_TEAMMATES) throw new ConflictError(`${cur.name} already has the maximum of ${MAX_TEAMMATES} teammates`);
+      const seat = (this.db.prepare('SELECT MAX(last_seat, (SELECT COALESCE(MAX(seat), 0) FROM department_agent WHERE department_id = ?)) + 1 AS n FROM department WHERE id = ?').get(id, id) as { n: number }).n;
       this.insertAgent(id, seat, loadout, new Date().toISOString());
+      this.db.prepare('UPDATE department SET last_seat = ? WHERE id = ?').run(seat, id);
       if (cur.provisioning_state !== 'unconfigured' && cur.provisioning_state !== 'provisioning') {
         this.db.prepare("UPDATE department SET provisioning_state = 'unconfigured', provisioning_error_json = NULL WHERE id = ?").run(id);
       }
@@ -174,7 +175,7 @@ export class DepartmentService {
     return this.tx(() => {
       const cur = this.row(id);
       if (cur.archived_at) throw new ConflictError('department is archived');
-      const r = this.db.prepare('UPDATE department_agent SET model_json = ? WHERE department_id = ? AND agent_key = ?')
+      const r = this.db.prepare('UPDATE department_agent SET model_json = ? WHERE department_id = ? AND agent_key = ? AND fired_at IS NULL')
         .run(model ? JSON.stringify(model) : null, id, agentKey);
       if (!r.changes) throw new NotFoundError('agent not found');
       const now = new Date().toISOString();
@@ -183,6 +184,22 @@ export class DepartmentService {
         this.db.prepare("UPDATE department SET provisioning_state = 'unconfigured', provisioning_error_json = NULL WHERE id = ?").run(id);
       }
       return agentView(this.agents(id).find((a) => a.agent_key === agentKey)!);
+    });
+  }
+
+  /**
+   * Fires a teammate (never the lead) = archives it: it leaves the floor, but its row and Hermes profile (memory,
+   * sessions) are kept and its seat key is never reused. The department stays synced; the background check tells the others.
+   */
+  fireAgent(id: string, agentKey: string): void {
+    this.tx(() => {
+      const cur = this.row(id);
+      if (cur.archived_at) throw new ConflictError('department is archived');
+      if (agentKey === LEAD_KEY) throw new ConflictError('the lead cannot be fired');
+      const now = new Date().toISOString();
+      const r = this.db.prepare('UPDATE department_agent SET fired_at = ? WHERE department_id = ? AND agent_key = ? AND fired_at IS NULL').run(now, id, agentKey);
+      if (!r.changes) throw new NotFoundError('agent not found');
+      this.db.prepare('UPDATE department SET updated_at = ? WHERE id = ?').run(now, id);
     });
   }
 
@@ -222,6 +239,7 @@ export class DepartmentService {
       this.db.prepare('INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, ?, ?)')
         .run(id, JSON.stringify(inventory), now);
       for (let seat = 0; seat <= input.teammates; seat++) this.insertAgent(id, seat, { model: null, skills: [] }, now);
+      this.db.prepare('UPDATE department SET last_seat = ? WHERE id = ?').run(input.teammates, id);
       return this.get(id);
     });
   }

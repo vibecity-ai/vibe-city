@@ -114,7 +114,7 @@ export function capValue(v: unknown): string {
 export function syncView(p: Pick<ProvisioningStatus, 'state' | 'error'> | null, check: Pick<SyncCheck, 'inSync'> | null): { sync: boolean; hint: string | null } {
   if (!p) return { sync: false, hint: null };
   switch (p.state) {
-    case 'provisioning': return { sync: false, hint: 'Syncing with Hermes…' };
+    case 'provisioning': return { sync: true, hint: 'Syncing with Hermes…' };
     case 'unconfigured': return { sync: true, hint: 'Hermes does not have this floor yet, or it changed since the last sync.' };
     case 'disconnected': return { sync: true, hint: 'Hermes could not be reached to verify this floor. Sync once it is running.' };
     case 'error': return { sync: true, hint: p.error?.retryable ? 'The last sync failed. You can try again.' : 'The last sync failed: change the configuration first, then sync.' };
