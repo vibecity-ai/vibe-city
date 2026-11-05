@@ -13,6 +13,8 @@ import { portrait, type Gag } from '../world/portrait';
 import { Icon } from './kit';
 
 const PAGE = 92;
+/** Replies longer than this many pages show their opening in the box and the whole text in a panel. */
+const LONG_PAGES = 2;
 const CPS = 42;
 
 /** Split text into pages that fit the text bar: whole sentences where they fit, whole words otherwise. */
@@ -93,7 +95,11 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const inputRef = useRef<HTMLInputElement>(null);
 
   const lastAgent = [...lines].reverse().find((m) => m.from === 'agent') ?? null;
-  const speech = error ?? (!ready ? (notReady ?? 'No chat model is set up. Put NEAR_AI_API_KEY in the .env file and restart the container, then we can talk.') : lastAgent?.text ?? greeting);
+  // Long answers (Hermes agents report results in full) would be many pages of clicking: the box types the opening and
+  // the whole answer goes in a scrollable panel underneath.
+  const full = !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
+  const speech = error ?? (!ready ? (notReady ?? 'No chat model is set up. Put NEAR_AI_API_KEY in the .env file and restart the container, then we can talk.')
+    : full ? `${paginate(full.text).slice(0, LONG_PAGES).join(' ')} …` : lastAgent?.text ?? greeting);
   const pages = useMemo(() => paginate(speech), [speech]);
   const text = pages[Math.min(page, pages.length - 1)] ?? '';
   const typing = !waiting && shown < text.length;
@@ -152,6 +158,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
           <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className={`dlg-caret${lastPage ? '' : ' more'}`}>{lastPage ? '■' : '▼'}</span>}</p>
         </div>
         {below}
+        {done && full && <FullAnswer key={full.id} text={full.text} />}
         {done && !error && cards?.(lastAgent)}
         <div className="dlg-replies">{replies.map((r) => <button key={r} className="dlg-chip" onClick={() => void send(r)}>{r}</button>)}</div>
         <form className="dlg-input" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
@@ -171,6 +178,19 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
 }
 
 /* ---------- talking to a department agent (chief or worker desk) ---------- */
+
+/** The whole of a long answer: scrollable, line breaks kept, copyable. */
+function FullAnswer({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const words = text.trim().split(/\s+/).length;
+  const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
+  return (
+    <section className="dlg-full" aria-label="Full answer">
+      <header><span className="dlg-tag">Full answer · {words} words</span><button type="button" className="btn small" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button></header>
+      <div className="dlg-full-text" tabIndex={0}>{text}</div>
+    </section>
+  );
+}
 
 /** The agent's work while it answers, in the dialogue's words. */
 export function progressLabel(p: ChatProgress): string {

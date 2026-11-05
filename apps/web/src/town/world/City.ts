@@ -53,6 +53,8 @@ export class City {
   private shells = new Map<string, Shell>();
   /** 0..1: how far the Executive Office is opened up (feature spec 3.1). */
   private execOpen = 0; hoverObj: ExecObjectId | null = null;
+  /** A long press in progress on an agent (opens the chat when it completes). */
+  private press: { id: number; x: number; y: number; start: number; agent: string; fired: boolean; timer: number } | null = null;
   private particles: Particle[] = []; private packets: Packet[] = []; private pops: Pop[] = []; private rings: Ring[] = [];
   private t = 0; private last = 0; private raf = 0; private intro = 0; private fxSeen = 0;
   private hover: string | null = null;
@@ -471,6 +473,12 @@ export class City {
         px.push(ac.alpha);
         px.shadeEllipse(ground[0] + 2, ground[1], 8, 3.5, 0.45);
         if (sel) px.ring(ground[0], ground[1], 11, 5.5, C.cyan, 1, 1);
+        const pr = this.press;
+        if (pr && !pr.fired && pr.agent === ac.id) {
+          const k = Math.min(1, (performance.now() - pr.start) / LONG_PRESS_MS);
+          px.ring(ground[0], ground[1], 6 + 10 * k, 3 + 5 * k, C.gold, 1, 1);
+          L.add(ground[0], ground[1] - 14, 18 + 26 * k, C.gold, 0.5 * k);
+        }
         const frame = ac.mode === 'walk' ? Math.floor(ac.walkT * 8) % 4 : 0;
         const typing = seated && ac.status === 'running' ? Math.floor(t * 8) % 2 : 0;
         const sp = getSprite(ac.look, { dir: seated ? 'b' : ac.dir, frame, seated, type: typing });
@@ -611,11 +619,42 @@ export class City {
       cv.style.cursor = h ? 'pointer' : useStore.getState().ui.view === 'tower' && !useStore.getState().ui.execRoom ? 'grab' : 'default';
     });
     cv.addEventListener('pointerleave', () => { this.hover = null; this.hoverAgent = null; });
+    // Long press on an agent opens the chat: the touch (and trackpad) stand-in for middle click. A gold ring fills
+    // while held; moving more than a few pixels, scrolling or lifting early cancels it.
+    cv.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top);
+      if (h?.kind !== 'agent') { this.press = null; return; }
+      const press = { id: e.pointerId, x: e.clientX, y: e.clientY, start: performance.now(), agent: h.id, fired: false, timer: 0 };
+      press.timer = window.setTimeout(() => {
+        if (this.press !== press) return;
+        press.fired = true;
+        try { navigator.vibrate?.(15); } catch { /* not supported */ }
+        const s = useStore.getState();
+        if (s.ui.floorId) s.ui$({ agent: press.agent, talk: { deptId: s.ui.floorId, agentKey: press.agent } });
+      }, LONG_PRESS_MS);
+      this.press = press;
+    });
+    // Lifting before the timer cancels it. After it fired, the press is kept until the click that follows, so that
+    // click does not also open the profile; a cancelled gesture (scroll) never produces a click, so it is dropped.
+    const endPress = (cancel: boolean) => {
+      if (!this.press) return;
+      window.clearTimeout(this.press.timer);
+      if (cancel || !this.press.fired) { this.press = null; return; }
+      // touch browsers may not send a click after a long press: never let a finished press swallow a later tap
+      const done = this.press; setTimeout(() => { if (this.press === done) this.press = null; }, 400);
+    };
+    cv.addEventListener('pointermove', (e) => { if (this.press && !this.press.fired && Math.hypot(e.clientX - this.press.x, e.clientY - this.press.y) > 8) { window.clearTimeout(this.press.timer); this.press = null; } });
+    cv.addEventListener('pointerup', () => endPress(false));
+    cv.addEventListener('pointercancel', () => endPress(true));
+    // the browser's own long-press menu (and iOS callout) would cover the chat
+    cv.addEventListener('contextmenu', (e) => { if (this.press) e.preventDefault(); });
     // touch scrolls the page (touch-action: pan-y); only a mouse/pen drags the camera
     cv.addEventListener('pointerdown', (e) => { this.drag = e.pointerType === 'touch' ? null : { x: e.clientX, y: e.clientY, moved: false }; });
     window.addEventListener('pointerup', () => setTimeout(() => (this.drag = null), 0));
     cv.addEventListener('wheel', (e) => { if (useStore.getState().ui.view !== 'tower' || useStore.getState().ui.execRoom) return; e.preventDefault(); this.zoomBy(e.deltaY < 0 ? 1.12 : 0.89); }, { passive: false });
     cv.addEventListener('click', (e) => {
+      if (this.press?.fired) { this.press = null; return; } // the long press already opened the chat
       if (this.drag?.moved) return;
       const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
       if (!h && s.ui.execRoom) return;
@@ -635,6 +674,9 @@ export class City {
     });
   }
 }
+
+/** How long to hold an agent (touch, pen or mouse) to open the chat. */
+const LONG_PRESS_MS = 500;
 
 /* Emotes over heads (feature spec 2.5), from what the agent is actually doing: ! failed, ? waiting on configuration,
    a heart right after finishing, zzz when idling at the desk. Running agents show nothing (their screen does). */

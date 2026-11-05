@@ -73,6 +73,20 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
       mood: 'focused', replies: ['Ship it', 'Make it smaller', 'Never mind'],
       proposal: { title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' } })}`;
   }
+  if (/report|find|results|summary|summarise/.test(last)) {
+    // A long, result-style answer like a real Hermes agent gives after reading the board.
+    return [
+      'Here is what the board says, boss.',
+      '',
+      'Vendor landscape: vector databases is done. Three vendors made the shortlist: one is cheapest at scale, one has the best managed offering, and one is the only fully open-source option. The summary is attached to the quest.',
+      '',
+      'Competitor pricing snapshot failed on one of three tasks: the source site blocked the scraper with HTTP 403. The other two competitors are done; their pricing pages are saved as PDFs.',
+      '',
+      'Market sizing is still running. The public estimates are collected; the bottom-up model is half built and should be ready this afternoon.',
+      '',
+      'Next, I would retry the blocked scrape with the browser toolset instead of plain HTTP, then merge all three into one brief.',
+    ].join('\n') + meta({ mood: 'focused', replies: ['Retry the scrape', 'Send me the brief', 'Thanks'], proposal: { title: 'Retry competitor scrape with the browser', objective: 'Fetch the blocked competitor pricing page with the browser toolset and add it to the pricing brief.' } });
+  }
   if (/how|status|doing|working/.test(last)) {
     return `Demo mode, boss: no real Hermes behind me, so I can't open the board for you. Ask me for something new and I'll plan it.${meta({ mood: 'smug', replies: ['I have a job for you', 'Who are you again?'], proposal: null })}`;
   }

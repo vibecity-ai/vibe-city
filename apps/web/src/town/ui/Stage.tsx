@@ -116,7 +116,8 @@ export function StageOverlay({ city }: { city: City | null }) {
       {openDept && (
         <div className="tags">
           {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), k: w.status as StatusKey }))].map((t) => (
-            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} onClick={() => useStore.getState().openPanel('agent', { agent: t.id })} onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onAuxClick={(e) => { if (e.button === 1) ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }); }}>
+            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => useStore.getState().openPanel('agent', { agent: t.id }))}
+              onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onAuxClick={(e) => { if (e.button === 1) ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }); }}>
               <Glyph k={t.k} />{t.label}
             </button>
           ))}
@@ -229,8 +230,36 @@ function HoverCard({ ref_, deptId, agentKey }: { ref_: React.RefObject<HTMLDivEl
         <b>{agentLabel(agentKey, ch)}</b>
         <span className="hc-role">{ch?.title ?? (agentKey === 'chief' ? 'Lead' : 'Teammate')}</span>
         <span className="hc-doing"><Glyph k={status as StatusKey} /> {doing || deptStatus(d.state).label}</span>
-        <span className="hc-hint">Click for profile · middle-click to talk</span>
+        <span className="hc-hint">Click for profile · middle-click or hold to talk</span>
       </div>
     </div>
   );
+}
+
+/** Name tags: click opens the profile; holding (touch, pen or mouse) for half a second opens the chat instead. */
+const HOLD_MS = 500;
+const holds = new WeakMap<EventTarget, { timer: number; fired: boolean; x: number; y: number }>();
+function holdToTalk(onHold: () => void, onClick: () => void) {
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const el = e.currentTarget, h = { timer: 0, fired: false, x: e.clientX, y: e.clientY };
+      h.timer = window.setTimeout(() => { h.fired = true; try { navigator.vibrate?.(15); } catch { /* not supported */ } onHold(); }, HOLD_MS);
+      holds.set(el, h);
+    },
+    onPointerMove: (e: React.PointerEvent) => { const h = holds.get(e.currentTarget); if (h && !h.fired && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 8) { window.clearTimeout(h.timer); holds.delete(e.currentTarget); } },
+    onPointerUp: (e: React.PointerEvent) => {
+      const el = e.currentTarget, h = holds.get(el); if (!h) return;
+      if (!h.fired) { window.clearTimeout(h.timer); holds.delete(el); return; }
+      // touch browsers may not send a click after a hold: never let it swallow a later tap
+      setTimeout(() => { if (holds.get(el) === h) holds.delete(el); }, 400);
+    },
+    onPointerCancel: (e: React.PointerEvent) => { const h = holds.get(e.currentTarget); if (h) { window.clearTimeout(h.timer); holds.delete(e.currentTarget); } },
+    onContextMenu: (e: React.MouseEvent) => { if (holds.has(e.currentTarget)) e.preventDefault(); },
+    onClick: (e: React.MouseEvent) => {
+      const h = holds.get(e.currentTarget); holds.delete(e.currentTarget);
+      if (h?.fired) return; // the hold already opened the chat
+      onClick();
+    },
+  };
 }
