@@ -23,8 +23,11 @@ let current: { network: NearNetwork; selector: WalletSelector; modal: WalletSele
 
 async function load(network: NearNetwork) {
   if (current?.network === network) return current;
-  // The wallet libraries expect Node's Buffer; browsers do not have it.
-  const g = globalThis as { Buffer?: unknown };
+  // The wallet libraries expect Node's `global`, `Buffer` and `process`; browsers have none of them.
+  // (The production build hides this; the dev server does not, so shim them before loading anything.)
+  const g = globalThis as { global?: unknown; Buffer?: unknown; process?: unknown };
+  if (!g.global) g.global = globalThis;
+  if (!g.process) g.process = { env: {}, browser: true, version: '', nextTick: (f: (...a: unknown[]) => void, ...a: unknown[]) => queueMicrotask(() => f(...a)) };
   if (!g.Buffer) g.Buffer = (await import('buffer')).Buffer;
   const [{ setupWalletSelector }, { setupModal }, { setupMyNearWallet }, { setupMeteorWallet }, { setupHotWallet }, { setupLedger }] = await Promise.all([
     import('@near-wallet-selector/core'), import('@near-wallet-selector/modal-ui'), import('@near-wallet-selector/my-near-wallet'),
