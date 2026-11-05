@@ -1,13 +1,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import {
   AGENT_EXCLUDED_TOOLSETS, TOOLSETS, boardSlugForDepartment, profileNameForAgent,
-  type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type ProfilesView, type ProvisioningError, type ProvisioningStatus, type SyncCheck,
+  type AgentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type ProfilesView, type ProvisioningError, type ProvisioningStatus, type SyncCheck, type TaskStepsView,
 } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime,
 } from '../hermes/ports.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
 import { scrub } from './scrub.ts';
+import { buildSteps } from './steps.ts';
 import { agentModel, agentSkills, type AgentRow, type DepartmentService } from './departmentService.ts';
 import { buildBlock, hasBlock, upsertBlock } from './instructions.ts';
 import {
@@ -181,6 +182,26 @@ export class ProvisioningService {
     } catch (e) {
       if (!(e instanceof HermesUnavailableError) && !(e instanceof HermesAuthError)) throw e;
       return { departmentId: id, reachable: false, agents: agents.map((a) => ({ key: a.agent_key, ref: a.profile_ref, exists: null, model: null, description: null })) };
+    }
+  }
+
+  /** What one agent did on one Kanban task: the steps of each of its runs' Hermes sessions (a reclaimed task has several). */
+  async taskSteps(id: string, agentKey: string, taskId: string): Promise<TaskStepsView> {
+    const a = this.depts.agents(id).find((x) => x.agent_key === agentKey);
+    if (!a) throw new NotFoundError('agent not found');
+    if (!a.profile_ref) return { steps: [], active: false, error: 'This agent has no Hermes profile yet.' };
+    const profile = a.profile_ref;
+    try {
+      // Hermes does not link a run to its session; a Kanban run's session opens with `# Kanban task <id>:`.
+      const runs = (await this.hermes.listSessions(profile, 100))
+        .filter((x) => x.source === 'kanban' && x.preview?.startsWith(`# Kanban task ${taskId}:`))
+        .sort((x, y) => (x.startedAt ?? 0) - (y.startedAt ?? 0));
+      const steps = (await Promise.all(runs.map((r) => this.hermes.sessionMessages(profile, r.id, 500)))).flatMap(buildSteps);
+      return { steps: steps.slice(-200), active: runs.some((r) => r.active), error: null };
+    } catch (e) {
+      if (e instanceof HermesUnavailableError) return { steps: [], active: false, error: 'Hermes is not reachable, so the steps cannot be read right now.' };
+      if (e instanceof HermesAuthError || e instanceof HermesRejectedError) return { steps: [], active: false, error: 'Hermes could not show this task\'s steps.' };
+      throw e;
     }
   }
 

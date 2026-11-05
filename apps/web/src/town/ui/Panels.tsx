@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
@@ -8,11 +8,11 @@ import {
 } from '../data/live';
 import { clock } from '../data/derive';
 import {
-  GATEWAY_WARNING, age, attentionCount, cardLines, companyQuests, defaultTarget, filterColumns, filterQuests, missingDepts, questTargets, searchSort,
+  GATEWAY_WARNING, age, attentionCount, blockedQuests, cardLines, companyQuests, defaultTarget, filterColumns, filterQuests, missingDepts, questTargets, searchSort,
   type BoardQuest, type BoardSort, type ColumnKey, type DeptOption,
 } from '../data/company';
 import {
-  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL, SYNC_STEP_LABEL, agentLabel,
+  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, SYNC_STEP_LABEL, agentLabel,
   archiveConsequences, assigneeWarning, cancellationView, fieldErrors, syncView,
   settingsFormFrom, settingsPatch, taskStatusView, settingsErrorField, type SettingsForm,
 } from '../data/views';
@@ -20,7 +20,7 @@ import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor,
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { callAr } from './Hiring';
 import { PendingRequests } from './Requests';
-import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, PersonaLine } from './AgentView';
+import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, NeedsInput, PersonaLine, TaskSteps } from './AgentView';
 import { SchedulesView } from './Schedules';
 
 
@@ -59,6 +59,7 @@ export function ExecPanel() {
   const running = depts.reduce((n, d) => n + d.workers.filter((w) => w.status === 'running').length + (d.chief?.status === 'running' ? 1 : 0), 0);
   const attention = depts.filter((d) => d.state === 'attention' || d.state === 'offline');
   const unconf = depts.filter((d) => d.state === 'unconfigured');
+  const blocked = blockedQuests(useStore((s) => s.quests));
   const view = ui.execView;
   useEffect(() => { if (view === 'archived') void loadArchived(); }, [view]);
   return (
@@ -83,14 +84,25 @@ export function ExecPanel() {
                 <div className="tiles">
                   <div className="tile" style={{ ['--bar' as string]: '#9B5CFF' }}><b>{depts.length}</b><span>Departments</span></div>
                   <div className="tile" style={{ ['--bar' as string]: '#2EE6F0' }}><b>{running}<Glyph k="running" size={12} /></b><span>Agents running</span></div>
-                  <div className="tile" style={{ ['--bar' as string]: '#FF5C7A' }}><b>{attention.length}<Glyph k="failed" size={12} /></b><span>Need attention</span></div>
+                  <div className="tile" style={{ ['--bar' as string]: '#FF5C7A' }}><b>{attention.length + blocked.length}<Glyph k="failed" size={12} /></b><span>Need attention</span></div>
                   <div className="tile" style={{ ['--bar' as string]: '#FFB547' }}><b>{unconf.length}<Glyph k="awaiting" size={12} /></b><span>Not synced</span></div>
                 </div>
               </section>
               <section className="pane-sec">
                 <h3 className="sec-t">Needs attention</h3>
-                {[...attention, ...unconf].length === 0 && <p className="muted">Nothing needs you right now.</p>}
+                {[...attention, ...unconf].length === 0 && blocked.length === 0 && <p className="muted">Nothing needs you right now.</p>}
                 <div className="stack">
+                  {blocked.map((q) => {
+                    const c = q.summary.counts;
+                    const n = c.blocked + c.failed;
+                    return (
+                      <button key={q.summary.id} className="attn attention" onClick={() => openPanel('quest', { questId: q.summary.id, questFrom: 'board' })}>
+                        <Glyph k="blocked" size={11} />
+                        <span className="attn-t"><b>{q.summary.title}</b><small>{depts.find((d) => d.id === q.deptId)?.name ?? 'A floor'} · {c.blocked ? `${c.blocked} task${c.blocked === 1 ? '' : 's'} waiting for your input` : ''}{c.blocked && c.failed ? ' · ' : ''}{c.failed ? `${c.failed} stuck after failing` : ''}</small></span>
+                        <span className="btn warn small">{n === 1 ? 'Answer' : 'Review'}</span>
+                      </button>
+                    );
+                  })}
                   {[...attention, ...unconf].map((d) => {
                     const st = deptStatus(d.state);
                     return (
@@ -667,9 +679,10 @@ export function AgentPanel() {
   const mine = Object.values(s.details).filter((q) => s.quests.some((x) => x.deptId === d.id && x.summary.id === q.id))
     .flatMap((q) => q.tasks.map((t) => ({ t, questId: q.id })))
     .filter(({ t }) => agentKey !== null && t.agentKey === agentKey);
-  const taskIds = new Set(mine.map(({ t }) => t.id));
   const tasks = mine.sort((x, y) => (y.t.createdAt ?? '').localeCompare(x.t.createdAt ?? '')).slice(0, 6);
-  const log = s.log.filter((l) => l.dept === d.id && l.taskId && taskIds.has(l.taskId)).slice(0, 8);
+  // The task whose steps the Now tab shows: the one it is working on, else its latest.
+  const focusItem = mine.find(({ t }) => t.status === 'running') ?? mine.find(({ t }) => t.status === 'blocked') ?? tasks[0] ?? null;
+  const focus = focusItem?.t ?? null;
   return (
     <div className="pane">
       <div className="pane-scroll">
@@ -727,13 +740,17 @@ export function AgentPanel() {
               <li key={q.summary.id}><button className="link" onClick={() => s.openPanel('quest', { questId: q.summary.id, questFrom: 'dept' })}><Glyph k={questStatus(q.summary.status)} /> {q.summary.title}</button> <span className="muted small">· quest {STATUS[q.summary.status].label.toLowerCase()} · {formatTime(q.summary.createdAt)}</span></li>
             ))}</ul>
           )}
-          {(role === 'chief' ? !s.quests.some((q) => q.deptId === d.id) : tasks.length === 0) && log.length === 0 && <p className="muted small">{role === 'chief' ? 'No quests yet. Every quest goes to the lead first.' : 'Nothing yet.'}</p>}
+          {(role === 'chief' ? !s.quests.some((q) => q.deptId === d.id) : tasks.length === 0) && <p className="muted small">{role === 'chief' ? 'No quests yet. Every quest goes to the lead first.' : 'Nothing yet.'}</p>}
           {role === 'worker' && <ul className="stack tight">{tasks.map(({ t, questId }) => {
             const v = taskStatusView(t);
             return <li key={t.id}><button className="link" onClick={() => s.openPanel('quest', { questId, questFrom: 'dept' })}><Glyph k={v.k} /> {t.title}</button> <span className="muted small">· {v.label} · {formatTime(t.completedAt ?? t.startedAt ?? t.createdAt)}</span></li>;
           })}</ul>}
-          {log.length > 0 && <ol className="feed">{log.map((l, i) => <li key={i}><span className="mono muted">{l.t}</span><Glyph k={(l.kind === 'chief' ? 'awaiting' : l.kind) as StatusKey} /><span>{l.text}</span></li>)}</ol>}
         </section>
+        {focus && agentKey && <section className="pane-sec">
+          <h3 className="sec-t">Steps on “{focus.title}”</h3>
+          {focus.status === 'blocked' && <NeedsInput deptId={d.id} questId={focusItem!.questId} node={focus} />}
+          <TaskSteps key={focus.id} deptId={d.id} agentKey={agentKey} taskId={focus.id} />
+        </section>}
 
 
         </>}
@@ -956,7 +973,7 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
                   <h3 className="sec-t">Objective</h3><p className="box-p">{detail.objective || 'No objective written.'}</p>
                   <h3 className="sec-t">Tasks <span className="count">{detail.counts.done}/{detail.counts.tasks} done</span></h3>
                   <p className="mono muted small">{detail.counts.running} running · {detail.counts.pending} pending · {detail.counts.blocked} blocked · {detail.counts.failed} failed · {detail.counts.archived} archived</p>
-                  <ul className="stack tasks">{treeRows(detail.tasks).map(({ node, depth }) => <TaskRow key={node.id} deptId={item.deptId} node={node} depth={depth} all={detail.tasks} />)}</ul>
+                  <ul className="stack tasks">{treeRows(detail.tasks).map(({ node, depth }) => <TaskRow key={node.id} deptId={item.deptId} questId={sum.id} node={node} depth={depth} all={detail.tasks} />)}</ul>
                   {detail.truncated && <p className="note warn">Large quest: the task tree was truncated by safety limits, so only part of it is shown and counts may be incomplete.</p>}
                   <CancellationSection deptId={item.deptId} questId={sum.id} status={sum.status} tasks={detail.tasks} />
                 </>
@@ -981,8 +998,8 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
   );
 }
 
-function TaskRow({ deptId, node, depth, all }: { deptId: string; node: TaskNode; depth: number; all: TaskNode[] }) {
-  const [open, setOpen] = useState(false);
+function TaskRow({ deptId, questId, node, depth, all }: { deptId: string; questId: string; node: TaskNode; depth: number; all: TaskNode[] }) {
+  const [open, setOpen] = useState(node.status === 'blocked');
   const v = taskStatusView(node);
   const warn = assigneeWarning(node);
   const title = (id: string) => all.find((t) => t.id === id)?.title ?? id;
@@ -996,20 +1013,19 @@ function TaskRow({ deptId, node, depth, all }: { deptId: string; node: TaskNode;
       {open && (
         <div id={did} className="task-x">
           {warn && <p className="field-err"><Glyph k="awaiting" />{warn}</p>}
-          <KV rows={[
+          {node.status === 'blocked' && <NeedsInput deptId={deptId} questId={questId} node={node} />}
+          <KV rows={([
             ['Agent', node.agentKey || node.assignee ? <AgentName deptId={deptId} agentKey={node.agentKey} /> : 'Unassigned'],
-            ['Hermes status', <>{node.status}{node.failed ? ' (blocked after a failure)' : node.status === 'blocked' ? ' (waiting for input, not a failure)' : ''}</>],
-            ['Tree', `depth ${node.depth}${node.parentIds.length ? ` · parent: ${node.parentIds.map(title).join(', ')}` : ' · quest root'}${node.childIds.length ? ` · ${node.childIds.length} child task${node.childIds.length === 1 ? '' : 's'}` : ''}`],
-            ['Created', formatTime(node.createdAt)], ['Started', formatTime(node.startedAt)], ['Completed', formatTime(node.completedAt)],
-            ['Attachments', String(node.attachmentCount)],
-          ]} />
-          {node.summary && <><h4 className="mini-h">Summary</h4><p className="box-p">{node.summary}</p></>}
-          {node.error && <><h4 className="mini-h">Error</h4><p className="err-t">{node.error}</p></>}
-          <h4 className="mini-h">Runs</h4>
-          {node.runs.length === 0 ? <p className="muted small">No runs yet.</p> : (
-            <table className="runs"><thead><tr><th scope="col">Attempt</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Ended</th></tr></thead>
-              <tbody>{node.runs.map((r, i) => <tr key={r.id}><td>{i + 1}</td><td>{RUN_STATE_LABEL[r.state]}</td><td>{formatTime(r.startedAt)}</td><td>{formatTime(r.endedAt)}</td></tr>)}</tbody></table>
-          )}
+            node.parentIds.length ? ['Part of', node.parentIds.map(title).join(', ')] : null,
+            node.childIds.length ? ['Handed out', `${node.childIds.length} task${node.childIds.length === 1 ? '' : 's'}`] : null,
+            ['Started', node.startedAt ? formatTime(node.startedAt) : 'Not yet'],
+            node.completedAt ? ['Finished', formatTime(node.completedAt)] : null,
+            node.runs.length > 1 ? ['Attempts', String(node.runs.length)] : null,
+            node.attachmentCount ? ['Files', `${node.attachmentCount} attached (see Results)`] : null,
+          ] as ([string, ReactNode] | null)[]).filter((r): r is [string, ReactNode] => r !== null)} />
+          {/* A blocked task's summary and error are its reason, shown above. */}
+          {node.status !== 'blocked' && node.summary && <><h4 className="mini-h">Summary</h4><p className="box-p">{node.summary}</p></>}
+          {node.status !== 'blocked' && node.error && <><h4 className="mini-h">Error</h4><p className="err-t">{node.error}</p></>}
         </div>
       )}
     </li>

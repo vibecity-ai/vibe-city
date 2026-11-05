@@ -30,7 +30,16 @@ export interface SkillInfo {
 }
 
 /** A Hermes session row reduced to the fields Vibe City may relay (times are epoch seconds). */
-export interface SessionMessage { role: 'user' | 'assistant'; content: string; at: string | null }
+/** One message of a session. Assistant messages may carry tool calls (`calls`); a `tool` message is one call's result. */
+export interface SessionMessage {
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  at: string | null;
+  calls: { id: string; name: string; args: string }[];
+  /** On a tool message: the call it answers, and the tool's name. */
+  toolCallId: string | null;
+  toolName: string | null;
+}
 
 export interface SessionInfo {
   id: string;
@@ -44,6 +53,8 @@ export interface SessionInfo {
   messageCount: number | null;
   toolCallCount: number | null;
   endReason: string | null;
+  /** The start of the first message (a Kanban run's starts `# Kanban task <id>:`). */
+  preview: string | null;
 }
 
 export interface ModelCatalog {
@@ -87,7 +98,7 @@ export interface HermesRuntime {
 
   /** Most recent sessions of one profile (dashboard `GET /api/sessions?profile=`), newest activity first. */
   listSessions(profile: string, limit: number): Promise<SessionInfo[]>;
-  /** The last `limit` user and assistant messages of one session, oldest first (tool calls and empty turns left out). */
+  /** The last `limit` messages of one session (user, assistant with its tool calls, tool results), oldest first. */
   sessionMessages(profile: string, sessionId: string, limit: number): Promise<SessionMessage[]>;
 
   /** Host-wide `kanban.max_in_progress_per_profile`, or null when unset/unlimited. */

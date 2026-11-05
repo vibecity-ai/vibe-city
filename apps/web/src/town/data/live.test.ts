@@ -119,7 +119,7 @@ test('a burst of live events triggers one quest refresh, not one per event', asy
   assert.match(FakeWS.all[0]!.url, /^ws:\/\/127\.0\.0\.1:4100\/api\/live\?departmentId=/);
   const lists = () => b.calls.filter((c) => c.path === `${D}/quests`).length;
   const before = lists();
-  for (let i = 0; i < 25; i++) FakeWS.all[0]!.emit({ type: 'hermes.event', departmentId: DEPT_ID, eventId: i, taskId: 't_root1', kind: 'heartbeat', at: iso });
+  for (let i = 0; i < 25; i++) FakeWS.all[0]!.emit({ type: 'hermes.event', departmentId: DEPT_ID, eventId: i, taskId: 't_root1', kind: 'commented', at: iso });
   mock.timers.tick(100);
   await flush();
   assert.equal(lists(), before, 'nothing yet: still inside the quiet period');
@@ -128,6 +128,8 @@ test('a burst of live events triggers one quest refresh, not one per event', asy
   // one list fetch (exactly `${D}/quests`) for the whole burst
   assert.equal(lists() - before, 1);
   assert.equal(useStore.getState().log.length, 25, 'every event still reaches the activity feed');
+  FakeWS.all[0]!.emit({ type: 'hermes.event', departmentId: DEPT_ID, eventId: 99, taskId: 't_root1', kind: 'heartbeat', at: iso });
+  assert.equal(useStore.getState().log.length, 25, 'heartbeats are plumbing: never in the feed');
 });
 
 test('archiving closes the floor, its socket and pending refreshes, and keeps Hermes resources', async () => {

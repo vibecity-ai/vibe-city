@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
   CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, DepartmentUpdateSchema, DepartmentViewSchema,
-  InventoryPatchSchema, InventorySchema, ChatSessionIdSchema,
+  InventoryPatchSchema, InventorySchema, ChatSessionIdSchema, HERMES_TASK_ID_RE, TaskAnswerSchema, TaskStepsViewSchema,
 } from '@vibe-city/shared';
 import {
   AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema, SyncCheckSchema,
@@ -201,6 +201,13 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const key = (req.params as { agentKey?: string }).agentKey ?? '';
     if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
     return parse(AgentViewSchema, await provisioning.agent(id, key));
+  });
+
+  app.get('/api/departments/:id/agents/:agentKey/tasks/:taskId/steps', async (req) => {
+    const { agentKey = '', taskId = '' } = req.params as { agentKey?: string; taskId?: string };
+    if (!AGENT_KEY_RE.test(agentKey)) throw new NotFoundError('agent not found');
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    return parse(TaskStepsViewSchema, await provisioning.taskSteps(idOf(req.params), agentKey, taskId));
   });
 
   app.patch('/api/departments/:id/agents/:agentKey', async (req) => {
@@ -425,6 +432,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const status = await quests_.requestCancel(dept, quest);
     // 202: the request was accepted; `state` says whether Hermes has confirmed that everything stopped.
     return reply.code(202).send(parse(CancellationStatusSchema, status));
+  });
+
+  app.post('/api/departments/:id/quests/:questId/tasks/:taskId/answer', async (req) => {
+    const { dept, quest } = questParams(req.params);
+    const taskId = (req.params as { taskId?: string }).taskId ?? '';
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    await quests_.answer(dept, quest, taskId, parse(TaskAnswerSchema, req.body).message);
+    return parse(QuestDetailSchema, await quests_.detail(dept, quest));
   });
 
   app.get('/api/departments/:id/quests/:questId/cancellation', async (req) => {

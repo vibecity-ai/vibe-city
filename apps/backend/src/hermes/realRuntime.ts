@@ -94,7 +94,7 @@ export class RealHermesRuntime implements HermesRuntime {
     return (j.sessions ?? []).filter((r) => typeof r.id === 'string').map((r) => ({
       id: r.id as string, title: str(r.title), source: str(r.source), model: str(r.model),
       startedAt: num(r.started_at), endedAt: num(r.ended_at), lastActive: num(r.last_active), active: r.is_active === true,
-      messageCount: num(r.message_count), toolCallCount: num(r.tool_call_count), endReason: str(r.end_reason),
+      messageCount: num(r.message_count), toolCallCount: num(r.tool_call_count), endReason: str(r.end_reason), preview: str(r.preview),
     }));
   }
 
@@ -102,11 +102,17 @@ export class RealHermesRuntime implements HermesRuntime {
     if (!PROFILE_RE.test(profile)) throw new HermesRejectedError('invalid profile name');
     if (!SESSION_RE.test(sessionId)) throw new HermesRejectedError('invalid session id');
     const n = Math.min(Math.max(Math.floor(limit), 1), 500);
-    const j = await this.http<{ messages: { role?: unknown; content?: unknown; timestamp?: unknown }[] }>(
+    type Call = { id?: unknown; call_id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+    const j = await this.http<{ messages: { role?: unknown; content?: unknown; timestamp?: unknown; tool_calls?: unknown; tool_call_id?: unknown; tool_name?: unknown }[] }>(
       'GET', `/api/sessions/${encodeURIComponent(sessionId)}/messages?profile=${encodeURIComponent(profile)}&limit=${n}&order=latest`);
-    return (j.messages ?? []).flatMap((m) => ((m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string' && m.content.trim()
-      ? [{ role: m.role, content: m.content, at: typeof m.timestamp === 'number' ? new Date(m.timestamp * 1000).toISOString() : null }]
-      : []));
+    const s = (v: unknown) => (typeof v === 'string' ? v : null);
+    return (j.messages ?? []).flatMap((m) => (m.role === 'user' || m.role === 'assistant' || m.role === 'tool' ? [{
+      role: m.role, content: s(m.content) ?? '', at: typeof m.timestamp === 'number' ? new Date(m.timestamp * 1000).toISOString() : null,
+      calls: (Array.isArray(m.tool_calls) ? (m.tool_calls as Call[]) : []).map((c) => ({
+        id: s(c.call_id) ?? s(c.id) ?? '', name: s(c.function?.name) ?? 'tool', args: s(c.function?.arguments) ?? '',
+      })),
+      toolCallId: s(m.tool_call_id), toolName: s(m.tool_name),
+    }] : []));
   }
 
   async listBoards(): Promise<BoardInfo[]> {

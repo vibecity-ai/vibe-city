@@ -259,3 +259,25 @@ test('Hermes offline: quest reads answer 503 and nothing is fabricated', async (
   assert.equal((await t.get(Q(d.id))).json().quests.length, 1, 'real data is back after reconnect');
 });
 
+
+test('a blocked task shows the agent\'s question; the boss\'s answer becomes a comment and the task resumes', async () => {
+  const t = questApp();
+  const d = await t.readyDept('Ops');
+  const { root, kids } = await seedQuest(t, d, 1);
+  t.kanban.block(d.board, root.id, 'Need someone with shell access to run 5 installs in /opt/data/profiles/x');
+  const detail = await t.get_(d.id, root.id);
+  const blocked = detail.tasks.find((n: any) => n.id === root.id);
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.blockReason, 'Need someone with shell access to run 5 installs in <path>/x');
+  assert.equal(detail.tasks.find((n: any) => n.id === kids[0]!.id).blockReason, null);
+
+  const answer = (taskId: string, message: string) => t.app.inject({ method: 'POST', url: `${Q(d.id, root.id)}/tasks/${taskId}/answer`, payload: { message } });
+  assert.equal((await answer(root.id, '  ')).statusCode, 400);
+  const res = await answer(root.id, 'Skip the install, document the commands instead.');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().tasks.find((n: any) => n.id === root.id).status, 'ready');
+  assert.equal(t.kanban.statusOf(d.board, root.id), 'ready');
+  assert.deepEqual(t.kanban.commentsOf(d.board).filter((c) => c.task_id === root.id).map((c) => [c.author, c.body]), [['the boss (CEO)', 'Skip the install, document the commands instead.']]);
+  assert.equal((await answer(root.id, 'again')).statusCode, 409, 'no longer waiting for input');
+  assert.equal((await answer('t_notmine1', 'x')).statusCode, 404);
+});

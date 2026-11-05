@@ -229,6 +229,8 @@ button.plate:hover { color: var(--ink); filter: brightness(1.15); }
 .feed, .timeline { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
 .feed li, .timeline li { display: grid; grid-template-columns: 48px 12px 1fr; gap: 10px; align-items: baseline; }
 .feed li > span:first-child, .timeline li > span:first-child { font: 400 20px var(--f-px); color: var(--ink-mute); }
+.steps .step-detail { display: block; overflow-wrap: anywhere; }
+.steps li.failed > span:last-child { color: var(--red, #ff6b6b); }
 .timeline li span:last-child { display: flex; flex-direction: column; }
 .err-t { color: #FFB3C1; font-size: 12px; }
 .live { display: flex; align-items: center; gap: 8px; }

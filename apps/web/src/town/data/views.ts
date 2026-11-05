@@ -146,10 +146,6 @@ export function assigneeWarning(t: Pick<TaskNode, 'agentKey' | 'assignee'>): str
   return t.assignee ? 'Assigned to an agent outside this department. Detected, not prevented.' : 'Not assigned to any of this department’s agents yet.';
 }
 
-export const RUN_STATE_LABEL: Record<TaskNode['runs'][number]['state'], string> = {
-  queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', unknown: 'Unknown',
-};
-
 /* ---------- cancellation ---------- */
 
 export interface CancellationView {

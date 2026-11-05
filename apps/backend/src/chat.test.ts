@@ -115,8 +115,10 @@ test('an agent has many chats: a new one, then resuming the old one; a chat Vibe
   assert.deepEqual((await app.inject(`${url}?session=${first.sessionId}`)).json().messages.map((m: any) => m.text).filter((_: string, i: number) => i % 2 === 0), ['first chat', 'back to the first']);
 
   hermes.sessionLog.set(`${d.lead}/cli-chat-1`, [
-    { role: 'user', content: 'hi from the terminal', at: '2026-11-01T10:00:00.000Z' },
-    { role: 'assistant', content: 'Hello.\n<vc>{"mood":"happy","replies":["Thanks"],"proposal":null}</vc>', at: '2026-11-01T10:00:05.000Z' },
+    { role: 'user', content: 'hi from the terminal', at: '2026-11-01T10:00:00.000Z', calls: [], toolCallId: null, toolName: null },
+    { role: 'assistant', content: '', at: '2026-11-01T10:00:02.000Z', calls: [{ id: 'c1', name: 'terminal', args: '{"command":"ls"}' }], toolCallId: null, toolName: null },
+    { role: 'tool', content: '{"output":"a.md"}', at: '2026-11-01T10:00:03.000Z', calls: [], toolCallId: 'c1', toolName: 'terminal' },
+    { role: 'assistant', content: 'Hello.\n<vc>{"mood":"happy","replies":["Thanks"],"proposal":null}</vc>', at: '2026-11-01T10:00:05.000Z', calls: [], toolCallId: null, toolName: null },
   ]);
   const old = (await app.inject(`${url}?session=cli-chat-1`)).json();
   assert.deepEqual(old.messages.map((m: any) => [m.from, m.text, m.mood]), [['user', 'hi from the terminal', null], ['agent', 'Hello.', 'happy']]);
@@ -194,4 +196,14 @@ test('the Hermes agent client creates the session, follows the stream and maps a
   const denied = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642', fetch: (async () => new Response('{"error":{"message":"Invalid gateway API key"}}', { status: 401 })) as typeof fetch });
   await assert.rejects(denied.turn(turn), HermesAuthError);
   await assert.rejects(client.turn({ ...turn, profile: '../x' }), /invalid profile/);
+});
+
+test('a chat about a blocked task tells the agent why it is blocked, and its resume suggestion reaches the window', async () => {
+  const { app, agentChat, readyDept } = agentApp(() => 'I can skip the install and list the commands.\n<vc>{"mood":"focused","replies":[],"proposal":null,"resume":"Skip the install; document the 5 commands."}</vc>');
+  const d = await readyDept('Desk', {});
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'What do you need?', blockedTask: { title: 'Install skills', reason: 'No shell access' } } });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.json().agent.resume, 'Skip the install; document the 5 commands.');
+  assert.match(agentChat.turns[0]!.system, /"Install skills", which is blocked .*No shell access/);
+  assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
 });

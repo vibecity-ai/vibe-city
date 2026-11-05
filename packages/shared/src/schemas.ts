@@ -349,6 +349,49 @@ export const profileNameForAgent = (departmentId: string, agentKey: string) => {
 // every view is derived from Hermes on request.
 
 export const HERMES_TASK_ID_RE = /^t_[A-Za-z0-9]{4,32}$/;
+
+/** Kanban events that are Hermes plumbing (worker bookkeeping), not something a user follows. */
+export const KANBAN_EVENT_NOISE: readonly string[] = ['heartbeat', 'owner_admitted', 'worker_bound', 'tip_scratch_workspace', 'worker_result', 'spawned'];
+export const KANBAN_EVENT_LABELS: Record<string, string> = {
+  created: 'Task created',
+  claimed: 'Worker started',
+  completed: 'Task completed',
+  blocked: 'Task blocked',
+  unblocked: 'Task unblocked',
+  archived: 'Task archived',
+  crashed: 'Run crashed',
+  gave_up: 'Task failed (retries exhausted)',
+  reclaimed: 'Run reclaimed',
+  commented: 'Comment added',
+  attached: 'File attached',
+  worker_lost: 'Worker lost',
+  promoted: 'Task ready',
+  assigned: 'Task assigned',
+  edited: 'Task edited',
+  status: 'Status changed',
+  review_requested: 'Review requested',
+  archive_worker_termination: 'Worker terminated',
+  skipped_nonspawnable: 'Assignee profile not runnable',
+};
+
+/** One thing an agent did while working on a task, read from its Hermes session: a tool it used or a note it wrote. */
+export const TaskStepSchema = z.object({
+  at: z.string().nullable(),
+  kind: z.enum(['tool', 'note', 'failed']),
+  text: z.string(),
+  detail: z.string().nullable(),
+}).strict();
+export type TaskStep = z.infer<typeof TaskStepSchema>;
+
+export const TaskStepsViewSchema = z.object({
+  /** Oldest first; the latest run of the task last. */
+  steps: z.array(TaskStepSchema),
+  /** The agent is still working on it. */
+  active: z.boolean(),
+  /** Why steps could not be read (Hermes away, the run not started yet); null when they were. */
+  error: z.string().nullable(),
+}).strict();
+export type TaskStepsView = z.infer<typeof TaskStepsViewSchema>;
 export const HERMES_TASK_STATUSES = ['triage', 'todo', 'ready', 'running', 'blocked', 'scheduled', 'review', 'done', 'archived'] as const;
 
 export const QUEST_STATUSES = [
@@ -400,10 +443,16 @@ export const TaskNodeSchema = z.object({
   completedAt: iso,
   summary: z.string().nullable(),
   error: z.string().nullable(),
+  /** A blocked task's question for the boss: the reason the agent gave when it blocked (null when not blocked). */
+  blockReason: z.string().nullable(),
   attachmentCount: z.number().int(),
   runs: z.array(TaskRunViewSchema),
 }).strict();
 export type TaskNode = z.infer<typeof TaskNodeSchema>;
+
+/** The boss's answer to a blocked task: posted as a comment, then the task is unblocked so the agent picks it up again. */
+export const TaskAnswerSchema = z.object({ message: z.string().trim().min(1, 'write an answer').max(4000) }).strict();
+export type TaskAnswer = z.infer<typeof TaskAnswerSchema>;
 
 export const CancellationStatusSchema = z.object({
   /**
@@ -607,6 +656,8 @@ export const ChatMessageSchema = z.object({
   /** Suggested next things the user might say (agent messages only). */
   replies: z.array(z.string()),
   proposal: ChatProposalSchema.nullable(),
+  /** In a chat about a blocked task: the boss's answer, worded for the task, that the agent suggests resuming it with. */
+  resume: z.string().optional(),
   at: z.string(),
 }).strict();
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
@@ -630,6 +681,8 @@ export const ChatSendSchema = z.object({
   taskTitle: z.string().trim().max(300).optional(),
   /** The chat to continue (from the history); omitted = the agent's last chat. */
   sessionId: ChatSessionIdSchema.optional(),
+  /** The chat is about this blocked task of the agent's: it explains what it needs and can suggest resuming it. */
+  blockedTask: z.object({ title: z.string().trim().max(300), reason: z.string().trim().max(2000).nullable() }).strict().optional(),
 }).strict();
 export type ChatSend = z.infer<typeof ChatSendSchema>;
 

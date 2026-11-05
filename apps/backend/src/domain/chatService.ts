@@ -66,7 +66,8 @@ export class ChatService {
 
   private async fromHermes(profile: string, sessionId: string): Promise<ChatMessage[]> {
     try {
-      return (await this.d.hermes.sessionMessages(profile, sessionId, 200)).map((m, i) => ChatMessageSchema.parse({
+      const said = (await this.d.hermes.sessionMessages(profile, sessionId, 500)).filter((m) => m.role !== 'tool' && m.content.trim());
+      return said.slice(-200).map((m, i) => ChatMessageSchema.parse({
         id: `${sessionId}:${i}`, from: m.role === 'user' ? 'user' : 'agent', at: m.at ?? new Date(0).toISOString(),
         ...(m.role === 'user' ? { text: m.content.slice(0, 4000), mood: null, replies: [], proposal: null } : parseAgentReply(m.content)),
       }));
@@ -92,7 +93,7 @@ export class ChatService {
     this.busy.add(profile);
     try {
       const ch = this.character(departmentId, agentKey);
-      const system = this.systemMessage(departmentId, ch, input.taskTitle);
+      const system = this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask);
       let creds = await this.creds(profile, input.sessionId);
       const turn = (c: ChatCreds) => this.d.agentChat!.turn({ profile, key: c.api_key, sessionId: c.session_id, title: input.message.slice(0, 60), message: input.message, system }, onEvent);
       let raw: string;
@@ -132,12 +133,17 @@ export class ChatService {
     return { profile, api_key: key, session_id: session };
   }
 
-  private systemMessage(departmentId: string, ch: Character, taskTitle?: string): string {
+  private systemMessage(departmentId: string, ch: Character, taskTitle?: string, blocked?: ChatSend['blockedTask']): string {
     const dept = this.d.departments.get(departmentId);
     return [
       `The CEO of ${this.d.companyName()} is talking to you through Vibe City's dialogue window. Vibe City is the game-like office where the company's departments of Hermes agents work; you are an agent of the "${dept.name}" department.`,
       `In this window you appear as ${ch.name}, ${ch.title}. Personality: ${ch.traits.join(', ')}. Way of speaking: ${ch.speechStyle}. Quirk: ${ch.quirk}. You call the CEO "boss". Keep the character light; being right matters more.`,
       taskTitle ? `Your current task on the board: "${taskTitle}".` : '',
+      blocked ? [
+        `The boss opened this chat about your task "${blocked.title}", which is blocked waiting for their input.${blocked.reason ? ` The reason you gave when blocking it: "${blocked.reason}"` : ''}`,
+        'Explain plainly what is wrong and exactly what you need from the boss to carry on. Ask follow-up questions until it is clear.',
+        'Once the boss has given you what the task needs, add "resume" to the final tag: their answer, written as a short instruction for the task (it is posted on the task as their comment and the task is resumed). Leave it out until then.',
+      ].join(' ') : '',
       // Outside a dispatched task the agent has no board context: name the board and the commands, or it goes digging.
       `Your department's Kanban board is "${dept.hermesBoardSlug}". Read it with the terminal: \`hermes kanban --board ${dept.hermesBoardSlug} list --sort completed-desc --json\` (add --status done, running…), and \`hermes kanban --board ${dept.hermesBoardSlug} show <task_id> --json\` for a task's result, comments and runs.`,
       '',
@@ -146,7 +152,7 @@ export class ChatService {
       '- Quick things the boss asks for you may simply do now. For bigger or multi-step work that your team should carry out on the board, propose a quest instead of doing it here.',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',
       '- End every reply with one final line, exactly in this form (JSON inside the tag):',
-      `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}}</vc>`,
+      `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}${blocked ? ', "resume": "<only once the boss has answered>"' : ''}}</vc>`,
     ].filter(Boolean).join('\n');
   }
 
@@ -166,7 +172,7 @@ export class ChatService {
 
 /** Splits the agent's reply into what it says and the trailing <vc>{…}</vc> metadata. A missing or broken tag just
     means plain speech: the agent's words are never lost to a formatting slip. */
-export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' | 'replies' | 'proposal'> {
+export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' | 'replies' | 'proposal' | 'resume'> {
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const tag = /<vc>([\s\S]*?)(?:<\/vc>|$)/i.exec(clean);
   let meta: Record<string, unknown> = {};
@@ -180,5 +186,6 @@ export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' 
     ? meta.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3)
     : [];
   const p = ChatProposalSchema.safeParse({ kind: 'quest', ...(meta.proposal && typeof meta.proposal === 'object' ? meta.proposal : {}) });
-  return { text, mood, replies, proposal: meta.proposal && p.success ? p.data : null };
+  const resume = typeof meta.resume === 'string' && meta.resume.trim() ? { resume: meta.resume.trim().slice(0, 4000) } : {};
+  return { text, mood, replies, proposal: meta.proposal && p.success ? p.data : null, ...resume };
 }

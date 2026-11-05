@@ -16,6 +16,9 @@ export const MAX_TREE_DEPTH = 8;
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const CANCEL_MARKER = '[vibe-city] cancel-requested';
 const MARKER_AUTHOR = 'vibe-city';
+/** Comment author of the boss's answers to blocked tasks, as the agent sees them on the board. */
+const ANSWER_AUTHOR = 'the boss (CEO)';
+const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const iso = (t: number | null | undefined) => (t == null ? null : new Date(t * 1000).toISOString());
 const isTerminal = (s: string) => s === 'done' || s === 'archived';
 
@@ -152,6 +155,7 @@ export class QuestService {
         createdAt: iso(t.created_at), startedAt: iso(t.started_at), completedAt: iso(t.completed_at),
         summary: scrub(t.latest_summary ?? t.result ?? [...d.runs].reverse().find((r) => r.summary)?.summary ?? null),
         error: failed || t.status === 'blocked' ? scrub(t.last_failure_error ?? lastRun?.error ?? null) : null,
+        blockReason: t.status === 'blocked' ? scrub(str([...d.events].reverse().find((e) => e.kind === 'blocked')?.payload?.reason), 2000) : null,
         attachmentCount: d.attachments.length,
         runs: d.runs.map((r) => ({ id: r.id, profile: r.profile, state: runState(r), startedAt: iso(r.started_at), endedAt: iso(r.ended_at) })),
       };
@@ -246,6 +250,20 @@ export class QuestService {
       ...summary, departmentId, objective: extractObjective(tree.details.get(questId)!.task.body),
       tasks: nodes, violations: this.violations(nodes, questId), cancellation, warnings, truncated: _truncated,
     };
+  }
+
+  /**
+   * The boss answers a blocked task of this quest: the answer goes on the task as a comment (the agent reads its
+   * comments when it runs again), then the task is unblocked.
+   */
+  async answer(departmentId: string, questId: string, taskId: string, message: string): Promise<void> {
+    const ctx = this.ctx(departmentId);
+    const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
+    const t = tree.details.get(taskId);
+    if (!t) throw new NotFoundError('task not found in this quest');
+    if (t.task.status !== 'blocked') throw new ConflictError('this task is not waiting for input any more');
+    await this.kanban.addComment(ctx.board, taskId, ANSWER_AUTHOR, message);
+    await this.kanban.unblockTask(ctx.board, taskId);
   }
 
   async activity(departmentId: string, questId: string, limit = 200): Promise<ActivityEvent[]> {

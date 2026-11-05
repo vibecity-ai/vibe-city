@@ -50,7 +50,7 @@ test('sessions are relayed as safe fields only: ISO times, scrubbed titles, no h
   await t.provision(d.id);
   t.hermes.sessions.set(profileNameForAgent(d.id, 'chief'), [{
     id: 'local-abc', title: 'Read /home/someone/secret/plan.md', source: 'kanban', model: 'gpt-x', startedAt: 1793301218.1, endedAt: null,
-    lastActive: 1793301244, active: true, messageCount: 10, toolCallCount: 4, endReason: null,
+    lastActive: 1793301244, active: true, messageCount: 10, toolCallCount: 4, endReason: null, preview: null,
   }]);
   const res = await agent(t, d.id, 'chief');
   const v = AgentViewSchema.parse(res.json());
@@ -76,3 +76,35 @@ test('Hermes unreachable: sessions are null with a reason, the last read-back is
   assert.equal(v.skills.find((s) => s.name === 'pdf')?.enabled, true);
 });
 
+
+test('task steps: the run sessions of that task, in plain words, failures marked, paths scrubbed, nothing raw', async () => {
+  const t = provApp();
+  const d = await t.create('Ops');
+  await t.provision(d.id);
+  const p = profileNameForAgent(d.id, 'chief');
+  const run = (id: string, task: string, startedAt: number, active = false) => ({
+    id, title: 'x', source: 'kanban', model: null, startedAt, endedAt: null, lastActive: null, active, messageCount: 3, toolCallCount: 1, endReason: null,
+    preview: `# Kanban task ${task}: Research`,
+  });
+  t.hermes.sessions.set(p, [run('local-2', 't_abcd1234', 20, true), run('local-other', 't_ffff0000', 15), run('local-1', 't_abcd1234', 10),
+    { ...run('vibecity-ceo-1', 't_abcd1234', 5), source: 'api_server' }]);
+  const msg = (m: Partial<import('./hermes/ports.ts').SessionMessage>) => ({ role: 'assistant' as const, content: '', at: '2026-11-05T10:00:00.000Z', calls: [], toolCallId: null, toolName: null, ...m });
+  t.hermes.sessionLog.set(`${p}/local-1`, [
+    msg({ role: 'user', content: '# Kanban task t_abcd1234: Research\n\nsecret prompt' }),
+    msg({ calls: [{ id: 'a', name: 'web_search', args: '{"query":"near ai models"}' }, { id: 'b', name: 'terminal', args: '{"command":"cat /opt/data/profiles/x/notes.md"}' }] }),
+    msg({ role: 'tool', toolCallId: 'a', content: '{"results":[]}' }),
+    msg({ role: 'tool', toolCallId: 'b', content: '{"output":"","exit_code":1,"error":null}' }),
+  ]);
+  t.hermes.sessionLog.set(`${p}/local-2`, [msg({ content: 'Found three sources, writing it up.' }), msg({ calls: [{ id: 'c', name: 'kanban_complete', args: '{"summary":"done"}' }] })]);
+  const res = await t.app.inject(`/api/departments/${d.id}/agents/chief/tasks/t_abcd1234/steps`);
+  assert.equal(res.statusCode, 200);
+  assert.deepEqual(res.json().steps.map((s: any) => [s.kind, s.text, s.detail]), [
+    ['tool', 'Searched the web', 'near ai models'],
+    ['failed', 'Ran a command', 'cat <path>/notes.md'],
+    ['note', 'Found three sources, writing it up.', null],
+    ['tool', 'Finished the task', 'done'],
+  ]);
+  assert.equal(res.json().active, true);
+  assert.doesNotMatch(res.body, /secret prompt|\/opt\/data/);
+  assert.equal((await t.app.inject(`/api/departments/${d.id}/agents/chief/tasks/nope/steps`)).statusCode, 404);
+});

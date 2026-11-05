@@ -26,6 +26,9 @@ export type View = 'tower' | 'floor';
 export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';
 export type DeptTab = 'overview' | 'loadout' | 'quests';
 
+/** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
+export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
+
 export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
 export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string; taskId?: string }
 export interface QuestItem { deptId: string; summary: QuestSummary }
@@ -55,7 +58,7 @@ interface UI {
   execView: 'active' | 'archived';
   /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
       'new'; omitted = their last chat). */
-  talk: { deptId: string; agentKey: string; session?: string } | null;
+  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
   /** AR hiring: the dialogue window on AR's head (intake) or on a candidate (interview), or the shortlist popup. */
   call: { mode: 'ar' | 'interview' | 'shortlist'; reqId: string; candId?: string } | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */
