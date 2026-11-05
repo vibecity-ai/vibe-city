@@ -624,7 +624,14 @@ export class City {
       else if (h.kind === 'ph') { s.openExec(); this.fit(); }
       else if (h.kind === 'obj') execAction(h.id as ExecObjectId);
       else if (h.kind === 'ghost') s.ui$({ newDept: true });
-      else if (h.kind === 'agent') s.ui$({ agent: h.id, talk: { deptId: s.ui.floorId!, agentKey: h.id } });
+      else if (h.kind === 'agent') s.openPanel('agent', { agent: h.id });
+    });
+    // middle click on an agent opens the chat; mousedown is suppressed so the browser does not start autoscroll
+    cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
+    cv.addEventListener('auxclick', (e) => {
+      if (e.button !== 1) return;
+      const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
+      if (h?.kind === 'agent') s.ui$({ agent: h.id, talk: { deptId: s.ui.floorId!, agentKey: h.id } });
     });
   }
 }

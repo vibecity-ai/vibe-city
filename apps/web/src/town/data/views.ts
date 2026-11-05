@@ -2,10 +2,26 @@
    allowed, what a form change sends. No React, no I/O: tested in views.test.ts. The wording rules come from the spec:
    configured is never "guaranteed", a requested cancel is never "cancelled". */
 import type {
-  CancellationStatus, CapabilityEntry, DepartmentUpdate, DepartmentView, ProvisioningStatus, SyncCheck, TaskNode,
+  CancellationStatus, CapabilityEntry, Character, DepartmentUpdate, DepartmentView, ProvisioningError, ProvisioningStatus, SyncCheck, TaskNode,
 } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
 import type { StatusKey } from '../ui/kit.tsx';
+
+/* ---------- names ---------- */
+
+/** What the user calls an agent: its persona name, else "Lead" / "Teammate 2". Never a seat key or profile id. */
+export function agentLabel(key: string | null, ch?: Character | null): string {
+  if (ch) return ch.name;
+  if (!key) return 'Someone outside the floor';
+  if (key === 'chief') return 'Lead';
+  const n = Number(key.replace(/\D/g, ''));
+  return n ? `Teammate ${n}` : 'Teammate';
+}
+
+export const SYNC_STEP_LABEL: Record<ProvisioningError['step'], string> = {
+  health: 'Checking Hermes', validate: 'Checking the setup', board: 'Creating the board',
+  agents: 'Creating the agent profiles', inventory: 'Applying the inventory', verify: 'Verifying',
+};
 
 /* ---------- department settings ---------- */
 
@@ -42,7 +58,8 @@ export const settingsErrorField = (message: string) => (/name/i.test(message) ? 
 /* ---------- archive ---------- */
 
 export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoardRef' | 'agents'>): string[] {
-  const hermes = [d.hermesBoardRef && `board ${d.hermesBoardRef}`, ...d.agents.map((a) => a.profileRef && `profile ${a.profileRef}`)].filter(Boolean);
+  const profiles = d.agents.filter((a) => a.profileRef).length;
+  const hermes = [d.hermesBoardRef && 'its board', profiles && `its ${profiles} agent profile${profiles === 1 ? '' : 's'}`].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
     'Vibe City keeps the department record, its inventory and settings. You can still inspect it under Executive Office → Archived.',
@@ -126,7 +143,7 @@ export function taskStatusView(t: Pick<TaskNode, 'status' | 'failed'>): { k: Sta
 
 export function assigneeWarning(t: Pick<TaskNode, 'agentKey' | 'assignee'>): string | null {
   if (t.agentKey !== null) return null;
-  return `Assigned to ${t.assignee ? `“${t.assignee}”` : 'nobody'}, which is not one of this department’s agents. Detected, not prevented.`;
+  return t.assignee ? 'Assigned to an agent outside this department. Detected, not prevented.' : 'Not assigned to any of this department’s agents yet.';
 }
 
 export const RUN_STATE_LABEL: Record<TaskNode['runs'][number]['state'], string> = {

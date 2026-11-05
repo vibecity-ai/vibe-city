@@ -5,6 +5,7 @@ import { useStore, floorNum } from '../store';
 import { Glyph, Icon, deptStatus, useDialog } from './kit';
 import { SchedulesView } from './Schedules';
 import type { Dept } from '../data/types';
+import { AgentName } from './AgentView';
 
 /** Agents working right now: the lead and the teammates with a running task. */
 const busyOf = (d: Dept) => (d.chief?.status === 'running' ? 1 : 0) + d.workers.filter((w) => w.status === 'running').length;
@@ -37,7 +38,7 @@ export function ExecRoomModal() {
                   <button className="org-row" onClick={() => open(d.id)}>
                     <span className="fkey cyan">F{floorNum(depts, d.id)}</span>
                     <b>{d.name}</b>
-                    <span className="org-chief">{d.chief ? <><Glyph k={d.chief.status} /> {d.chief.name}</> : <span className="muted">no lead yet</span>}</span>
+                    <span className="org-chief">{d.chief ? <><Glyph k={d.chief.status} /> <AgentName deptId={d.id} agentKey="chief" /></> : <span className="muted">no lead yet</span>}</span>
                     <span className="org-seats" aria-label={`${busyOf(d)} of ${d.teamSize} agents busy`}>{Array.from({ length: d.teamSize }, (_, i) => <i key={i} className={i < busyOf(d) ? 'on' : ''} />)}</span>
                     <span className="muted">{active} active quest{active === 1 ? '' : 's'}</span>
                     <span className="org-st"><Glyph k={st.k} />{st.label}</span>

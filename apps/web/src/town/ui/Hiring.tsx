@@ -133,7 +133,7 @@ function ArDialogue({ reqId }: { reqId: string }) {
   const hired = h.candidates.find((c) => c.id === h.hiredCandidateId);
   const greeting = h.state === 'scouting' ? "I'm on it. Making some calls, checking some references. Give me a minute, boss."
     : h.state === 'shortlist' ? `Back with ${h.candidates.length} candidates for ${h.brief?.departmentName}. Two are solid. The other two... you'll see.`
-    : h.state === 'hired' && hired && h.applied ? `Done. ${hired.character.name} starts at desk ${h.applied.seat} on ${h.brief?.departmentName}. ${hired.serious ? 'Good call.' : "I've noted my concerns in the file."}`
+    : h.state === 'hired' && hired && h.applied ? `Done. ${hired.character.name} joins ${h.brief?.departmentName}. ${hired.serious ? 'Good call.' : "I've noted my concerns in the file."}`
     : h.state === 'closed' ? 'Call ended. Ring me when you need someone.'
     : h.trigger.kind === 'manual' ? `${h.ar.name}, Agent Resources. Who are we hiring, boss?`
     : `Boss, ${h.ar.name} from AR. ${h.trigger.reason} Want me to find someone?`;

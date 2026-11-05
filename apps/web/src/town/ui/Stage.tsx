@@ -6,6 +6,7 @@ import { FloorKey, Glyph, Icon, deptStatus, statusColor, type StatusKey } from '
 import { EXEC_OBJECTS } from '../world/execRoom';
 import { execAction } from '../execActions';
 import { loadPersonas } from './AgentView';
+import { agentLabel } from '../data/views';
 import { PortraitCanvas } from './Dialogue';
 import { lookFor, quirkProp } from '../world/sprites';
 
@@ -14,6 +15,7 @@ import { lookFor, quirkProp } from '../world/sprites';
    so React never re-renders per frame. */
 export function StageOverlay({ city }: { city: City | null }) {
   const depts = useStore((s) => s.depts);
+  const personas = useStore((s) => s.personas);
   const ui = useStore((s) => s.ui);
   const toasts = useStore((s) => s.toasts);
   const conn = useStore((s) => s.conn);
@@ -113,8 +115,8 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* name tags for people in the open office */}
       {openDept && (
         <div className="tags">
-          {[...(openDept.chief ? [{ id: 'chief', label: openDept.chief.name, k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: w.id, k: w.status as StatusKey }))].map((t) => (
-            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} onClick={() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } })}>
+          {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), k: w.status as StatusKey }))].map((t) => (
+            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} onClick={() => useStore.getState().openPanel('agent', { agent: t.id })} onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onAuxClick={(e) => { if (e.button === 1) ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }); }}>
               <Glyph k={t.k} />{t.label}
             </button>
           ))}
@@ -224,10 +226,10 @@ function HoverCard({ ref_, deptId, agentKey }: { ref_: React.RefObject<HTMLDivEl
     <div className="hovercard" ref={ref_} aria-hidden="true" style={{ ['--who' as string]: ch?.color ?? '#FFC75A' }}>
       <div className="hc-face"><PortraitCanvas look={look} mood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'} talking={false} size={48} className="hc-portrait" /></div>
       <div className="hc-body">
-        <b>{ch?.name ?? (agentKey === 'chief' ? d.chief?.name : agentKey)}</b>
-        <span className="hc-role">{ch?.title ?? (agentKey === 'chief' ? 'Chief' : `Desk ${agentKey}`)}</span>
+        <b>{agentLabel(agentKey, ch)}</b>
+        <span className="hc-role">{ch?.title ?? (agentKey === 'chief' ? 'Lead' : 'Teammate')}</span>
         <span className="hc-doing"><Glyph k={status as StatusKey} /> {doing || deptStatus(d.state).label}</span>
-        <span className="hc-hint">Click to talk</span>
+        <span className="hc-hint">Click for profile · middle-click to talk</span>
       </div>
     </div>
   );

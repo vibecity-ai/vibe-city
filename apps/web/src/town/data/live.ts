@@ -407,7 +407,7 @@ export async function createQuest(deptId: string, input: { clientRequestId: stri
   await refreshDept(deptId);
   for (const w of out.warnings) st().toast(w, 'warn');
   const d = st().depts.find((x) => x.id === deptId);
-  st().toast(`Quest created${d ? ` for ${d.name}` : ''} and assigned to ${d?.chief?.name ?? 'its lead'}.`);
+  st().toast(`Quest created${d ? ` for ${d.name}` : ''} and assigned to ${(d && st().personas[`${d.id}:chief`]?.name) ?? 'its lead'}.`);
   return out.questId;
 }
 

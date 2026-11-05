@@ -210,7 +210,7 @@ function AgentDialogue({ deptId, agentKey }: { deptId: string; agentKey: string 
   const status = agentKey === 'chief' ? d?.chief?.status : worker?.status;
   const greeting = !ch ? '' : agentKey === 'chief'
     ? `${ch.name}. ${d?.chief?.activity && d.chief.activity !== 'Waiting for a quest' ? d.chief.activity + '.' : 'Nothing on my desk right now.'} What do you need, boss?`
-    : `${ch.name}, desk ${agentKey}. ${worker ? `Working on "${worker.task}".` : ''} What's up, boss?`;
+    : `${ch.name} here. ${worker ? `Working on "${worker.task}".` : ''} What's up, boss?`;
 
   const onSend = async (m: string) => {
     setError(null); setWaiting(true); setProgress(null);

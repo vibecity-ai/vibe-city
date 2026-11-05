@@ -12,7 +12,7 @@ import {
   type BoardQuest, type BoardSort, type ColumnKey, type DeptOption,
 } from '../data/company';
 import {
-  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL,
+  CANCEL_CONFIRM, LIMIT_COPY, PROVISIONING_STATE_LABEL, RESET_WARNING, RUN_STATE_LABEL, SYNC_STEP_LABEL, agentLabel,
   archiveConsequences, assigneeWarning, cancellationView, fieldErrors, syncView,
   settingsFormFrom, settingsPatch, taskStatusView, settingsErrorField, type SettingsForm,
 } from '../data/views';
@@ -20,7 +20,7 @@ import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor,
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { callAr } from './Hiring';
 import { PendingRequests } from './Requests';
-import { AgentPortrait, AgentRecord, ChatTranscript, PersonaLine } from './AgentView';
+import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, PersonaLine } from './AgentView';
 import { SchedulesView } from './Schedules';
 
 
@@ -149,8 +149,8 @@ function ArchivedCard({ d }: { d: DepartmentView }) {
         ['Purpose', d.purpose || '—'],
         ['Created', formatTime(d.createdAt)],
         ['State when archived', PROVISIONING_STATE_LABEL[d.state]],
-        ['Hermes board', d.hermesBoardRef ? <span className="mono">{d.hermesBoardRef} (kept in Hermes)</span> : 'never created'],
-        ['Agent profiles', <span className="mono">{d.agents.map((a) => a.profileRef).filter(Boolean).join(', ') || '—'}</span>],
+        ['Hermes board', d.hermesBoardRef ? 'Kept in Hermes' : 'Never created'],
+        ['Agent profiles', d.agents.some((a) => a.profileRef) ? `${d.agents.filter((a) => a.profileRef).length} kept in Hermes` : 'None'],
       ]} />
     </details>
   );
@@ -211,8 +211,8 @@ export function DeptPanel() {
                     <Portrait shirt="#fff" chief size={44} />
                     <span>
                       <span className="chief-badges"><span className="role">Lead</span><Chip k={d.chief.status} small /></span>
-                      <span className="chief-name">{d.chief.name}</span>
-                      <span className="mono muted small">profile · {d.chief.profile || '—'}{d.chief.model && <><br />model · {d.chief.model}</>}</span>
+                      <span className="chief-name"><AgentName deptId={d.id} agentKey="chief" /></span>
+                      {d.chief.model && <span className="mono muted small">model · {d.chief.model}</span>}
                     </span>
                   </span>
                   <span className="chief-act"><span>{d.chief.activity}</span><span className="mono muted">since {d.chief.since}</span></span>
@@ -221,7 +221,7 @@ export function DeptPanel() {
                   {d.workers.map((w) => (
                     <button key={w.id} className={`wrow${sel === w.id ? ' sel' : ''}`} aria-pressed={sel === w.id} onClick={() => s.openPanel('agent', { agent: w.id })}>
                       <Portrait shirt={w.shirt} size={28} />
-                      <span className="wrow-t"><span><span className="mono muted">{w.id}</span> <b>{w.task || 'No task'}</b></span>
+                      <span className="wrow-t"><span><b><AgentName deptId={d.id} agentKey={w.id} /></b> <span className="muted">{w.task || 'No task'}</span></span>
                         <small style={{ color: statusColor(w.status) }}><Glyph k={w.status} />{w.taskId ? WORKER_WORD[w.status] : 'Free'} <span className="muted">· {w.status === 'completed' ? 'done' : 'since'} {w.since}</span></small>
                       </span>
                     </button>
@@ -313,8 +313,8 @@ function SetupPanel({ d }: { d: Dept }) {
         </section>
         <div aria-live="polite">
           {err && (
-            <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>Step “{err.step}” failed</b><p>{err.message}</p>
-              <p className="fine mono">{err.code} · {formatTime(err.at)}</p>
+            <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>{SYNC_STEP_LABEL[err.step]} failed</b><p>{err.message}</p>
+              <p className="fine">{formatTime(err.at)}</p>
               <p className="fine">{err.retryable ? 'This can be retried.' : 'Something must change before retrying.'}</p></div></div>
           )}
         </div>
@@ -411,7 +411,7 @@ function SyncInspector({ d }: { d: Dept }) {
   const checking = !!s.busy[`check:${d.id}`];
   const syncRows: [string, boolean][] = [
     ...(prov?.agents ?? []).map((a): [string, boolean] => [
-      `${a.key === 'chief' ? 'Lead' : a.key} · ${a.ref ?? 'no profile yet'}`,
+      `${agentLabel(a.key, s.personas[`${d.id}:${a.key}`])}${a.ref ? '' : ' · no profile yet'}`,
       a.verified && profiles?.agents.find((p) => p.key === a.key)?.exists !== false,
     ]),
     ['Board', !!prov?.board.verified && d.view.boardSyncState === 'synced'],
@@ -426,7 +426,7 @@ function SyncInspector({ d }: { d: Dept }) {
       {info?.infoError && <p className="field-err" role="alert"><Glyph k="failed" />Could not refresh profile details: {info.infoError}{profiles ? ' Showing the last data received.' : ''}</p>}
       {prov?.error && (
         <div className="banner bad inline-b" role="alert"><Glyph k="failed" /><div><b>{prov.error.message}</b>
-          <KV rows={[['Code', <span className="mono">{prov.error.code}</span>], ['Step', prov.error.step], ['Can be tried again', prov.error.retryable ? 'Yes' : 'No: change the configuration first'], ['At', formatTime(prov.error.at)]]} /></div></div>
+          <KV rows={[['Step', SYNC_STEP_LABEL[prov.error.step]], ['Can be tried again', prov.error.retryable ? 'Yes' : 'No: change the configuration first'], ['At', formatTime(prov.error.at)]]} /></div></div>
       )}
       {check && !check.inSync && check.differences.length > 0 && (
         <ul className="sync-list">{check.differences.map((x) => <li key={x}><Glyph k="awaiting" size={12} />{x}</li>)}</ul>
@@ -578,7 +578,7 @@ export function InventorySheet() {
             <h3 className="inv-h">Agents <span>{teamLine(d.teamSize)}</span></h3>
             <div className="kv-card block">
               {d.view.agents.map((a) => (
-                <div key={a.key} className="agent-line"><b>{a.lead ? 'Lead' : a.key}</b><span className="mono muted small">{a.profileRef ?? 'no profile yet'}{a.model ? ` · ${a.model.id}` : ''}</span>
+                <div key={a.key} className="agent-line"><b><AgentName deptId={d.id} agentKey={a.key} /></b><span className="mono muted small">{a.profileRef ? '' : 'not synced yet'}{a.model ? `${a.profileRef ? '' : ' · '}${a.model.id}` : ''}</span>
                   <button className="link" onClick={() => s.openPanel('agent', { agent: a.key })}>Open agent</button></div>
               ))}
               <p className="fine">{LIMIT_COPY.teammates} To add an agent, hire through AR.</p>
@@ -621,7 +621,7 @@ export function AgentPanel() {
   const busyProv = !!s.busy[`provision:${d.id}`];
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
   const wasProvisioned = !!s.info[d.id]?.provisioning?.inventory.appliedAt;
-  const name = role === 'chief' ? d.chief?.name ?? 'Lead' : worker ? `Agent ${worker.id}` : 'Agent';
+  const name = agentLabel(agentKey, agentKey ? s.personas[`${d.id}:${agentKey}`] : null);
   const status = role === 'chief' ? d.chief?.status ?? 'awaiting' : worker?.status ?? 'idle';
   // This agent's tasks among the quests loaded for this floor: everything assigned to its own profile.
   const mine = Object.values(s.details).filter((q) => s.quests.some((x) => x.deptId === d.id && x.summary.id === q.id))
@@ -643,7 +643,7 @@ export function AgentPanel() {
             <div>
               <div className="title-row"><h1 className="display sm" tabIndex={-1}>{name}</h1><Chip k={status} /></div>
               {agentKey && <PersonaLine deptId={d.id} agentKey={agentKey} />}
-              <p className="mono muted small">{role === 'chief' ? 'Lead' : `Teammate ${agentKey ?? ''}`} · Hermes profile {view?.profileRef ?? me?.profileRef ?? '— (not synced yet)'}</p>
+              <p className="muted small">{role === 'chief' ? 'Lead' : 'Teammate'}{view?.profileRef ?? me?.profileRef ? '' : ' · not synced yet'}</p>
               <p className="mono small">model · {view?.model ?? '—'}{view?.observedAt && <span className="muted"> · read from Hermes {formatTime(view.observedAt)}</span>}</p>
               {(role === 'chief' ? !!d.chief : !!worker) && <button className="btn primary small" style={{ marginTop: 8 }} onClick={() => s.ui$({ talk: { deptId: d.id, agentKey: role === 'chief' ? 'chief' : worker!.id } })}>Talk</button>}
             </div>
@@ -877,7 +877,7 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
       <Field label="Quest title">{(p) => <input {...p} className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
       <Field label="Objective">{(p) => <textarea {...p} className="input" rows={3} maxLength={8000} value={obj} onChange={(e) => setObj(e.target.value)} />}</Field>
       <Field label="Extra instructions (optional)">{(p) => <textarea {...p} className="input" rows={2} maxLength={8000} value={instr} onChange={(e) => setInstr(e.target.value)} />}</Field>
-      {target ? <small className="muted">Assigned to <b className="gold-n">{target.chief ?? 'the lead'}</b></small> : <small className="muted">Choose a department that is ready.</small>}
+      {target ? <small className="muted">Assigned to <b className="gold-n">{target.chief ? <AgentName deptId={target.id} agentKey="chief" /> : 'the lead'}</b></small> : <small className="muted">Choose a department that is ready.</small>}
       {target && !s.conn.gateway && <p className="field-err"><Glyph k="awaiting" />{GATEWAY_WARNING}</p>}
       <div className="row"><button className="btn primary grow" type="submit" aria-busy={busy || undefined} disabled={busy || !target || !title.trim() || !obj.trim()}>{busy ? 'Creating…' : 'Create quest'}</button><Btn onClick={close} disabled={busy}>Cancel</Btn></div>
     </form>
@@ -942,9 +942,9 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
             ? <button className="link" onClick={() => s.ui$({ boardQuest: null })}><Icon n="x" size={14} />Close</button>
             : s.ui.questFrom === 'dept' && s.ui.floorId
             ? <button className="link" onClick={() => s.openPanel('dept')}><Icon n="back" size={14} />{s.depts.find((x) => x.id === s.ui.floorId)?.name ?? 'Department'}</button>
-            : <button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Quest board</button>}<span className="mono muted">{sum.id}</span></div>
+            : <button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Quest board</button>}</div>
           <div className="title-row"><h1 className="display sm" tabIndex={-1}>{sum.title}</h1><Chip k={questStatus(sum.status)} label={STATUS[sum.status].label} /></div>
-          <p className="meta"><span className="meta-f"><FloorKey n={'F' + floorNum(s.depts, item.deptId)} />{d?.name}</span><span>Chief <b className="gold-n">{d?.chief?.name ?? '—'}</b></span><span className="mono">{formatTime(sum.createdAt)}{sum.completedAt ? ` → ${formatTime(sum.completedAt)}` : ''}</span></p>
+          <p className="meta"><span className="meta-f"><FloorKey n={'F' + floorNum(s.depts, item.deptId)} />{d?.name}</span><span>Lead <b className="gold-n">{d?.chief ? <AgentName deptId={d.id} agentKey="chief" /> : '—'}</b></span><span className="mono">{formatTime(sum.createdAt)}{sum.completedAt ? ` → ${formatTime(sum.completedAt)}` : ''}</span></p>
           <p className="fine">{STATUS[sum.status].hint}</p>
           <Tabs label="Quest sections" idBase="quest" value={tab} onChange={setTab} options={(['overview', 'activity', 'results'] as const).map((t) => ({ key: t, label: t[0]!.toUpperCase() + t.slice(1) }))} />
         </section>
@@ -964,7 +964,7 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
                   <h3 className="sec-t">Objective</h3><p className="box-p">{detail.objective || 'No objective written.'}</p>
                   <h3 className="sec-t">Tasks <span className="count">{detail.counts.done}/{detail.counts.tasks} done</span></h3>
                   <p className="mono muted small">{detail.counts.running} running · {detail.counts.pending} pending · {detail.counts.blocked} blocked · {detail.counts.failed} failed · {detail.counts.archived} archived</p>
-                  <ul className="stack tasks">{treeRows(detail.tasks).map(({ node, depth }) => <TaskRow key={node.id} node={node} depth={depth} all={detail.tasks} />)}</ul>
+                  <ul className="stack tasks">{treeRows(detail.tasks).map(({ node, depth }) => <TaskRow key={node.id} deptId={item.deptId} node={node} depth={depth} all={detail.tasks} />)}</ul>
                   {detail.truncated && <p className="note warn">Large quest: the task tree was truncated by safety limits, so only part of it is shown and counts may be incomplete.</p>}
                   <CancellationSection deptId={item.deptId} questId={sum.id} status={sum.status} tasks={detail.tasks} />
                 </>
@@ -977,19 +977,19 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
               {extra && !extra.loading && !extra.error && !extra.activity.length && <p className="muted">No events yet.</p>}
               <ol className="timeline">{[...(extra?.activity ?? [])].reverse().map((e) => (
                 <li key={e.id}><span className="mono muted" title={formatTime(e.at)}>{clock(e.at)}</span><Glyph k={/fail|block|crash|timed/i.test(e.kind) ? 'failed' : /complet/i.test(e.kind) ? 'completed' : 'running'} />
-                  <span><span>{e.label}</span> <small className="muted">{e.taskTitle}</small> <small className="mono muted">{e.kind}</small>{e.detail && <small className="err-t">{e.detail}</small>}</span></li>
+                  <span><span>{e.label}</span> <small className="muted">{e.taskTitle}</small>{e.detail && <small className="err-t">{e.detail}</small>}</span></li>
               ))}</ol>
               {ACTIVE.has(sum.status) && <p className="muted small live"><Glyph k="running" />Live · refreshes when Hermes reports an event</p>}
             </section>
           )}
-          {tab === 'results' && <ResultsSection status={sum.status} extra={extra} />}
+          {tab === 'results' && <ResultsSection deptId={item.deptId} status={sum.status} extra={extra} />}
         </div>
       </div>
     </div>
   );
 }
 
-function TaskRow({ node, depth, all }: { node: TaskNode; depth: number; all: TaskNode[] }) {
+function TaskRow({ deptId, node, depth, all }: { deptId: string; node: TaskNode; depth: number; all: TaskNode[] }) {
   const [open, setOpen] = useState(false);
   const v = taskStatusView(node);
   const warn = assigneeWarning(node);
@@ -998,15 +998,14 @@ function TaskRow({ node, depth, all }: { node: TaskNode; depth: number; all: Tas
   return (
     <li className={`trow-w${warn ? ' other' : ''}`} style={{ marginLeft: Math.min(depth, 6) * 16 }}>
       <button type="button" className="trow" aria-expanded={open} aria-controls={did} onClick={() => setOpen(!open)}>
-        <Glyph k={v.k} /><span className="mono muted">{node.agentKey === 'chief' ? 'lead' : node.agentKey ?? 'other'}</span><b>{node.title}</b>{warn && <span className="err small"><Glyph k="awaiting" />outside dept</span>}<span className="grow" />
+        <Glyph k={v.k} /><span className="muted"><AgentName deptId={deptId} agentKey={node.agentKey} /></span><b>{node.title}</b>{warn && <span className="err small"><Glyph k="awaiting" />outside dept</span>}<span className="grow" />
         <span style={{ color: statusColor(v.k) }}>{v.label}</span><Icon n={open ? 'minus' : 'plus'} size={12} />
       </button>
       {open && (
         <div id={did} className="task-x">
           {warn && <p className="field-err"><Glyph k="awaiting" />{warn}</p>}
           <KV rows={[
-            ['Task', <span className="mono">{node.id}</span>],
-            ['Agent · profile', <>{node.agentKey === 'chief' ? 'lead' : node.agentKey ?? 'not a department agent'} · <span className="mono">{node.assignee ?? 'unassigned'}</span></>],
+            ['Agent', node.agentKey || node.assignee ? <AgentName deptId={deptId} agentKey={node.agentKey} /> : 'Unassigned'],
             ['Hermes status', <>{node.status}{node.failed ? ' (blocked after a failure)' : node.status === 'blocked' ? ' (waiting for input, not a failure)' : ''}</>],
             ['Tree', `depth ${node.depth}${node.parentIds.length ? ` · parent: ${node.parentIds.map(title).join(', ')}` : ' · quest root'}${node.childIds.length ? ` · ${node.childIds.length} child task${node.childIds.length === 1 ? '' : 's'}` : ''}`],
             ['Created', formatTime(node.createdAt)], ['Started', formatTime(node.startedAt)], ['Completed', formatTime(node.completedAt)],
@@ -1016,8 +1015,8 @@ function TaskRow({ node, depth, all }: { node: TaskNode; depth: number; all: Tas
           {node.error && <><h4 className="mini-h">Error</h4><p className="err-t">{node.error}</p></>}
           <h4 className="mini-h">Runs</h4>
           {node.runs.length === 0 ? <p className="muted small">No runs yet.</p> : (
-            <table className="runs"><thead><tr><th scope="col">Run</th><th scope="col">Profile</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Ended</th></tr></thead>
-              <tbody>{node.runs.map((r) => <tr key={r.id}><td className="mono">{r.id}</td><td className="mono">{r.profile ?? '—'}</td><td>{RUN_STATE_LABEL[r.state]}</td><td>{formatTime(r.startedAt)}</td><td>{formatTime(r.endedAt)}</td></tr>)}</tbody></table>
+            <table className="runs"><thead><tr><th scope="col">Attempt</th><th scope="col">State</th><th scope="col">Started</th><th scope="col">Ended</th></tr></thead>
+              <tbody>{node.runs.map((r, i) => <tr key={r.id}><td>{i + 1}</td><td>{RUN_STATE_LABEL[r.state]}</td><td>{formatTime(r.startedAt)}</td><td>{formatTime(r.endedAt)}</td></tr>)}</tbody></table>
           )}
         </div>
       )}
@@ -1045,9 +1044,9 @@ function CancellationSection({ deptId, questId, status, tasks }: { deptId: strin
               {poll === 'polling' && <p className="muted small">Checking with Hermes…</p>}
               {poll === 'timeout' && <p className="muted small">Not confirmed yet after two minutes. The board keeps refreshing on Hermes events; you can request again.</p>}
               {poll === 'hermes_down' && <p className="muted small">Stopped checking: Hermes or the backend is not reachable. The state above is the last one received.</p>}
-              {v.remaining.length > 0 && <><h4 className="mini-h">Still stopping ({v.remaining.length})</h4><ul className="ids">{v.remaining.map((r) => <li key={r.id}><span className="mono">{r.id}</span> {r.title} · {r.status}</li>)}</ul></>}
-              {v.archived.length > 0 && <><h4 className="mini-h">Archived by Vibe City ({v.archived.length})</h4><ul className="ids">{v.archived.map((r) => <li key={r.id}><span className="mono">{r.id}</span> {r.title}</li>)}</ul><p className="fine">Archived unfinished tasks cannot be dispatched again. Create a new quest to redo the work.</p></>}
-              {v.finished.length > 0 && <><h4 className="mini-h">Already finished, left untouched ({v.finished.length})</h4><ul className="ids">{v.finished.map((r) => <li key={r.id}><span className="mono">{r.id}</span> {r.title}</li>)}</ul><p className="fine">Their summaries and files stay in Results.</p></>}
+              {v.remaining.length > 0 && <><h4 className="mini-h">Still stopping ({v.remaining.length})</h4><ul className="ids">{v.remaining.map((r) => <li key={r.id}>{r.title} · {r.status}</li>)}</ul></>}
+              {v.archived.length > 0 && <><h4 className="mini-h">Archived by Vibe City ({v.archived.length})</h4><ul className="ids">{v.archived.map((r) => <li key={r.id}>{r.title}</li>)}</ul><p className="fine">Archived unfinished tasks cannot be dispatched again. Create a new quest to redo the work.</p></>}
+              {v.finished.length > 0 && <><h4 className="mini-h">Already finished, left untouched ({v.finished.length})</h4><ul className="ids">{v.finished.map((r) => <li key={r.id}>{r.title}</li>)}</ul><p className="fine">Their summaries and files stay in Results.</p></>}
             </div>
           </div>
         )}
@@ -1067,7 +1066,7 @@ function CancellationSection({ deptId, questId, status, tasks }: { deptId: strin
   );
 }
 
-function ResultsSection({ status, extra }: { status: QuestStatus; extra: ReturnType<typeof useStore.getState>['extra'][string] | undefined }) {
+function ResultsSection({ deptId, status, extra }: { deptId: string; status: QuestStatus; extra: ReturnType<typeof useStore.getState>['extra'][string] | undefined }) {
   const r = extra?.results;
   const withOutput = r?.tasks.filter((t) => t.summary || t.error || t.attachments.length) ?? [];
   const silent = (r?.tasks.length ?? 0) - withOutput.length;
@@ -1080,7 +1079,7 @@ function ResultsSection({ status, extra }: { status: QuestStatus; extra: ReturnT
           {r.leadSummary ? <><h3 className="sec-t">Summary from the lead</h3><p className="box-p">{r.leadSummary}</p></> : status !== 'completed' && <div className="empty"><Icon n="file" size={40} sw={1.5} /><b>Nothing final yet</b><p>The lead’s summary and any files appear as tasks finish. The quest is complete only when every task is done.</p></div>}
           {withOutput.map((t) => (
             <div key={t.taskId} className="stack">
-              <h3 className="sec-t">{t.title} <span className="mono muted small">{t.agentKey === 'chief' ? 'lead' : t.agentKey ?? 'other'} · {t.status} · {t.taskId}</span></h3>
+              <h3 className="sec-t">{t.title} <span className="muted small"><AgentName deptId={deptId} agentKey={t.agentKey} /> · {t.status}</span></h3>
               {t.summary && <p className="box-p">{t.summary}</p>}
               {t.error && <p className="err-t"><Glyph k="failed" /> {t.error}</p>}
               {t.attachments.map((a) => (

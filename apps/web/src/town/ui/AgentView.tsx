@@ -9,7 +9,7 @@ import { api, ApiError } from '../../api';
 import { lookFor, quirkProp } from '../world/sprites';
 import { PortraitCanvas } from './Dialogue';
 import { formatTime } from './format';
-import { taskStatusView } from '../data/views';
+import { agentLabel, taskStatusView } from '../data/views';
 import { Glyph } from './kit';
 
 /** Loads personas into the store (one request per seat, cached for the session). */
@@ -31,6 +31,14 @@ export function usePersona(deptId: string, agentKey: string) {
   return ch;
 }
 
+
+/** An agent's name as the user knows it; `agentKey` null = an assignee outside the floor. */
+export function AgentName({ deptId, agentKey }: { deptId: string; agentKey: string | null }) {
+  const key = `${deptId}:${agentKey}`;
+  const ch = useStore((s) => (agentKey ? s.personas[key] ?? null : null));
+  useEffect(() => { if (agentKey) loadPersonas(deptId, [agentKey]); }, [deptId, agentKey]);
+  return <>{agentLabel(agentKey, ch)}</>;
+}
 
 export function AgentPortrait({ deptId, agentKey, shirt, status }: { deptId: string; agentKey: string; shirt: string; status: AgentStatus }) {
   const ch = usePersona(deptId, agentKey);
