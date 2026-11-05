@@ -20,13 +20,13 @@ export function agentLabel(key: string | null, ch?: Character | null): string {
 
 export const SYNC_STEP_LABEL: Record<ProvisioningError['step'], string> = {
   health: 'Checking Hermes', validate: 'Checking the setup', board: 'Creating the board',
-  agents: 'Creating the agent profiles', inventory: 'Applying the inventory', verify: 'Verifying',
+  agents: 'Creating the agent profiles', inventory: 'Applying the loadout', verify: 'Verifying',
 };
 
 /* ---------- department settings ---------- */
 
 export const RESET_WARNING =
-  'Changing the name, purpose, inventory or profiles takes the department out of sync with Hermes. ' +
+  'Changing the name, purpose, loadout or profiles takes the department out of sync with Hermes. ' +
   'Agents then get no new work until you sync again.';
 
 export interface SettingsForm { name: string; purpose: string }
@@ -62,7 +62,7 @@ export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoar
   const hermes = [d.hermesBoardRef && 'its board', profiles && `its ${profiles} agent profile${profiles === 1 ? '' : 's'}`].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
-    'Vibe City keeps the department record, its inventory and settings. You can still inspect it under Executive Office → Archived.',
+    'Vibe City keeps the department record, its loadout and settings. You can still inspect it under Executive Office → Archived.',
     hermes.length
       ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every quest, result and attachment stay there.`
       : 'It was never synced, so it has no Hermes resources.',
@@ -84,10 +84,10 @@ export const LIMIT_COPY = {
 /** What to tell the user after an inventory save, based on the sync state before and after. */
 export function inventorySavedNotice(before: ProvisioningStatus['state'] | undefined, after: ProvisioningStatus['state'] | undefined): { text: string; tone: 'good' | 'warn' } {
   if (after === 'unconfigured' && before && before !== 'unconfigured' && before !== 'provisioning') {
-    return { text: 'Inventory saved. Sync the department so Hermes uses it.', tone: 'warn' };
+    return { text: 'Loadout saved. Sync the department so Hermes uses it.', tone: 'warn' };
   }
-  if (after === 'unconfigured') return { text: 'Inventory saved. It is applied when you sync the department.', tone: 'good' };
-  return { text: 'Inventory saved.', tone: 'good' };
+  if (after === 'unconfigured') return { text: 'Loadout saved. It is applied when you sync the department.', tone: 'good' };
+  return { text: 'Loadout saved.', tone: 'good' };
 }
 
 /** Only an enforced entry with the backend's guarantee flag gets lock styling. */

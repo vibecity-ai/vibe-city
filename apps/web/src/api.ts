@@ -1,10 +1,10 @@
 import {
-  AgentViewSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
+  AgentViewSchema, DepartmentAgentSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
   CharacterSchema, ChatHistorySchema, ChatProgressSchema, ChatReplySchema, type Character, type ChatHistory, type ChatProgress, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
   QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, SyncCheckSchema,
   type ActivityEvent, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
-  type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
+  type AgentPatch, type DepartmentAgent, type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
   type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
 } from '@vibe-city/shared';
 import {
@@ -90,6 +90,7 @@ export const api = {
   archiveDepartment: (dept: string): Promise<DepartmentArchived> => request('DELETE', d(dept), DepartmentArchivedSchema),
   inventory: (dept: string): Promise<Inventory> => request('GET', `${d(dept)}/inventory`, InventorySchema),
   patchInventory: (dept: string, input: InventoryPatch): Promise<Inventory> => request('PATCH', `${d(dept)}/inventory`, InventorySchema, input),
+  patchAgent: (dept: string, agentKey: string, input: AgentPatch): Promise<DepartmentAgent> => request('PATCH', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, DepartmentAgentSchema, input),
   effectiveInventory: (dept: string): Promise<EffectiveInventory> => request('GET', `${d(dept)}/effective-inventory`, EffectiveInventorySchema),
   provisioning: (dept: string): Promise<ProvisioningStatus> => request('GET', `${d(dept)}/provisioning`, ProvisioningStatusSchema),
   provision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision`, ProvisioningStatusSchema),

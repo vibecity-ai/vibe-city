@@ -114,6 +114,10 @@ export const DepartmentAgentSchema = z.object({
 }).strict();
 export type DepartmentAgent = z.infer<typeof DepartmentAgentSchema>;
 
+/** PATCH one agent: its own model. Null = use the department's. */
+export const AgentPatchSchema = z.object({ model: ModelChoiceSchema.nullable() }).strict();
+export type AgentPatch = z.infer<typeof AgentPatchSchema>;
+
 export const DepartmentViewSchema = z.object({
   id: z.string().regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/),
   name: z.string(),

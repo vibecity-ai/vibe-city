@@ -8,7 +8,7 @@
    - Mutations refresh the affected department only; create/archive (which change the floor order) refresh everything.
    - Sockets, coalescer timers and cancellation polls are closed when a department leaves the tower or the app unmounts. */
 import type {
-  CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ProvisioningStatus, QuestDetail, QuestSummary, SyncCheck,
+  CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ModelChoice, ProvisioningStatus, QuestDetail, QuestSummary, SyncCheck,
 } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
@@ -467,7 +467,17 @@ export function pollCancellation(deptId: string, questId: string, budgetMs = 120
 
 export async function patchInventory(deptId: string, patch: InventoryPatch) {
   const before = raw.prov[deptId]?.state;
-  const out = await run(`inv:${deptId}`, 'Could not save the inventory', () => api.patchInventory(deptId, patch));
+  const out = await run(`inv:${deptId}`, 'Could not save the loadout', () => api.patchInventory(deptId, patch));
+  if (!out) return;
+  await refreshOne(deptId);
+  const n = inventorySavedNotice(before, raw.prov[deptId]?.state);
+  st().toast(n.text, n.tone);
+}
+
+/** One agent's own model (null = the department's). Like a loadout change, Hermes gets it on the next sync. */
+export async function setAgentModel(deptId: string, agentKey: string, model: ModelChoice | null) {
+  const before = raw.prov[deptId]?.state;
+  const out = await run(`inv:${deptId}`, 'Could not save the model', () => api.patchAgent(deptId, agentKey, { model }));
   if (!out) return;
   await refreshOne(deptId);
   const n = inventorySavedNotice(before, raw.prov[deptId]?.state);

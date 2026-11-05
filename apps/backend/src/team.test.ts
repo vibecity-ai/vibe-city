@@ -116,3 +116,16 @@ test('runtime defaults report the default profile: model, toolsets (with managea
   assert.ok(t.hermes.calls.every((c) => !/^(set|write|create)/.test(c)), 'reading defaults changes nothing in Hermes');
 });
 
+
+test('an agent can get its own model; the department must sync again and Hermes gets it there', async () => {
+  const t = provApp();
+  const d = await t.create('Models', { teammates: 1 });
+  assert.equal((await t.provision(d.id)).json().state, 'ready');
+  const res = await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}/agents/W-01`, payload: { model: { provider: 'near-ai', id: 'model-b' } } });
+  assert.equal(res.statusCode, 200, res.body);
+  assert.deepEqual(res.json().model, { provider: 'near-ai', id: 'model-b' });
+  assert.equal((await t.status(d.id)).state, 'unconfigured');
+  assert.equal((await t.provision(d.id)).json().state, 'ready');
+  assert.equal(t.hermes.profiles.get(profileNameForAgent(d.id, 'W-01'))!.model, 'model-b');
+  assert.equal((await t.app.inject({ method: 'PATCH', url: `/api/departments/${d.id}/agents/W-09`, payload: { model: null } })).statusCode, 404);
+});

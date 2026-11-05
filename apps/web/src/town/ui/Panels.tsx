@@ -3,7 +3,7 @@ import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type DepartmentView,
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
-  archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
+  archiveDepartment, cancelQuest, createDepartment, createQuest, loadAgent, loadArchived, setAgentModel, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
   checkDepartment, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
@@ -181,7 +181,6 @@ export function DeptPanel() {
           <div className="actions">
             <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs the floor in sync with Hermes, and Hermes reachable'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New quest</button>
             <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Quests on the board</Btn>
-            <Btn kind="secondary" onClick={() => s.openPanel('inventory')}>Inventory</Btn>
             <Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings</Btn>
             <Btn kind="secondary" onClick={() => void callAr(d.id)}><Icon n="phone" size={14} />Hire</Btn>
             <Btn kind="secondary" onClick={() => s.ui$({ execModal: 'calendar', scheduleDept: d.id })}>Schedules</Btn>
@@ -189,7 +188,7 @@ export function DeptPanel() {
           {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New quests need the floor to be in sync with Hermes.' : 'New quests need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new quests wait in Queued until it starts.</p>}
           <Tabs label="Department sections" idBase="dept" value={tab} onChange={(t) => s.ui$({ deptTab: t })}
-            options={(['overview', 'inventory', 'quests'] as const).map((t) => ({ key: t, label: <>{t[0]!.toUpperCase() + t.slice(1)}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
+            options={(['overview', 'loadout', 'quests'] as const).map((t) => ({ key: t, label: <>{t[0]!.toUpperCase() + t.slice(1)}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
         </section>
         <div id="dept-panel" role="tabpanel" aria-labelledby={`dept-tab-${tab}`}>
           <div aria-live="polite">
@@ -242,7 +241,7 @@ export function DeptPanel() {
               </section>
             </>
           )}
-          {tab === 'inventory' && <InventorySummary d={d} />}
+          {tab === 'loadout' && <DeptLoadout d={d} />}
           {tab === 'quests' && (
             <section className="pane-sec">
               <p className="fine">You give and manage quests on the company quest board. This department’s own Hermes board belongs to its agents; this list is read-only.</p>
@@ -273,21 +272,125 @@ function QuestMini({ q }: { q: QuestItem }) {
 
 const teamLine = (n: number) => (n <= 1 ? '1 · the lead works alone' : `${n} · a lead + ${n - 1} teammate${n === 2 ? '' : 's'}, one Hermes profile each`);
 
-function InventorySummary({ d }: { d: Dept }) {
-  const openPanel = useStore((s) => s.openPanel);
-  const inv = useStore((s) => s.info[d.id]?.inventory);
+/** The department's loadout: what every agent gets by default (skills, model, toolsets, MCP tools) and its limits.
+    Installed skills and toolset states are read back from the lead's profile. */
+function DeptLoadout({ d }: { d: Dept }) {
+  const s = useStore();
+  useEffect(() => { void loadAgent(d.id, 'chief'); }, [d.id, d.provisioning]);
+  const info = s.info[d.id];
+  const inv = info?.inventory ?? null;
+  const eff = info?.effective ?? null;
+  const view = s.agents[`${d.id}:chief`]?.view ?? null;
+  const saving = !!s.busy[`inv:${d.id}`];
+  const busyProv = !!s.busy[`provision:${d.id}`];
+  const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
+  const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
+  const allowed = new Set(inv?.allowedSkillIds ?? []);
+  const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
+  const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
+  // model -> the agents on it: the agent's own choice, else the department's, else what Hermes reports for the profile
+  const modelsInUse = new Map<string, string[]>();
+  for (const a of d.view.agents) {
+    const m = a.model?.id ?? inv?.model?.id ?? info?.profiles?.agents.find((p) => p.key === a.key)?.model ?? 'Hermes default';
+    modelsInUse.set(m, [...(modelsInUse.get(m) ?? []), a.key]);
+  }
   return (
-    <section className="pane-sec">
-      {!inv && <p className="muted">Loading inventory…</p>}
+    <div aria-busy={saving}>
+      <section className="pane-sec">
+        <div aria-live="polite">
+          {saving && <p className="muted small" role="status">Saving…</p>}
+          {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs syncing again</b><p>Saved changes are not in Hermes yet. Agents keep their previous configuration until you sync again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
+          {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this loadout.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
+        </div>
+        <p className="fine">Every agent on this floor gets these skills, toolsets and MCP tools by default. An agent’s own skills from its hire come on top, and each agent has its own model.</p>
+        <KV rows={[['Agents', teamLine(d.teamSize)]]} />
+        {!inv && <p className="muted">Loading loadout…</p>}
+      </section>
+        <section className="pane-sec">
+          <h3 className="sec-t">Skills</h3>
+          <p className="fine">Every agent of the department gets these skills, plus any of its own from its hire. Changes apply when you sync again.</p>
+          {!view?.observedAt && <p className="muted small">Hermes has not reported the installed skills yet (sync the department first). Allowed: {inv?.allowedSkillIds.join(', ') || 'none'}.</p>}
+          {view && view.skills.length > 0 && (() => {
+            const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name);
+            const card = (k: AgentView['skills'][number]) => {
+              const on = isOn(k);
+              return (
+                <div key={k.name} className={`skill${on ? ' on' : ''}`}>
+                  <span className="mono">{k.name}</span>
+                  <small className="muted">{k.essential ? 'always on in Hermes' : `${k.enabled ? 'on' : 'off'} in the lead’s profile`}</small>
+                  <button className={`toggle${on ? ' on' : ''}`} disabled={saving || k.essential || !inv} aria-pressed={on} aria-label={`${k.name}: ${on ? 'allowed' : 'not allowed'}`} onClick={() => toggleSkill(k.name)}><i /></button>
+                </div>
+              );
+            };
+            const active = view.skills.filter(isOn), rest = view.skills.filter((k) => !isOn(k));
+            return (
+              <>
+                <div className="skill-grid">{active.map(card)}</div>
+                {rest.length > 0 && <details className="more"><summary>Installed in Hermes ({rest.length})</summary><div className="skill-grid">{rest.map(card)}</div></details>}
+              </>
+            );
+          })()}
+          {inv && view && inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).map((n) => <p key={n} className="field-err small"><Glyph k="awaiting" />{n} is allowed but not installed in Hermes.</p>)}
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Models in use</h3>
+          <p className="fine">Each agent picks its own model in its Loadout tab. Hermes cannot stop an agent from picking another model for a task.</p>
+          <ul className="models-used">{[...modelsInUse].map(([m, keys]) => (
+            <li key={m}><span className="mono">{m}</span><span className="muted small">{keys.map((k, i) => <span key={k}>{i ? ', ' : ''}<AgentName deptId={d.id} agentKey={k} /></span>)}</span></li>
+          ))}</ul>
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">Toolsets</h3>
+          <p className="fine">Every agent of the department gets these toolsets. Switched off in Hermes unless allowed; delegation and cronjob are never given to department agents. Changes apply when you sync again.</p>
+          <div className="slot-grid">
+            {[...TOOLSETS].map((t) => {
+              const allowedT = !!inv?.allowedToolsets.includes(t);
+              const never = AGENT_EXCLUDED.includes(t);
+              const inHermes = observedTools.get(t);
+              return (
+                <div key={t} className={`slot-card ${allowedT ? '' : 'disabled'}`}>
+                  <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
+                    <button className={`toggle${allowedT ? ' on' : ''}`} disabled={saving || !inv || never} aria-label={`${t}: ${allowedT ? 'allowed' : 'not allowed'}`} aria-pressed={allowedT}
+                      onClick={() => inv && save({ allowedToolsets: allowedT ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
+                  <div className="slot-name mono">{t}</div>
+                  <div className="slot-desc">{never ? 'never given to agents' : inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="pane-sec">
+          <h3 className="sec-t">MCP tools</h3>
+          <ListEditor label="MCP tools" hint="server:tool, or a bare server id for the whole server. Saved for every agent; not applied in Hermes yet." values={inv?.allowedMcpTools ?? []} disabled={saving || !inv} onSave={(v) => save({ allowedMcpTools: v })} />
+        </section>
+
       {inv && (
-        <KV rows={[
-          ['Agents', teamLine(d.teamSize)],
-          ['MCP tools', inv.allowedMcpTools.length ? inv.allowedMcpTools.join(', ') : 'None'],
-        ]} />
+        <section className="pane-sec">
+          <h3 className="sec-t">Limits</h3>
+          <p className="fine">{LIMIT_COPY.teammates} To add an agent, hire through AR.</p>
+          <Field label="Max seconds for the quest task (10–86400, blank = none)" hint={LIMIT_COPY.maxTaskRuntimeSeconds}>
+            {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
+              onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
+          </Field>
+        </section>
       )}
-      <p className="fine">Each agent is its own Hermes profile with its own model and skills: click one on the floor.</p>
-      <Btn kind="secondary" onClick={() => openPanel('inventory')}>Open inventory</Btn>
-    </section>
+    </div>
+  );
+}
+
+function ListEditor({ label, hint, values, onSave, disabled }: { label: string; hint: string; values: readonly string[]; onSave: (v: string[]) => void; disabled: boolean }) {
+  const [draft, setDraft] = useState('');
+  const add = () => { const v = draft.trim(); if (v && !values.includes(v)) onSave([...values, v]); setDraft(''); };
+  const hid = `h-${label.replace(/\W+/g, '-').toLowerCase()}`;
+  return (
+    <div className="kv-card block" role="group" aria-labelledby={`${hid}-l`}>
+      <b id={`${hid}-l`}>{label}</b> <span id={hid} className="muted small">{hint}</span>
+      <ul className="chips" aria-label={`${label} (${values.length})`}>{values.map((v) => <li key={v} className="itag mono">{v}<button type="button" aria-label={`Remove ${v}`} disabled={disabled} onClick={() => onSave(values.filter((x) => x !== v))}>×</button></li>)}{values.length === 0 && <li className="muted small">None</li>}</ul>
+      <div className="inline"><input className="input mono" value={draft} placeholder={`Add ${label.toLowerCase()}`} aria-label={`Add ${label}`} aria-describedby={hid} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} /><Btn onClick={add} disabled={disabled || !draft.trim()}>Add</Btn></div>
+    </div>
   );
 }
 
@@ -321,10 +424,10 @@ function SetupPanel({ d }: { d: Dept }) {
         <section className="pane-sec">
           <h3 className="sec-t">Get this floor running</h3>
           <div className="step done"><Glyph k="completed" size={12} /><b>Name & objective</b><span className="muted small">Saved</span><button className="link" onClick={() => s.openPanel('settings')}>Edit</button></div>
-          <div className="step done"><Glyph k="completed" size={12} /><span><b>Inventory</b><small className="muted">{inv ? `${teamLine(d.teamSize)} · ${inv.allowedMcpTools.length} MCP tools` : 'Loading…'}</small></span><button className="link" onClick={() => s.openPanel('inventory')}>Edit</button></div>
+          <div className="step done"><Glyph k="completed" size={12} /><span><b>Loadout</b><small className="muted">{inv ? teamLine(d.teamSize) : 'Loading…'}</small></span></div>
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
-            <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the inventory and verifies it by reading it back. It can take a minute.</p>
+            <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the loadout and verifies it by reading it back. It can take a minute.</p>
             <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes}>{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
             {!s.conn.hermes && <small className="muted">Hermes is not reachable. Start the dashboard and gateway first.</small>}
             {busy && (
@@ -531,71 +634,6 @@ function ModelPicker({ label, hint, models, error, onRetry, value, onChange, dis
   );
 }
 
-function ListEditor({ label, hint, values, onSave, disabled }: { label: string; hint: string; values: readonly string[]; onSave: (v: string[]) => void; disabled: boolean }) {
-  const [draft, setDraft] = useState('');
-  const add = () => { const v = draft.trim(); if (v && !values.includes(v)) onSave([...values, v]); setDraft(''); };
-  const hid = `h-${label.replace(/\W+/g, '-').toLowerCase()}`;
-  return (
-    <div className="kv-card block" role="group" aria-labelledby={`${hid}-l`}>
-      <b id={`${hid}-l`}>{label}</b> <span id={hid} className="muted small">{hint}</span>
-      <ul className="chips" aria-label={`${label} (${values.length})`}>{values.map((v) => <li key={v} className="itag mono">{v}<button type="button" aria-label={`Remove ${v}`} disabled={disabled} onClick={() => onSave(values.filter((x) => x !== v))}>×</button></li>)}{values.length === 0 && <li className="muted small">None</li>}</ul>
-      <div className="inline"><input className="input mono" value={draft} placeholder={`Add ${label.toLowerCase()}`} aria-label={`Add ${label}`} aria-describedby={hid} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} /><Btn onClick={add} disabled={disabled || !draft.trim()}>Add</Btn></div>
-    </div>
-  );
-}
-
-/* The department inventory holds what belongs to the floor: its agents (worker desks), limits and MCP
-   tools. Skills, models and toolsets live on the agent view. The capability report stays internal (API only). */
-export function InventorySheet() {
-  const s = useStore();
-  const d = s.depts.find((x) => x.id === s.ui.floorId);
-  const id = d?.id;
-  useEffect(() => { if (id) void loadDeptInfo(id); }, [id, d?.provisioning]);
-  if (!d) return null;
-  const info = s.info[d.id];
-  const inv = info?.inventory ?? null;
-  const eff = info?.effective ?? null;
-  const saving = !!s.busy[`inv:${d.id}`];
-  const busyProv = !!s.busy[`provision:${d.id}`];
-  const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
-  const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
-  return (
-    <div className="pane sheet">
-      <div className="pane-scroll">
-        <section className="pane-head">
-          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>{d.name}</Where><button className="x boxed" onClick={() => s.openPanel('dept')} aria-label="Close inventory"><Icon n="x" /></button></div>
-          <h1 className="display" tabIndex={-1}>Department inventory</h1>
-          <p className="sub">The floor’s agents, limits and MCP tools. Skills, models and toolsets are set on each agent.</p>
-        </section>
-        {!inv && <p className="muted pane-sec">Loading inventory…</p>}
-        {inv && (
-          <div className="inv-body" aria-busy={saving}><div className="inv-main">
-            <div aria-live="polite">
-              {saving && <p className="muted small" role="status">Saving…</p>}
-              {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs syncing again</b><p>Saved changes are not in Hermes yet. Agents keep their previous configuration until you sync again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
-              {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this inventory.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
-            </div>
-            <h3 className="inv-h">Agents <span>{teamLine(d.teamSize)}</span></h3>
-            <div className="kv-card block">
-              {d.view.agents.map((a) => (
-                <div key={a.key} className="agent-line"><b><AgentName deptId={d.id} agentKey={a.key} /></b><span className="mono muted small">{a.profileRef ? '' : 'not synced yet'}{a.model ? `${a.profileRef ? '' : ' · '}${a.model.id}` : ''}</span>
-                  <button className="link" onClick={() => s.openPanel('agent', { agent: a.key })}>Open agent</button></div>
-              ))}
-              <p className="fine">{LIMIT_COPY.teammates} To add an agent, hire through AR.</p>
-              <Field label="Max seconds for the quest task (10–86400, blank = none)" hint={LIMIT_COPY.maxTaskRuntimeSeconds}>
-                {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
-                  onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
-              </Field>
-            </div>
-            <h3 className="inv-h">MCP tools <span>For this department</span></h3>
-            <ListEditor label="MCP tools" hint="server:tool or a bare server id. Not applied in Hermes yet." values={inv.allowedMcpTools} disabled={saving} onSave={(v) => save({ allowedMcpTools: v })} />
-          </div></div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 /* ============ H · agent view ============ */
 /* Opens when you click a person on the floor (or in the chain of command). Every person is one agent with its own
    Hermes profile: the lead (key `chief`), or a teammate (W-01…). */
@@ -619,7 +657,6 @@ export function AgentPanel() {
   const inv = s.info[d.id]?.inventory ?? null;
   const saving = !!s.busy[`inv:${d.id}`];
   const busyProv = !!s.busy[`provision:${d.id}`];
-  const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
   const wasProvisioned = !!s.info[d.id]?.provisioning?.inventory.appliedAt;
   const name = agentLabel(agentKey, agentKey ? s.personas[`${d.id}:${agentKey}`] : null);
   const status = role === 'chief' ? d.chief?.status ?? 'awaiting' : worker?.status ?? 'idle';
@@ -630,9 +667,6 @@ export function AgentPanel() {
   const taskIds = new Set(mine.map(({ t }) => t.id));
   const tasks = mine.sort((x, y) => (y.t.createdAt ?? '').localeCompare(x.t.createdAt ?? '')).slice(0, 6);
   const log = s.log.filter((l) => l.dept === d.id && l.taskId && taskIds.has(l.taskId)).slice(0, 8);
-  const allowed = new Set(inv?.allowedSkillIds ?? []);
-  const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
-  const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
   return (
     <div className="pane">
       <div className="pane-scroll">
@@ -702,64 +736,21 @@ export function AgentPanel() {
         </section>
 
         </>}
-        {tab === 'loadout' && <>
-        <section className="pane-sec">
-          <h3 className="sec-t">Skills</h3>
-          <p className="fine">The toggles are the department's skills, which every agent gets.{me?.skills.length ? <> This agent also has its own: <span className="mono">{me.skills.join(', ')}</span>.</> : ''} Changes apply when you sync again.</p>
-          {!view?.observedAt && <p className="muted small">Hermes has not reported this profile’s skills yet (sync the department first). Allowed: {inv?.allowedSkillIds.join(', ') || 'none'}.</p>}
-          {view && view.skills.length > 0 && (() => {
-            const own = new Set(me?.skills ?? []);
-            const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name) || own.has(k.name);
-            const card = (k: AgentView['skills'][number]) => {
-              const on = isOn(k);
-              return (
-                <div key={k.name} className={`skill${on ? ' on' : ''}`}>
-                  <span className="mono">{k.name}</span>
-                  <small className="muted">{k.essential ? 'always on in Hermes' : own.has(k.name) ? 'this agent\'s own' : `${k.enabled ? 'on' : 'off'} in Hermes`}</small>
-                  <button className={`toggle${on ? ' on' : ''}`} disabled={saving || k.essential || own.has(k.name) || !inv} aria-pressed={on} aria-label={`${k.name}: ${on ? 'allowed' : 'not allowed'}`} onClick={() => toggleSkill(k.name)}><i /></button>
-                </div>
-              );
-            };
-            const active = view.skills.filter(isOn), rest = view.skills.filter((k) => !isOn(k));
-            return (
-              <>
-                <div className="skill-grid">{active.map(card)}</div>
-                {rest.length > 0 && <details className="more"><summary>Available in this Hermes profile ({rest.length})</summary><div className="skill-grid">{rest.map(card)}</div></details>}
-              </>
-            );
-          })()}
-          {inv && view && inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).map((n) => <p key={n} className="field-err small"><Glyph k="awaiting" />{n} is allowed but not installed in this profile.</p>)}
-        </section>
-
-        <section className="pane-sec">
-          <h3 className="sec-t">Model</h3>
-          <p className="fine">{me?.model ? <>This agent runs on its own model, <span className="mono">{me.model.id}</span> (from its hire). The picker sets the department's model for every agent without one.</> : 'The department’s model, used by every agent without its own.'} Set in Hermes when you sync. Hermes cannot stop an agent from picking another model for a task.</p>
-          {inv && <ModelPicker label="Department model" hint={`From Hermes’ model list.${view?.provider ? ` This profile now uses ${view.model ?? '—'} via ${view.provider}.` : ''}`}
-            models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
-            value={inv.model} disabled={saving} onChange={(m) => save({ model: m })} />}
-        </section>
-
-        <section className="pane-sec">
-          <h3 className="sec-t">Toolsets</h3>
-          <p className="fine">Every agent of the department gets these toolsets. Switched off in Hermes unless allowed; delegation and cronjob are never given to department agents. Changes apply when you sync again.</p>
-          <div className="slot-grid">
-            {[...TOOLSETS].map((t) => {
-              const allowedT = !!inv?.allowedToolsets.includes(t);
-              const never = AGENT_EXCLUDED.includes(t);
-              const inHermes = observedTools.get(t);
-              return (
-                <div key={t} className={`slot-card ${allowedT ? '' : 'disabled'}`}>
-                  <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
-                    <button className={`toggle${allowedT ? ' on' : ''}`} disabled={saving || !inv || never} aria-label={`${t}: ${allowedT ? 'allowed' : 'not allowed'}`} aria-pressed={allowedT}
-                      onClick={() => inv && save({ allowedToolsets: allowedT ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
-                  <div className="slot-name mono">{t}</div>
-                  <div className="slot-desc">{never ? 'never given to agents' : inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-        </>}
+        {tab === 'loadout' && (
+          <section className="pane-sec">
+            <h3 className="sec-t">Loadout</h3>
+            <p className="fine">This agent gets the department’s skills, toolsets and MCP tools.{me?.skills.length ? ' On top of that it has its own skills from its hire.' : ''}</p>
+            {me && agentKey && <ModelPicker label="Model" hint={`Changes apply when you sync again.${inv?.model ? ` Without a choice it uses the department’s ${inv.model.id}.` : ''}${view?.provider ? ` Hermes now reports ${view.model ?? '—'} via ${view.provider}.` : ''}`}
+              models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
+              value={me.model} disabled={saving} onChange={(m) => void setAgentModel(d.id, agentKey, m)} />}
+            {me && me.skills.length > 0 && <KV rows={[['Own skills', <span className="mono">{me.skills.join(', ')}</span>]]} />}
+            {view?.observedAt && <KV rows={[
+              ['Skills on in Hermes', <span className="mono">{view.skills.filter((k) => k.enabled).map((k) => k.name).join(', ') || 'none'}</span>],
+              ['Toolsets on in Hermes', <span className="mono">{view.toolsets.filter((t) => t.enabled).map((t) => t.name).join(', ') || 'none'}</span>],
+            ]} />}
+            <Btn kind="secondary" onClick={() => s.openPanel('dept', { deptTab: 'loadout' })}>Edit the department loadout</Btn>
+          </section>
+        )}
         </div>
 
       </div>

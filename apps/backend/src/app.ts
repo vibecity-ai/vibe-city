@@ -29,7 +29,7 @@ import { ProvisioningService } from './domain/provisioningService.ts';
 import { CompanyService } from './domain/companyService.ts';
 import { DepartmentService } from './domain/departmentService.ts';
 import { ConflictError, InvalidInputError, NotFoundError } from './domain/errors.ts';
-import { AGENT_KEY_RE, CharacterSchema, ChatHistorySchema, ChatReplySchema, ChatSendSchema } from '@vibe-city/shared';
+import { AGENT_KEY_RE, AgentPatchSchema, DepartmentAgentSchema, CharacterSchema, ChatHistorySchema, ChatReplySchema, ChatSendSchema } from '@vibe-city/shared';
 import { CharacterService } from './domain/characters.ts';
 import { ChatService } from './domain/chatService.ts';
 import type { AgentChat } from './hermes/agentChat.ts';
@@ -197,6 +197,13 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const key = (req.params as { agentKey?: string }).agentKey ?? '';
     if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
     return parse(AgentViewSchema, await provisioning.agent(id, key));
+  });
+
+  app.patch('/api/departments/:id/agents/:agentKey', async (req) => {
+    const id = idOf(req.params);
+    const key = (req.params as { agentKey?: string }).agentKey ?? '';
+    if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
+    return parse(DepartmentAgentSchema, departments.setAgentModel(id, key, parse(AgentPatchSchema, req.body).model));
   });
 
   // ---- Characters and dialogue-window chat (feature spec 2.1, 2.2, 2.5) ----

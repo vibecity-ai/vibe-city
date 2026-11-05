@@ -23,8 +23,8 @@ export type Fx =
   | { k: 'standup'; dept: string };
 
 export type View = 'tower' | 'floor';
-export type Panel = 'exec' | 'dept' | 'settings' | 'inventory' | 'board' | 'quest' | 'agent';
-export type DeptTab = 'overview' | 'inventory' | 'quests';
+export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';
+export type DeptTab = 'overview' | 'loadout' | 'quests';
 
 export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
 export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string; taskId?: string }

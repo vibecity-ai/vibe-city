@@ -169,6 +169,23 @@ export class DepartmentService {
     });
   }
 
+  /** The user's choice of one agent's own model (null = the department's). Hermes gets it on the next sync. */
+  setAgentModel(id: string, agentKey: string, model: ModelChoice | null): DepartmentAgent {
+    return this.tx(() => {
+      const cur = this.row(id);
+      if (cur.archived_at) throw new ConflictError('department is archived');
+      const r = this.db.prepare('UPDATE department_agent SET model_json = ? WHERE department_id = ? AND agent_key = ?')
+        .run(model ? JSON.stringify(model) : null, id, agentKey);
+      if (!r.changes) throw new NotFoundError('agent not found');
+      const now = new Date().toISOString();
+      this.db.prepare('UPDATE department SET updated_at = ? WHERE id = ?').run(now, id);
+      if (cur.provisioning_state !== 'unconfigured' && cur.provisioning_state !== 'provisioning') {
+        this.db.prepare("UPDATE department SET provisioning_state = 'unconfigured', provisioning_error_json = NULL WHERE id = ?").run(id);
+      }
+      return agentView(this.agents(id).find((a) => a.agent_key === agentKey)!);
+    });
+  }
+
   private insertAgent(id: string, seat: number, loadout: { model: ModelChoice | null; skills: string[] }, now: string) {
     this.db.prepare('INSERT INTO department_agent (department_id, agent_key, seat, model_json, skills_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(id, seatKey(seat), seat, loadout.model ? JSON.stringify(loadout.model) : null, JSON.stringify([...new Set(loadout.skills)]), now);

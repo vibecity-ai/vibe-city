@@ -78,7 +78,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       if (s.ui.panel === 'quest') s.openPanel(s.ui.questFrom === 'dept' && floorOpen ? 'dept' : 'board');
       else if (s.ui.panel === 'board' && s.ui.boardQuest) s.ui$({ boardQuest: null });
       else if (s.ui.panel === 'board') s.openPanel(floorOpen ? 'dept' : 'exec');
-      else if (s.ui.panel === 'inventory' || s.ui.panel === 'settings' || s.ui.panel === 'agent') s.openPanel('dept');
+      else if (s.ui.panel === 'settings' || s.ui.panel === 'agent') s.openPanel('dept');
       else if (s.ui.view === 'floor' || s.ui.execRoom) s.closeFloor();
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);

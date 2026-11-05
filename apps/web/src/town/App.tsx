@@ -8,7 +8,7 @@ import { HiringLayer } from './ui/Hiring';
 import { NewDeptWindow } from './ui/NewDept';
 import { RequestsPoll } from './ui/Requests';
 import { ExecRoomModal } from './ui/ExecRoom';
-import { TopBar, ExecPanel, DeptPanel, SettingsSheet, InventorySheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
+import { TopBar, ExecPanel, DeptPanel, SettingsSheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
   const canvas = useRef<HTMLCanvasElement>(null);
@@ -30,7 +30,7 @@ export default function App() {
   // phones: after navigating, bring the part that changed into view (the office, or the sheet)
   useEffect(() => {
     if (!matchMedia('(max-width: 900px) and (min-height: 521px)').matches) return;
-    const sheet = panel === 'inventory' || panel === 'settings' || panel === 'board' || panel === 'quest';
+    const sheet = panel === 'settings' || panel === 'board' || panel === 'quest';
     const id = window.setTimeout(() => {
       if (sheet) { const el = document.querySelector('.panel') as HTMLElement | null; if (el) window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - 56 }); }
       else window.scrollTo({ top: 0 });
@@ -46,11 +46,10 @@ export default function App() {
     return () => window.clearTimeout(id);
   }, [panel, floorId]);
 
-  const mode = panel === 'inventory' || panel === 'settings' ? 'inv' : panel === 'board' ? 'board' : panel === 'quest' ? 'quest' : 'side';
   return (
     <div className="app">
       <TopBar />
-      <main className={`main mode-${mode} view-${view}`}>
+      <main className={`main view-${view}`}>
         <section className="stage">
           <canvas ref={canvas} aria-label="Vibe City tower: each floor is a department of AI agents" />
           <StageOverlay city={city} />
@@ -59,7 +58,6 @@ export default function App() {
           {panel === 'exec' && <ExecPanel />}
           {panel === 'dept' && <DeptPanel />}
           {panel === 'settings' && <SettingsSheet />}
-          {panel === 'inventory' && <InventorySheet />}
           {panel === 'board' && <QuestBoard />}
           {panel === 'quest' && <QuestDetail />}
           {panel === 'agent' && <AgentPanel />}
