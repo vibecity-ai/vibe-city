@@ -14,6 +14,7 @@ import {
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
+  MoneySettingsSchema, MoneyViewSchema, type MoneySettings, type MoneyView,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
 
@@ -111,6 +112,11 @@ export const api = {
   cancel: (dept: string, quest: string): Promise<CancellationStatus> => request('POST', `${q(dept, quest)}/cancel`, CancellationStatusSchema),
   character: (dept: string, agentKey: string): Promise<Character> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}`, CharacterSchema),
   chatHistory: (dept: string, agentKey: string): Promise<ChatHistory> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatHistorySchema),
+  money: (fresh = false): Promise<MoneyView> => request('GET', `/api/money${fresh ? '?fresh=1' : ''}`, MoneyViewSchema),
+  setMoneySettings: (patch: Partial<MoneySettings>): Promise<MoneySettings> => request('PATCH', '/api/money/settings', MoneySettingsSchema, patch),
+  linkWallet: (accountId: string): Promise<MoneyView> => request('POST', '/api/money/wallets', MoneyViewSchema, { accountId }),
+  unlinkWallet: (accountId: string): Promise<MoneyView> => request('DELETE', `/api/money/wallets/${encodeURIComponent(accountId)}`, MoneyViewSchema),
+  primaryWallet: (accountId: string): Promise<MoneyView> => request('POST', `/api/money/wallets/${encodeURIComponent(accountId)}/primary`, MoneyViewSchema),
   schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
   createSchedule: (dept: string, input: Partial<ScheduleCreate> & Pick<ScheduleCreate, 'name' | 'cron' | 'title' | 'objective'>): Promise<Schedule> => request('POST', `${d(dept)}/schedules`, ScheduleSchema, input),
   patchSchedule: (id: string, patch: SchedulePatch): Promise<Schedule> => request('PATCH', `/api/schedules/${encodeURIComponent(id)}`, ScheduleSchema, patch),

@@ -219,6 +219,9 @@ export const MIGRATIONS: readonly string[] = [
    UPDATE department SET last_seat = (SELECT COALESCE(MAX(seat), 0) FROM department_agent WHERE department_id = department.id);`,
   // v13: a fired teammate is archived, not deleted: the row (and its Hermes profile, memory and sessions) stays.
   `ALTER TABLE department_agent ADD COLUMN fired_at TEXT;`,
+  // v14: the safe (feature spec 6.1). Public account ids and settings only: Vibe City never stores keys.
+  `CREATE TABLE money_settings (id INTEGER PRIMARY KEY CHECK (id = 1), settings_json TEXT NOT NULL);
+   CREATE TABLE near_wallet (account_id TEXT NOT NULL, network TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, linked_at TEXT NOT NULL, PRIMARY KEY (account_id, network));`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

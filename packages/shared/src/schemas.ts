@@ -832,3 +832,77 @@ export const ScheduleCreateSchema = z.object({
 export type ScheduleCreate = z.infer<typeof ScheduleCreateSchema>;
 export const SchedulePatchSchema = ScheduleCreateSchema.partial().strict();
 export type SchedulePatch = z.infer<typeof SchedulePatchSchema>;
+
+// ---- money: the safe in the Executive Office (feature spec 6.1) ----------------------------------------------------
+// Three pots, shown separately and never added together: credits (what agents spend on models), the founder's NEAR
+// wallets (only they sign), and the company treasury (a Sputnik DAO; only human signers move it, via Trezu).
+// Vibe City stores public account ids only. It never holds keys; every transfer is signed in the user's wallet.
+
+export const NEAR_NETWORKS = ['mainnet', 'testnet'] as const;
+export type NearNetwork = (typeof NEAR_NETWORKS)[number];
+/** NEAR account ids: named (alice.near, x.sputnik-dao.near) or implicit (64 hex / 0x + 40 hex). */
+export const NEAR_ACCOUNT_RE = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
+
+export const MoneySettingsSchema = z.object({
+  network: z.enum(NEAR_NETWORKS),
+  daoAccountId: z.string().regex(NEAR_ACCOUNT_RE).nullable(),
+  /** The treasury's page in Trezu, where signers approve proposals. */
+  trezuUrl: z.string().url().max(300).nullable(),
+}).strict();
+export type MoneySettings = z.infer<typeof MoneySettingsSchema>;
+export const MoneySettingsPatchSchema = MoneySettingsSchema.partial().strict();
+
+export const WalletViewSchema = z.object({
+  accountId: z.string(),
+  primary: z.boolean(),
+  /** Balance in yoctoNEAR (decimal string), or null when it could not be read. */
+  balance: z.string().nullable(),
+  error: z.string().nullable(),
+}).strict();
+export type WalletView = z.infer<typeof WalletViewSchema>;
+
+export const DaoProposalViewSchema = z.object({
+  id: z.number().int(),
+  proposer: z.string(),
+  description: z.string(),
+  /** Plain words, e.g. "Transfer 5 NEAR to bob.near". */
+  kind: z.string(),
+  status: z.string(),
+  approve: z.number().int(), reject: z.number().int(),
+  submittedAt: z.string().nullable(),
+}).strict();
+export type DaoProposalView = z.infer<typeof DaoProposalViewSchema>;
+
+export const TreasuryViewSchema = z.object({
+  daoAccountId: z.string(),
+  balance: z.string().nullable(),
+  /** Deposit (yoctoNEAR) the DAO asks with every proposal. */
+  proposalBond: z.string().nullable(),
+  roles: z.array(z.object({ name: z.string(), members: z.number().int().nullable() }).strict()),
+  proposals: z.array(DaoProposalViewSchema),
+  error: z.string().nullable(),
+}).strict();
+export type TreasuryView = z.infer<typeof TreasuryViewSchema>;
+
+export const CreditsViewSchema = z.object({
+  connected: z.boolean(),
+  /** USD amounts as NEAR AI Cloud formats them; null when unknown. */
+  remaining: z.string().nullable(),
+  spent: z.string().nullable(),
+  requests: z.number().int().nullable(),
+  tokens: z.number().int().nullable(),
+  lastUsageAt: z.string().nullable(),
+  error: z.string().nullable(),
+}).strict();
+export type CreditsView = z.infer<typeof CreditsViewSchema>;
+
+export const MoneyViewSchema = z.object({
+  settings: MoneySettingsSchema,
+  rpcUrl: z.string(),
+  wallets: z.array(WalletViewSchema),
+  treasury: TreasuryViewSchema.nullable(),
+  credits: CreditsViewSchema,
+  readAt: z.string(),
+}).strict();
+export type MoneyView = z.infer<typeof MoneyViewSchema>;
+export const WalletLinkSchema = z.object({ accountId: z.string().regex(NEAR_ACCOUNT_RE) }).strict();

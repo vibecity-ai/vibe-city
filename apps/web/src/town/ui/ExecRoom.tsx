@@ -1,9 +1,10 @@
 /* Screens opened from objects in the Executive Office (feature spec 3.1): the org chart behind the tower map, and the
-   safe and calendar, which say plainly what is not built yet (money is spec section 6, schedules section 8). */
+   the money screen behind the safe (spec 6.1) and the schedules behind the calendar (spec 8). */
 import { useRef } from 'react';
 import { useStore, floorNum } from '../store';
 import { Glyph, Icon, deptStatus, useDialog } from './kit';
 import { SchedulesView } from './Schedules';
+import { MoneyScreen } from './Money';
 import type { Dept } from '../data/types';
 import { AgentName } from './AgentView';
 
@@ -48,12 +49,7 @@ export function ExecRoomModal() {
             })}
           </ol>
         )}
-        {m === 'safe' && (
-          <div className="exec-note">
-            <p>The safe will hold three separate pots, never added together: <b>credits</b> the agents spend on models, your <b>NEAR wallet</b>, and the <b>company treasury</b> in a Sputnik DAO multisig.</p>
-            <p className="muted">Not connected yet (feature spec section 6). Nothing in the game can move money today, and agents will never hold keys: spending is always signed by people.</p>
-          </div>
-        )}
+        {m === 'safe' && <MoneyScreen />}
         {m === 'calendar' && <SchedulesView deptId={scheduleDept} />}
       </div>
     </div>

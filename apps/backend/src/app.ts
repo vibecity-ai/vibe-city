@@ -39,6 +39,8 @@ import { AssistantService } from './domain/assistantService.ts';
 import { QuestRequestService } from './domain/questRequests.ts';
 import { MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
 import { ScheduleService } from './domain/scheduleService.ts';
+import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
+import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
 import { AssistantViewSchema, DeptDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
@@ -60,6 +62,8 @@ export interface AppServices {
 
 export interface ServicesExtra {
   kanban?: KanbanApi;
+  /** The safe (spec 6.1): credits source and, for tests and the demo, a fake NEAR reader. */
+  money?: Pick<MoneyDeps, 'credits' | 'reader' | 'rpcUrl'>;
   /** Hermes event stream settings. Omit to disable live events (the WebSocket route then answers 503). */
   live?: Pick<BoardStreamDeps, 'wsBaseUrl' | 'sessionToken'> & Partial<BoardStreamDeps> & { graceMs?: number };
   /** Origins allowed to open the live WebSocket (browsers always send Origin). Requests without Origin are allowed. */
@@ -315,6 +319,15 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
       for (const p of profiles) await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers: { Authorization: `Bearer ${token}` }, tools: { include: [...MCP_TOOLS] } });
     };
   }
+  // ---- the safe (feature spec 6.1): wallets, treasury and credits, read-only; signing happens in the user's wallet ----
+  const money = new MoneyService({ db, credits: extra.money?.credits ?? { configured: false, read: async () => { throw new Error('not configured'); } }, ...(extra.money?.reader ? { reader: extra.money.reader } : {}), ...(extra.money?.rpcUrl ? { rpcUrl: extra.money.rpcUrl } : {}) });
+  const acct = (params: unknown) => parse(WalletLinkSchema, { accountId: (params as { accountId: string }).accountId }).accountId;
+  app.get('/api/money', async (req) => parse(MoneyViewSchema, await money.view((req.query as { fresh?: string }).fresh === '1')));
+  app.patch('/api/money/settings', async (req) => parse(MoneySettingsSchema, money.setSettings(parse(MoneySettingsPatchSchema, req.body))));
+  app.post('/api/money/wallets', async (req, reply) => { money.linkWallet(parse(WalletLinkSchema, req.body).accountId); return reply.code(201).send(parse(MoneyViewSchema, await money.view(true))); });
+  app.delete('/api/money/wallets/:accountId', async (req) => { money.unlinkWallet(acct(req.params)); return parse(MoneyViewSchema, await money.view(true)); });
+  app.post('/api/money/wallets/:accountId/primary', async (req) => { money.setPrimary(acct(req.params)); return parse(MoneyViewSchema, await money.view(true)); });
+
   // ---- schedules (feature spec 8): the backend creates the quests, Hermes cron stays off ----
   const schedules = new ScheduleService({
     db, departments, createQuest: (id, input) => quests_.create(id, input),

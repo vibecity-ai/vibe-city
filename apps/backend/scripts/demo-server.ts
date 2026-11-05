@@ -93,7 +93,24 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   return `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?${meta({ mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null })}`;
 });
 
-const { app, schedules } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
+// The safe, offline: a pretend chain with one founder wallet and a Sputnik DAO (nothing here touches real NEAR).
+const Y = 10n ** 24n;
+const demoChain = {
+  async balance(id: string) { const b: Record<string, bigint> = { 'vibeboss.near': 42n * Y + 7n * Y / 10n, 'vibecity.sputnik-dao.near': 1250n * Y }; if (!(id in b)) throw new Error('This account does not exist on this network.'); return b[id]!.toString(); },
+  async view(contract: string, method: string) {
+    if (contract !== 'vibecity.sputnik-dao.near') throw new Error('This account has no contract (is it a Sputnik DAO?).');
+    if (method === 'get_policy') return { proposal_bond: (Y / 10n).toString(), roles: [{ name: 'council', kind: { Group: ['vibeboss.near', 'cofounder.near', 'advisor.near'] } }] };
+    if (method === 'get_last_proposal_id') return 3;
+    return [
+      { id: 0, proposer: 'vibeboss.near', description: 'Seed the treasury runway', kind: 'Vote', status: 'Approved', vote_counts: { council: [3, 0, 0] }, submission_time: '1793500000000000000' },
+      { id: 1, proposer: 'cofounder.near', description: 'Pay for the pixel-art commission', kind: { Transfer: { token_id: '', receiver_id: 'pixelartist.near', amount: (120n * Y).toString() } }, status: 'Approved', vote_counts: { council: [2, 1, 0] }, submission_time: '1793700000000000000' },
+      { id: 2, proposer: 'vibeboss.near', description: 'NEAR AI Cloud credits for November', kind: { Transfer: { token_id: '', receiver_id: 'credits.vibecity.near', amount: (60n * Y).toString() } }, status: 'InProgress', vote_counts: { council: [1, 0, 0] }, submission_time: '1793950000000000000' },
+    ];
+  },
+};
+const demoCredits = { configured: true, read: async () => ({ remaining: '$87.66', spent: '$12.34', requests: 4120, tokens: 9_400_000, lastUsageAt: new Date().toISOString() }) };
+
+const { app, schedules } = buildServices(db, hermes, { money: { credits: demoCredits, reader: () => ({ url: 'demo (offline, pretend chain)', rpc: demoChain as never }) }, kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
 
 /** Each floor's board and agent profiles (lead first). */
 const refs: Record<string, { board: string; agents: string[] }> = {};
@@ -172,6 +189,8 @@ await seed('Support', 'Answer customer tickets and keep the help centre current.
   await add('Support', { name: 'Inbox sweep', cron: '0 * * * *', title: 'Inbox sweep', objective: 'Triage new tickets and answer the easy ones.', enabled: false });
   setInterval(() => void schedules.tick(), 10_000).unref();
 }
+await app.inject({ method: 'PATCH', url: '/api/money/settings', payload: { daoAccountId: 'vibecity.sputnik-dao.near', trezuUrl: 'https://trezu.app' } });
+await app.inject({ method: 'POST', url: '/api/money/wallets', payload: { accountId: 'vibeboss.near' } });
 const boards = new Set(Object.values(refs).map((r) => r.board));
 // Real Hermes creates a board when a department is provisioned; the fake needs a nudge for floors added in the demo.
 setInterval(async () => {

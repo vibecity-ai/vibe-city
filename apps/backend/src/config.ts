@@ -17,6 +17,8 @@ export interface AppConfig {
   chat: { baseUrl: string; apiKey: string | null; model: string };
   /** Where Hermes reaches the Vibe City MCP server (same container: loopback). Empty string disables registering it. */
   mcpUrl: string;
+  /** The safe (spec 6.1). RPC overrides per network, and NEAR AI Cloud billing (org id + session token, server-side only). */
+  near: { rpc: { mainnet?: string; testnet?: string }; billingOrgId: string | null; billingToken: string | null };
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -33,6 +35,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       baseUrl: env.CHAT_BASE_URL ?? env.NEAR_AI_BASE_URL ?? 'https://cloud-api.near.ai/v1',
       apiKey: env.CHAT_API_KEY || env.NEAR_AI_API_KEY || null,
       model: env.CHAT_MODEL ?? env.NEAR_AI_MODEL ?? 'deepseek/deepseek-v4.1-flash',
+    },
+    near: {
+      rpc: { ...(env.NEAR_RPC_MAINNET ? { mainnet: env.NEAR_RPC_MAINNET } : {}), ...(env.NEAR_RPC_TESTNET ? { testnet: env.NEAR_RPC_TESTNET } : {}) },
+      billingOrgId: env.NEAR_AI_ORG_ID || null, billingToken: env.NEAR_AI_ACCESS_TOKEN || null,
     },
     mcpUrl: env.VIBE_CITY_MCP_URL ?? `http://127.0.0.1:${Number(env.PORT ?? 4100)}/mcp`,
     ...(env.WEB_DIST ? { webDist: env.WEB_DIST } : {}),

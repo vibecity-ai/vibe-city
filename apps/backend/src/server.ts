@@ -7,6 +7,7 @@ import { RealHermesRuntime } from './hermes/realRuntime.ts';
 import { KanbanClient } from './hermes/kanbanClient.ts';
 import { OpenAiCompatModel } from './model/chatModel.ts';
 import { HermesAgentChat } from './hermes/agentChat.ts';
+import { NearAiCredits } from './domain/moneyService.ts';
 
 const cfg = loadConfig();
 const dbPath = resolve(cfg.dbPath);
@@ -25,6 +26,7 @@ const { app, provisioning, schedules } = buildServices(db, hermes, {
   ...(cfg.allowedOrigins ? { allowedOrigins: cfg.allowedOrigins } : {}),
   ...(cfg.webDist ? { webDist: cfg.webDist } : {}),
   chatModel: new OpenAiCompatModel(cfg.chat), agentChat: new HermesAgentChat({ baseUrl: cfg.hermesApiUrl }),
+  money: { credits: new NearAiCredits({ baseUrl: cfg.chat.baseUrl, orgId: cfg.near.billingOrgId, token: cfg.near.billingToken }), rpcUrl: cfg.near.rpc },
   // Profiles served by the multiplexed gateway read credentials only from their own .env, not this container's env.
   ...(process.env.NEAR_AI_API_KEY ? { agentEnv: { NEAR_AI_API_KEY: process.env.NEAR_AI_API_KEY } } : {}), ...(cfg.mcpUrl ? { mcpUrl: cfg.mcpUrl } : {}),
 });
