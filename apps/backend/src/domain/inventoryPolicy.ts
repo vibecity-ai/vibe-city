@@ -9,6 +9,9 @@ const withGuarantee = (e: Draft): CapabilityEntry => ({ ...e, guarantee: e.statu
 export const REQUIRED_TOOLSETS = ['kanban'] as const;
 /** Hermes pins these skills on ("cannot be disabled from any surface", agent/skill_utils.py ESSENTIAL_SKILLS). */
 export const ESSENTIAL_SKILLS = ['hermes-agent'] as const;
+/** Never enabled, never offered: they delegate to the Claude Code / Codex CLIs, which the container does not have (agents run on NEAR AI only). */
+export const EXCLUDED_SKILLS = ['claude-code', 'codex'] as const;
+export const usableSkill = (s: string) => !(EXCLUDED_SKILLS as readonly string[]).includes(s);
 /** Restrictions whose runtime effect was verified against real Hermes (a disabled toolset was confirmed unavailable to the agent). */
 export const BEHAVIOR_TESTED_TOOLSETS = ['terminal', 'file', 'web', 'browser', 'code_execution'] as const;
 
@@ -51,11 +54,11 @@ export function desiredToolsetMap(universe: string[], effective: string[]): Reco
 }
 
 export const effectiveSkills = (inv: Inventory, installed: string[]) =>
-  installed.filter((s) => inv.allowedSkillIds.includes(s) || (ESSENTIAL_SKILLS as readonly string[]).includes(s)).sort();
+  installed.filter((s) => (inv.allowedSkillIds.includes(s) && usableSkill(s)) || (ESSENTIAL_SKILLS as readonly string[]).includes(s)).sort();
 
 /** Skills to put in Hermes' disabled list: everything installed that is neither allowed nor essential. */
 export const skillsToDisable = (inv: Inventory, installed: string[]) =>
-  installed.filter((s) => !inv.allowedSkillIds.includes(s) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
+  installed.filter((s) => (!inv.allowedSkillIds.includes(s) || !usableSkill(s)) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
 
 /** The model to set on the profile; null when the department keeps the profile's own default. Unchanged pairs are not rewritten. */
 export const modelToApply = (inv: Inventory, current: { id: string | null; provider: string | null }): ModelChoice | null => {

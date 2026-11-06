@@ -4,6 +4,8 @@ import { profileNameForAgent } from '@vibe-city/shared';
 import { HermesRejectedError } from './hermes/ports.ts';
 import { FakeHermes } from './testing/fakeHermes.ts';
 import { provApp } from './testUtils.ts';
+import { InventorySchema } from '@vibe-city/shared';
+import { effectiveSkills, skillsToDisable } from './domain/inventoryPolicy.ts';
 
 const count = (h: FakeHermes, prefix: string) => h.calls.filter((c) => c.startsWith(prefix)).length;
 /** Managed profile names of the lead and the first teammate (provApp departments have one teammate). */
@@ -402,3 +404,10 @@ test('check lists drift without fixing it; Sync then fixes it', async () => {
   assert.equal((await check(t, d.id)).inSync, true);
 });
 
+
+test('claude-code and codex are never enabled, even when allowed: the container has no Claude Code or Codex CLI', () => {
+  const inv = InventorySchema.parse({ allowedSkillIds: ['pdf', 'codex', 'claude-code'] });
+  const installed = ['hermes-agent', 'pdf', 'codex', 'claude-code', 'arxiv'];
+  assert.deepEqual(effectiveSkills(inv, installed), ['hermes-agent', 'pdf']);
+  assert.deepEqual(skillsToDisable(inv, installed), ['codex', 'claude-code', 'arxiv']);
+});

@@ -12,7 +12,7 @@ import { buildSteps } from './steps.ts';
 import { agentModel, agentSkills, type AgentRow, type DepartmentService } from './departmentService.ts';
 import { buildBlock, hasBlock, upsertBlock } from './instructions.ts';
 import {
-  ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, desiredToolsetMap, diffObserved,
+  ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, agentInventory, usableSkill, buildAgentReport, buildDepartmentWideReport, desiredHash, desiredToolsetMap, diffObserved,
   chatToolsets, effectiveSkills, effectiveToolsets, modelToApply, parseObserved, skillsToDisable, withBaseline, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
@@ -157,7 +157,7 @@ export class ProvisioningService {
   /** Hermes' `default` profile, read live: the starting point of a new department's capabilities. */
   async hermesDefaults(): Promise<HermesDefaultsView> {
     const toolsets = await this.hermes.getToolsets('default');
-    const skills = await this.hermes.listSkills('default');
+    const skills = (await this.hermes.listSkills('default')).filter((x) => usableSkill(x.name));
     const known = new Set<string>(TOOLSETS);
     const excluded = new Set<string>(AGENT_EXCLUDED_TOOLSETS);
     return {
@@ -237,7 +237,7 @@ export class ProvisioningService {
     return {
       departmentId: id, agentKey, lead: a.seat === 0, profileRef: ref, observedAt: o ? parseObserved(r.observed_config_json)!.at : null,
       model: o?.model ?? null, provider: o?.provider ?? null,
-      skills: (o?.installedSkills ?? []).map((name) => ({ name, enabled: enabled.has(name), essential: (ESSENTIAL_SKILLS as readonly string[]).includes(name) })).sort((a, b) => a.name.localeCompare(b.name)),
+      skills: (o?.installedSkills ?? []).filter(usableSkill).map((name) => ({ name, enabled: enabled.has(name), essential: (ESSENTIAL_SKILLS as readonly string[]).includes(name) })).sort((a, b) => a.name.localeCompare(b.name)),
       toolsets: Object.entries(o?.toolsets ?? {}).map(([name, on]) => ({ name, enabled: on })).sort((a, b) => a.name.localeCompare(b.name)),
       sessions, sessionsError,
     };
