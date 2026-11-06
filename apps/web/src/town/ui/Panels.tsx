@@ -210,8 +210,7 @@ export function DeptPanel() {
                 <Btn kind="destructive" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>
             )}
             {d.state === 'attention' && d.attention && <div className="banner bad"><Glyph k="failed" /><div><b>Needs attention</b><p>{d.attention}</p></div></div>}
-            {d.provisioning === 'unconfigured' && <div className="banner warn"><Glyph k="awaiting" /><div><b>Not in sync with Hermes</b><p>Hermes does not have this floor yet, or it was edited since the last sync. Sync to apply it.</p>
-              <Btn kind="secondary" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>}
+            {(d.provisioning === 'unconfigured' || busyProv) && <PendingSync d={d} />}
           </div>
           {tab === 'overview' && (
             <>
@@ -284,6 +283,33 @@ function QuestMini({ q }: { q: QuestItem }) {
 
 /** A sync started here, or one already running on the server (background check, another tab, before a reload). */
 const syncing = (busy: Record<string, true>, d: Dept) => !!busy[`provision:${d.id}`] || d.provisioning === 'provisioning';
+/** Unsynced edits of a floor: what Hermes would change, read again a moment after the last edit, and one Sync for all of it. */
+function PendingSync({ d }: { d: Dept }) {
+  const s = useStore();
+  const busy = syncing(s.busy, d);
+  const checking = !!s.busy[`check:${d.id}`];
+  const [check, setCheck] = useState<SyncCheck | null>(null);
+  // Only edits change this. Not updatedAt: a check stamps verification times on the row, so keying on it re-checks forever.
+  const edits = JSON.stringify([s.info[d.id]?.inventory ?? null, d.name, d.purpose, d.view.agents.map((a) => [a.key, a.model?.id ?? null])]);
+  useEffect(() => {
+    setCheck(null);
+    if (busy || d.provisioning !== 'unconfigured' || !s.conn.hermes) return;
+    // wait for a pause in editing, so a run of toggles costs one read of Hermes
+    const t = setTimeout(() => void checkDepartment(d.id).then((r) => r && setCheck(r)), 1500);
+    return () => clearTimeout(t);
+  }, [d.id, edits, d.provisioning, busy, s.conn.hermes]);
+  const diffs = check?.differences ?? [];
+  return (
+    <div className="banner warn"><Glyph k="awaiting" /><div>
+      <b>{busy ? 'Syncing with Hermes…' : 'Changes not synced yet'}</b>
+      <p>Agents keep their previous configuration until you sync. Make all your edits in the Loadout tab, then sync once.</p>
+      {!busy && (checking || !check ? <p className="muted small" role="status">{s.conn.hermes ? 'Comparing with Hermes…' : 'Hermes is not reachable, so changes cannot be listed.'}</p>
+        : <ul className="sync-list">{diffs.length ? diffs.map((x) => <li key={x}><Glyph k="awaiting" size={12} />{x}</li>) : <li><Glyph k="completed" size={12} />Nothing to change in Hermes</li>}</ul>)}
+      <Btn kind="primary" busy={busy} disabled={busy || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busy ? 'Syncing…' : diffs.length ? `Sync ${diffs.length} change${diffs.length === 1 ? '' : 's'}` : 'Sync'}</Btn>
+    </div></div>
+  );
+}
+
 const teamLine = (n: number) => (n <= 1 ? '1 · the lead works alone' : `${n} · a lead + ${n - 1} teammate${n === 2 ? '' : 's'}, one Hermes profile each`);
 
 /** The department's loadout: what every agent gets by default (skills, model, toolsets, MCP tools) and its limits.
@@ -298,7 +324,6 @@ function DeptLoadout({ d }: { d: Dept }) {
   const saving = !!s.busy[`inv:${d.id}`];
   const busyProv = syncing(s.busy, d);
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
-  const wasProvisioned = !!info?.provisioning?.board.verified || !!info?.provisioning?.inventory.appliedAt;
   const allowed = new Set(inv?.allowedSkillIds ?? []);
   const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
   const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
@@ -313,7 +338,6 @@ function DeptLoadout({ d }: { d: Dept }) {
       <section className="pane-sec">
         <div aria-live="polite">
           {saving && <p className="muted small" role="status">Saving…</p>}
-          {d.provisioning === 'unconfigured' && wasProvisioned && <div className="banner warn"><Glyph k="awaiting" /><div><b>Needs syncing again</b><p>Saved changes are not in Hermes yet. Agents keep their previous configuration until you sync again.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
           {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this loadout.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
         </div>
         <p className="fine">Every agent on this floor gets these skills, toolsets and MCP tools by default. An agent’s own skills from its hire come on top, and each agent has its own model.</p>
@@ -328,10 +352,11 @@ function DeptLoadout({ d }: { d: Dept }) {
             const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name);
             const card = (k: AgentView['skills'][number]) => {
               const on = isOn(k);
+              const pending = !k.essential && on !== k.enabled; // saved here, not in Hermes until the next sync
               return (
-                <div key={k.name} className={`skill${on ? ' on' : ''}`}>
+                <div key={k.name} className={`skill${on ? ' on' : ''}${pending ? ' pending' : ''}`}>
                   <span className="mono">{k.name}</span>
-                  <small className="muted">{k.essential ? 'always on in Hermes' : `${k.enabled ? 'on' : 'off'} in the lead’s profile`}</small>
+                  <small className={pending ? 'pending-t' : 'muted'}>{k.essential ? 'always on in Hermes' : pending ? `turns ${on ? 'on' : 'off'} at the next sync` : `${k.enabled ? 'on' : 'off'} in the lead’s profile`}</small>
                   <button className={`toggle${on ? ' on' : ''}`} disabled={saving || k.essential || !inv} aria-pressed={on} aria-label={`${k.name}: ${on ? 'allowed' : 'not allowed'}`} onClick={() => toggleSkill(k.name)}><i /></button>
                 </div>
               );
@@ -363,13 +388,14 @@ function DeptLoadout({ d }: { d: Dept }) {
               const allowedT = !!inv?.allowedToolsets.includes(t);
               const never = AGENT_EXCLUDED.includes(t);
               const inHermes = observedTools.get(t);
+              const pending = inHermes !== undefined && !never && t !== 'kanban' && allowedT !== inHermes;
               return (
-                <div key={t} className={`slot-card ${allowedT ? '' : 'disabled'}`}>
+                <div key={t} className={`slot-card ${allowedT ? '' : 'disabled'}${pending ? ' pending' : ''}`}>
                   <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
                     <button className={`toggle${allowedT ? ' on' : ''}`} disabled={saving || !inv || never} aria-label={`${t}: ${allowedT ? 'allowed' : 'not allowed'}`} aria-pressed={allowedT}
                       onClick={() => inv && save({ allowedToolsets: allowedT ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
                   <div className="slot-name mono">{t}</div>
-                  <div className="slot-desc">{never ? 'never given to agents' : inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
+                  <div className={`slot-desc${pending ? ' pending-t' : ''}`}>{pending ? `turns ${allowedT ? 'on' : 'off'} at the next sync` : never ? 'never given to agents' : inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
                 </div>
               );
             })}
@@ -415,6 +441,7 @@ function SetupPanel({ d }: { d: Dept }) {
   const inv = s.info[d.id]?.inventory ?? null;
   const busy = syncing(s.busy, d);
   const err = prov?.error ?? null;
+  const [editLoadout, setEditLoadout] = useState(false);
   const submit = (e: React.FormEvent) => {
     e.preventDefault();
     void provisionDepartment(d.id, { leadProfileRef: null });
@@ -438,7 +465,8 @@ function SetupPanel({ d }: { d: Dept }) {
         <section className="pane-sec">
           <h3 className="sec-t">Get this floor running</h3>
           <div className="step done"><Glyph k="completed" size={12} /><b>Name & objective</b><span className="muted small">Saved</span><button className="link" onClick={() => s.openPanel('settings')}>Edit</button></div>
-          <div className="step done"><Glyph k="completed" size={12} /><span><b>Loadout</b><small className="muted">{inv ? teamLine(d.teamSize) : 'Loading…'}</small></span></div>
+          <div className="step done"><Glyph k="completed" size={12} /><span><b>Loadout</b><small className="muted">{inv ? teamLine(d.teamSize) : 'Loading…'}</small></span><button className="link" aria-expanded={editLoadout} onClick={() => setEditLoadout(!editLoadout)}>{editLoadout ? 'Done' : 'Edit'}</button></div>
+          {editLoadout && <DeptLoadout d={d} />}
           <form className="step open" onSubmit={submit} aria-busy={busy}>
             <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
             <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the loadout and verifies it by reading it back. It can take a minute.</p>

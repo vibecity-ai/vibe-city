@@ -101,7 +101,7 @@ test('an agent has many chats: a new one, then resuming the old one; a chat Vibe
   await app.inject({ method: 'POST', url, payload: { message: 'first chat' } });
   const first = (await app.inject(url)).json();
   assert.equal(first.messages.length, 2);
-  assert.equal(agentChat.turns[0]!.title, 'first chat'); // the Hermes session is named after its opening line
+  assert.match(agentChat.turns[0]!.title, /^first chat · [0-9a-f]{8}$/); // the Hermes session is named after its opening line
 
   const fresh = (await app.inject(`${url}?session=new`)).json();
   assert.notEqual(fresh.sessionId, first.sessionId);

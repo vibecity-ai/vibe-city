@@ -282,6 +282,10 @@ select.input { cursor: pointer; }
 .slot-card:hover { transform: translateY(-2px); }
 .slot-card.restricted { --fr: var(--fr-gold); }
 .slot-card.disabled { border-image: none; border: 2px dashed #5A5478; padding: 12px; opacity: .55; cursor: default; }
+/* a loadout change saved but not synced to Hermes yet */
+.slot-card.pending, .skill.pending { --fr: var(--fr-amber); }
+.slot-card.disabled.pending { border-color: var(--amber); opacity: .9; }
+.pending-t, .slot-desc.pending-t { color: var(--amber); }
 .slot-card.dimmed { opacity: .5; }
 .slot-card.eff { --fr: var(--fr-eq); }
 .slot-card.applying { --fr: var(--fr-sel); animation: applying .9s steps(3) infinite; }

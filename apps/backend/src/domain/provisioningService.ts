@@ -561,12 +561,14 @@ export class ProvisioningService {
     const wantTools = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(want));
     const enable = Object.keys(wantTools).filter((t) => wantTools[t] && !o.toolsets[t]);
     const disable = Object.keys(wantTools).filter((t) => !wantTools[t] && o.toolsets[t]);
-    const skillsOk = JSON.stringify(effectiveSkills(want, o.installedSkills)) === JSON.stringify([...o.enabledSkills].sort());
+    const wantSkills = effectiveSkills(want, o.installedSkills);
+    const skillsOn = wantSkills.filter((k) => !o.enabledSkills.includes(k)), skillsOff = o.enabledSkills.filter((k) => !wantSkills.includes(k));
+    const skillsOk = JSON.stringify(wantSkills) === JSON.stringify([...o.enabledSkills].sort());
     const model = modelToApply(want, { id: o.model, provider: o.provider });
     const nextSoul = upsertBlock(soul, block, id, m.key);
     const what = [
       enable.length ? `${enable.join(', ')} off in Hermes (should be on)` : '', disable.length ? `${disable.join(', ')} on in Hermes (should be off)` : '',
-      skillsOk ? '' : 'skills differ', model ? `model is ${o.model ?? 'unset'} (should be ${model.id})` : '', nextSoul === soul ? '' : 'instructions are out of date',
+      skillsOn.length ? `skills to turn on: ${skillsOn.join(', ')}` : '', skillsOff.length ? `skills to turn off: ${skillsOff.join(', ')}` : '', skillsOk || skillsOn.length || skillsOff.length ? '' : 'skills differ', model ? `model is ${o.model ?? 'unset'} (should be ${model.id})` : '', nextSoul === soul ? '' : 'instructions are out of date',
     ].filter(Boolean);
     if (!what.length) return 'same';
     if (!write(`${seatName(m)}: ${what.join('; ')}`)) return 'differs';

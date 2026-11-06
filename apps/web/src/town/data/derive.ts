@@ -55,11 +55,13 @@ function current(tasks: Seen[]): Seen | null {
 export function deriveDept(i: DeriveInput): Dept {
   const { dept: v, provisioning: prov, liveQuests: quests } = i;
   const ready = v.state === 'ready';
+  // Synced before (the lead has a profile): unsynced edits or a re-sync keep the floor and its agents on screen.
+  const staffed = ready || v.state === 'disconnected' || (!!v.agents.find((a) => a.lead)?.profileRef && (v.state === 'unconfigured' || v.state === 'provisioning'));
   const disconnected = v.state === 'disconnected' || (ready && !i.hermesUp);
   const tasksOf = (key: string): Seen[] => quests.flatMap((q) => q.tasks.filter((t) => t.agentKey === key && t.status !== 'archived').map((t) => ({ q, t })));
 
   // Every teammate is a real Hermes profile with its own desk, busy or not.
-  const workers: Worker[] = (ready || v.state === 'disconnected' ? v.agents.filter((a) => !a.lead) : []).slice(0, MAX_DESKS).map((a, idx): Worker => {
+  const workers: Worker[] = (staffed ? v.agents.filter((a) => !a.lead) : []).slice(0, MAX_DESKS).map((a, idx): Worker => {
     const c = current(tasksOf(a.key));
     const t = c?.t;
     return {
@@ -75,7 +77,7 @@ export function deriveDept(i: DeriveInput): Dept {
   const failedChief = chiefTasks.find(({ t }) => t.failed);
   const lead = v.agents.find((a) => a.lead);
   let chief: Chief | null = null;
-  if (ready || v.state === 'disconnected') {
+  if (staffed) {
     const base = { name: `${v.name} Lead`, profile: lead?.profileRef ?? '', model: i.chiefModel };
     if (disconnected) chief = { ...base, status: 'disconnected', activity: 'Hermes is not reachable', since: hhmm(v.updatedAt) };
     else if (runningChief) {

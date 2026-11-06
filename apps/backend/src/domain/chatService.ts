@@ -95,7 +95,8 @@ export class ChatService {
       const ch = this.character(departmentId, agentKey);
       const system = this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask);
       let creds = await this.creds(profile, input.sessionId);
-      const turn = (c: ChatCreds) => this.d.agentChat!.turn({ profile, key: c.api_key, sessionId: c.session_id, title: input.message.slice(0, 60), message: input.message, system }, onEvent);
+      // Hermes titles are unique per profile: the session suffix lets two chats open with the same line.
+      const turn = (c: ChatCreds) => this.d.agentChat!.turn({ profile, key: c.api_key, sessionId: c.session_id, title: `${input.message.slice(0, 50)} · ${c.session_id.slice(-8)}`, message: input.message, system }, onEvent);
       let raw: string;
       try {
         raw = await turn(creds);
