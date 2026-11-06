@@ -173,7 +173,6 @@ export function DeptPanel() {
   const s = useStore();
   const d = s.depts.find((x) => x.id === s.ui.floorId);
   if (!d) return <ExecPanel />;
-  if (!d.chief) return <SetupPanel d={d} />;
   const st = deptStatus(d.state);
   const quests = s.quests.filter((q) => q.deptId === d.id);
   const active = quests.filter((q) => ACTIVE.has(q.summary.status));
@@ -209,14 +208,15 @@ export function DeptPanel() {
               <div className="banner bad"><Glyph k="disconnected" /><div><b>Hermes resources not verified</b><p>{d.attention}. Agents can’t receive new work until this floor is verified again.</p>
                 <Btn kind="destructive" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>
             )}
-            {d.state === 'attention' && d.attention && <div className="banner bad"><Glyph k="failed" /><div><b>Needs attention</b><p>{d.attention}</p></div></div>}
-            {(d.provisioning === 'unconfigured' || busyProv) && <PendingSync d={d} />}
+            {d.state === 'attention' && d.attention && d.provisioning !== 'error' && <div className="banner bad"><Glyph k="failed" /><div><b>Needs attention</b><p>{d.attention}</p></div></div>}
+            {(d.provisioning === 'unconfigured' || d.provisioning === 'error' || busyProv) && <PendingSync d={d} />}
           </div>
           {tab === 'overview' && (
             <>
               <section className="pane-sec">
                 <h3 className="sec-t">Chain of command</h3>
-                <button type="button" className={`chief-card${sel === 'chief' ? ' sel' : ''}`} aria-pressed={sel === 'chief'} onClick={() => s.openPanel('agent', { agent: 'chief' })}>
+                {!d.chief && <p className="muted">No lead yet: the first sync creates {d.teamSize === 1 ? 'the lead’s Hermes profile' : `a Hermes profile for each of the ${d.teamSize} agents`}.</p>}
+                {d.chief && <><button type="button" className={`chief-card${sel === 'chief' ? ' sel' : ''}`} aria-pressed={sel === 'chief'} onClick={() => s.openPanel('agent', { agent: 'chief' })}>
                   <span className="chief-top">
                     <Portrait shirt="#fff" chief size={44} />
                     <span>
@@ -238,7 +238,7 @@ export function DeptPanel() {
                   ))}
                   {d.workers.length === 0 && <div className="empty-w">No teammates: the lead does the work itself. Hire to add agents that work in parallel.</div>}
                 </div>
-                <p className="mono muted small">{running + (d.chief.status === 'running' ? 1 : 0)} of {d.teamSize} agent{d.teamSize === 1 ? '' : 's'} working · each is its own Hermes profile{d.teamSize > d.workers.length + 1 ? ` · ${d.teamSize - d.workers.length - 1} not drawn (no free desk)` : ''}</p>
+                <p className="mono muted small">{running + (d.chief.status === 'running' ? 1 : 0)} of {d.teamSize} agent{d.teamSize === 1 ? '' : 's'} working · each is its own Hermes profile{d.teamSize > d.workers.length + 1 ? ` · ${d.teamSize - d.workers.length - 1} not drawn (no free desk)` : ''}</p></>}
               </section>
               <section className="pane-sec">
                 <h3 className="sec-t">Active quests</h3>
@@ -293,16 +293,18 @@ function PendingSync({ d }: { d: Dept }) {
   const edits = JSON.stringify([s.info[d.id]?.inventory ?? null, d.name, d.purpose, d.view.agents.map((a) => [a.key, a.model?.id ?? null])]);
   useEffect(() => {
     setCheck(null);
-    if (busy || d.provisioning !== 'unconfigured' || !s.conn.hermes) return;
+    if (busy || (d.provisioning !== 'unconfigured' && d.provisioning !== 'error') || !s.conn.hermes) return;
     // wait for a pause in editing, so a run of toggles costs one read of Hermes
     const t = setTimeout(() => void checkDepartment(d.id).then((r) => r && setCheck(r)), 1500);
     return () => clearTimeout(t);
   }, [d.id, edits, d.provisioning, busy, s.conn.hermes]);
   const diffs = check?.differences ?? [];
+  const err = d.provisioning === 'error' ? s.info[d.id]?.provisioning?.error ?? null : null;
   return (
-    <div className="banner warn"><Glyph k="awaiting" /><div>
-      <b>{busy ? 'Syncing with Hermes…' : 'Changes not synced yet'}</b>
-      <p>Agents keep their previous configuration until you sync. Make all your edits in the Loadout tab, then sync once.</p>
+    <div className={`banner ${err && !busy ? 'bad' : 'warn'}`}><Glyph k={err && !busy ? 'failed' : 'awaiting'} /><div>
+      <b>{busy ? 'Syncing with Hermes…' : err ? `${SYNC_STEP_LABEL[err.step]} failed` : d.chief ? 'Changes not synced yet' : 'Not in Hermes yet'}</b>
+      {err && !busy && <p>{err.message} <span className="muted">{formatTime(err.at)} · {err.retryable ? 'can be retried' : 'change the configuration first'}</span></p>}
+      <p>{d.chief ? 'Agents keep their previous configuration until you sync.' : `Syncing creates a Kanban board and ${d.teamSize === 1 ? 'the lead’s Hermes profile' : `${d.teamSize} Hermes profiles, one per agent`}, then applies the loadout. It can take a minute.`} Make all your edits in the Loadout tab, then sync once.</p>
       {!busy && (checking || !check ? <p className="muted small" role="status">{s.conn.hermes ? 'Comparing with Hermes…' : 'Hermes is not reachable, so changes cannot be listed.'}</p>
         : <ul className="sync-list">{diffs.length ? diffs.map((x) => <li key={x}><Glyph k="awaiting" size={12} />{x}</li>) : <li><Glyph k="completed" size={12} />Nothing to change in Hermes</li>}</ul>)}
       <Btn kind="primary" busy={busy} disabled={busy || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busy ? 'Syncing…' : diffs.length ? `Sync ${diffs.length} change${diffs.length === 1 ? '' : 's'}` : 'Sync'}</Btn>
@@ -321,8 +323,8 @@ function DeptLoadout({ d }: { d: Dept }) {
   const inv = info?.inventory ?? null;
   const eff = info?.effective ?? null;
   const view = s.agents[`${d.id}:chief`]?.view ?? null;
-  const saving = !!s.busy[`inv:${d.id}`];
   const busyProv = syncing(s.busy, d);
+  const saving = !!s.busy[`inv:${d.id}`] || busyProv; // edits during a sync would fail its final check
   const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
   const allowed = new Set(inv?.allowedSkillIds ?? []);
   const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
@@ -337,7 +339,7 @@ function DeptLoadout({ d }: { d: Dept }) {
     <div aria-busy={saving}>
       <section className="pane-sec">
         <div aria-live="polite">
-          {saving && <p className="muted small" role="status">Saving…</p>}
+          {s.busy[`inv:${d.id}`] && <p className="muted small" role="status">Saving…</p>}
           {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this loadout.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
         </div>
         <p className="fine">Every agent on this floor gets these skills, toolsets and MCP tools by default. An agent’s own skills from its hire come on top, and each agent has its own model.</p>
@@ -430,57 +432,6 @@ function ListEditor({ label, hint, values, onSave, disabled }: { label: string; 
       <b id={`${hid}-l`}>{label}</b> <span id={hid} className="muted small">{hint}</span>
       <ul className="chips" aria-label={`${label} (${values.length})`}>{values.map((v) => <li key={v} className="itag mono">{v}<button type="button" aria-label={`Remove ${v}`} disabled={disabled} onClick={() => onSave(values.filter((x) => x !== v))}>×</button></li>)}{values.length === 0 && <li className="muted small">None</li>}</ul>
       <div className="inline"><input className="input mono" value={draft} placeholder={`Add ${label.toLowerCase()}`} aria-label={`Add ${label}`} aria-describedby={hid} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} /><Btn onClick={add} disabled={disabled || !draft.trim()}>Add</Btn></div>
-    </div>
-  );
-}
-
-/* ============ B2 · first sync with Hermes ============ */
-function SetupPanel({ d }: { d: Dept }) {
-  const s = useStore();
-  const prov = s.info[d.id]?.provisioning ?? null;
-  const inv = s.info[d.id]?.inventory ?? null;
-  const busy = syncing(s.busy, d);
-  const err = prov?.error ?? null;
-  const [editLoadout, setEditLoadout] = useState(false);
-  const submit = (e: React.FormEvent) => {
-    e.preventDefault();
-    void provisionDepartment(d.id, { leadProfileRef: null });
-  };
-  return (
-    <div className="pane">
-      <div className="pane-scroll">
-        <section className="pane-head">
-          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)} tone="amber">{d.provisioning === 'error' ? 'Sync failed' : 'New department'}</Where><button className="x" onClick={s.closeFloor} aria-label="Close floor"><Icon n="x" /></button></div>
-          <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={d.state === 'attention' ? 'failed' : 'awaiting'} label={d.provisioning === 'provisioning' ? 'Syncing' : d.state === 'attention' ? 'Needs attention' : 'Not synced'} /></div>
-          <p className="sub">{d.purpose}</p>
-          <div className="actions"><Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings, profiles & archive</Btn></div>
-        </section>
-        <div aria-live="polite">
-          {err && (
-            <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>{SYNC_STEP_LABEL[err.step]} failed</b><p>{err.message}</p>
-              <p className="fine">{formatTime(err.at)}</p>
-              <p className="fine">{err.retryable ? 'This can be retried.' : 'Something must change before retrying.'}</p></div></div>
-          )}
-        </div>
-        <section className="pane-sec">
-          <h3 className="sec-t">Get this floor running</h3>
-          <div className="step done"><Glyph k="completed" size={12} /><b>Name & objective</b><span className="muted small">Saved</span><button className="link" onClick={() => s.openPanel('settings')}>Edit</button></div>
-          <div className="step done"><Glyph k="completed" size={12} /><span><b>Loadout</b><small className="muted">{inv ? teamLine(d.teamSize) : 'Loading…'}</small></span><button className="link" aria-expanded={editLoadout} onClick={() => setEditLoadout(!editLoadout)}>{editLoadout ? 'Done' : 'Edit'}</button></div>
-          {editLoadout && <DeptLoadout d={d} />}
-          <form className="step open" onSubmit={submit} aria-busy={busy}>
-            <div className="step-h"><span className="num">3</span><b>Create the Hermes resources</b></div>
-            <p className="fine">Syncing creates a Kanban board and {d.teamSize === 1 ? 'one Hermes profile for the lead' : `${d.teamSize} Hermes profiles, one per agent`}, applies the loadout and verifies it by reading it back. It can take a minute.</p>
-            <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={busy || !s.conn.hermes}>{busy && <span className="pulse-dot" aria-hidden="true" />}{busy ? 'Syncing…' : err ? 'Sync again' : 'Sync with Hermes'}</button>
-            {!s.conn.hermes && <small className="muted">Hermes is not reachable. Start the dashboard and gateway first.</small>}
-            {busy && (
-              <div className="sync-wait" role="status">
-                <div className="sync-bar" aria-hidden="true"><i /></div>
-                <small className="muted">Setting up the board and profiles in Hermes. This can take a minute, keep this open.</small>
-              </div>
-            )}
-          </form>
-        </section>
-      </div>
     </div>
   );
 }
