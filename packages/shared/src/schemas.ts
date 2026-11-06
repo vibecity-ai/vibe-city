@@ -719,7 +719,7 @@ export const HiringBriefSchema = z.object({
   departmentName: z.string(),
   focus: z.string().trim().min(1).max(200),
   skills: z.array(z.string().trim().min(1).max(100)).max(10),
-  /** Daily budget in credits (an estimate unit, see candidate cost). */
+  /** Daily budget in credits (1 credit = 1 US cent of model usage, see candidate cost). */
   budgetPerDay: z.number().int().min(1).max(100_000),
   notes: z.string().max(500),
 }).strict();
@@ -746,9 +746,9 @@ export const CandidateSchema = z.object({
   /** Exaggerated portrait parts for joke candidates. */
   gag: z.enum(GAGS).nullable(),
   loadout: z.object({ model: ModelChoiceSchema.nullable(), skills: z.array(z.string()), toolsets: z.array(z.string()) }).strict(),
-  /** Model size class guessed from the model name: 1 small, 2 balanced, 3 large. */
+  /** Model size class: from the NEAR AI price when known (1 under $0.30/day, 2 under $3, 3 above), else guessed from the name. */
   tier: z.number().int().min(1).max(3),
-  /** Estimated credits per day. An estimate from the model tier, not a price quote. */
+  /** Estimated credits per day (1 credit = 1 US cent): the model's NEAR AI price at 1M input + 100k output tokens, else a tier guess. */
   costPerDay: z.number().int().min(0),
   fitScore: z.number().int().min(0).max(100),
   /** AR's honest remark about this candidate. */
@@ -799,7 +799,7 @@ export const DeptDraftSchema = z.object({
   toolsets: z.array(ToolsetSchema),
   model: ModelChoiceSchema.nullable(),
   teammates: z.number().int().min(0).max(4),
-  /** Estimate from the model size class and the number of agents. Not a price quote. */
+  /** Estimate per day (1 credit = 1 US cent): the model's NEAR AI price per agent times the agents, else a size-class guess. */
   creditsPerDay: z.number().int().min(0),
   /** Anything the assistant asked for that Hermes does not have, said plainly. */
   dropped: z.array(z.string()),

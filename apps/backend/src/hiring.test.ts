@@ -4,6 +4,7 @@ import { questApp } from './testUtils.ts';
 import { FakeChatModel, type ChatTurn } from './model/chatModel.ts';
 import { FAKE_SKILLS } from './testing/fakeHermes.ts';
 import { modelTier, parseJsonReply } from './domain/hiringService.ts';
+import { dailyCredits, parsePriceList } from './model/nearPrices.ts';
 
 /** AR's scripted model: asks once, then returns a brief for the floor named in the system prompt's trigger. */
 const arModel = () => new FakeChatModel((turns: ChatTurn[]) => {
@@ -120,4 +121,35 @@ test('without a model the intake is 503; model tiers and reply parsing', async (
   assert.equal(modelTier('zai-org/GLM-4.6'), 2);
   assert.equal(parseJsonReply('not json').say, 'not json');
   assert.equal(parseJsonReply('<think>x</think>{"say":"hi","mood":"smug","replies":["a"]}').mood, 'smug');
+});
+
+test('NEAR price list keeps only agent-capable models; priced shortlists use real costs and vary', async () => {
+  const usd = (perM: number) => ({ amount: Math.round(perM * 1000), scale: 9, currency: 'USD' });
+  const entry = (id: string, inM: number, outM: number, im = ['text'], om = ['text'], f = ['tools']) =>
+    ({ modelId: id, inputCostPerToken: usd(inM), outputCostPerToken: usd(outM), metadata: { contextLength: 1000, architecture: { inputModalities: im, outputModalities: om }, supportedFeatures: f } });
+  const list = parsePriceList({ models: [
+    entry('model-a', 0.1, 0.5, ['text', 'image']), entry('model-b', 1, 5), entry('m-1', 5, 25),
+    entry('base-model', 0.01, 0.01, ['text'], ['text'], []), // no tool calling: Hermes cannot drive it
+    entry('claude-x', 0.01, 0.01, ['audio']), entry('img', 1, 1, ['text'], ['image']),
+  ] });
+  assert.deepEqual([...list.keys()], ['model-a', 'model-b', 'm-1']);
+  assert.equal(list.get('model-a')!.vision, true);
+  assert.equal(dailyCredits(list.get('model-a')!), 15); // $0.10 + $0.05 a day
+  assert.equal(dailyCredits(list.get('m-1')!), 750);
+
+  const { app, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 0, modelPrices: { list: async () => list } });
+  const d = await readyDept('Research');
+  const seen = new Set<string>();
+  for (let i = 0; i < 6; i++) {
+    const id = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { departmentId: d.id } })).json().id;
+    const r = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/brief`, payload: { brief: { departmentId: d.id, focus: 'Reading', skills: [], budgetPerDay: 200, notes: '' } } })).json();
+    for (const c of r.candidates) assert.ok(list.has(c.loadout.model.id), `${c.loadout.model.id} must be priced and tool-capable`);
+    for (const c of r.candidates.filter((x: any) => x.serious)) {
+      assert.equal(c.costPerDay, dailyCredits(list.get(c.loadout.model.id)!));
+      assert.match(c.note, /NEAR AI price: \$/);
+      seen.add(c.loadout.model.id);
+    }
+    await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/decline` });
+  }
+  assert.ok(seen.has('model-a') && seen.has('model-b'), 'balanced and premium are both drawn from what fits the budget');
 });

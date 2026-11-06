@@ -11,11 +11,14 @@ import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
 import { FIRST, LAST, hash, pick } from './characters.ts';
 import { modelTier, parseJsonReply } from './hiringService.ts';
+import { dailyCredits, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 
 export interface AssistantDeps {
   departments: DepartmentService;
   provisioning: Pick<ProvisioningService, 'hermesModels' | 'hermesDefaults'>;
   model: ChatModel;
+  /** NEAR AI Cloud prices. Omit: every offered model is listed and costs are guessed from model names. */
+  prices?: ModelPrices;
   companyId: () => string;
   companyName: () => string;
 }
@@ -42,9 +45,14 @@ export class AssistantService {
     let defaults: HermesDefaultsView | null = null, models: HermesModelsView | null = null;
     try { defaults = await this.d.provisioning.hermesDefaults(); } catch { /* Hermes down: no skills offered */ }
     try { models = await this.d.provisioning.hermesModels(); } catch { /* keep the profile's own model */ }
+    let prices: PriceList | undefined;
+    try { prices = await this.d.prices?.list(); } catch { /* price list down: guess from names */ }
     const skills = defaults?.skills.map((s) => s.name) ?? [];
     const toolsets = (defaults?.toolsets.filter((t) => t.manageable).map((t) => t.name) ?? TOOLSETS.filter((t) => !EXCLUDED.includes(t))) as string[];
-    const offered = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
+    const all = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
+    // Priced: only models NEAR AI prices that can run an agent (text + tools), cheapest first, so the list is not alphabetical brands.
+    const offered = prices?.size ? all.filter((m) => prices!.has(m.id)).sort((a, b) => dailyCredits(prices!.get(a.id)!) - dailyCredits(prices!.get(b.id)!)) : all;
+    const label = (m: ModelChoice) => `${m.provider}/${m.id}${prices?.get(m.id) ? ` (${dailyCredits(prices.get(m.id)!)} credits/day)` : ''}`;
     const me = this.character();
     const floors = this.d.departments.list().map((d) => `- ${d.name}: ${d.purpose || 'no purpose written'}`);
     const system = [
@@ -54,7 +62,7 @@ export class AssistantService {
       `Existing floors (do not duplicate them):\n${floors.join('\n') || '- none yet'}`,
       `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
       `Toolsets that can be granted: ${toolsets.join(', ')}`,
-      offered.length ? `Models Hermes offers (provider/model): ${offered.slice(0, 30).map((m) => `${m.provider}/${m.id}`).join(', ')}` : 'The model list is unavailable: use null for the model.',
+      offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick the cheapest model that can do the purpose well; a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
       '',
       'Ask at most one short question if the purpose is unclear; otherwise propose the floor right away. Keep it small: grant only what the purpose needs.',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
@@ -67,12 +75,12 @@ export class AssistantService {
     ];
     const raw = await this.d.model.complete(turns, { maxTokens: 700 });
     const p = parseJsonReply(raw);
-    return { say: p.say, mood: p.mood, replies: p.replies, draft: p.obj ? clampDraft(p.obj.draft, { skills, toolsets, offered }) : null };
+    return { say: p.say, mood: p.mood, replies: p.replies, draft: p.obj ? clampDraft(p.obj.draft, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }) : null };
   }
 }
 
 /** Keeps only what Hermes has; anything dropped is listed so the card can say so. */
-export function clampDraft(raw: unknown, have: { skills: string[]; toolsets: string[]; offered: ModelChoice[] }): DeptDraft | null {
+export function clampDraft(raw: unknown, have: { skills: string[]; toolsets: string[]; offered: ModelChoice[]; prices?: PriceList; current?: string }): DeptDraft | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const name = typeof r.name === 'string' ? r.name.trim().slice(0, 80) : '';
@@ -92,9 +100,11 @@ export function clampDraft(raw: unknown, have: { skills: string[]; toolsets: str
     if (!model) dropped.push(`model "${m}" (Hermes does not offer it; the floor keeps the default)`);
   }
   const teammates = Math.max(0, Math.min(4, Math.round(Number(r.teammates ?? r.workers ?? 1)) || 0));
-  const tier = model ? modelTier(model.id) : 2;
+  // Null model: the floor runs on Hermes' current default, so that is the one to price.
+  const price = have.prices?.get(model?.id ?? have.current ?? '');
+  const perAgent = price ? dailyCredits(price) : TIER_COST[model ? modelTier(model.id) : 2];
   return {
     name, purpose: typeof r.purpose === 'string' ? r.purpose.trim().slice(0, 2000) : '',
-    skills, toolsets, model, teammates, creditsPerDay: TIER_COST[tier] * (1 + teammates), dropped,
+    skills, toolsets, model, teammates, creditsPerDay: perAgent * (1 + teammates), dropped,
   };
 }

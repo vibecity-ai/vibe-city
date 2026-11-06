@@ -35,6 +35,7 @@ import { ChatService } from './domain/chatService.ts';
 import type { AgentChat } from './hermes/agentChat.ts';
 import { ModelFailedError, ModelUnavailableError, type ChatModel } from './model/chatModel.ts';
 import { HiringService } from './domain/hiringService.ts';
+import type { ModelPrices } from './model/nearPrices.ts';
 import { AssistantService } from './domain/assistantService.ts';
 import { QuestRequestService } from './domain/questRequests.ts';
 import { MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
@@ -78,6 +79,8 @@ export interface ServicesExtra {
   agentEnv?: Record<string, string>;
   /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned agent gets it in its config. */
   mcpUrl?: string;
+  /** NEAR AI Cloud model prices for AR's shortlist. Omit: costs are guessed from model names. */
+  modelPrices?: ModelPrices;
   /** AR scouting time before the shortlist shows (ms). Default 45 s. */
   hiringScoutMs?: number;
 }
@@ -279,6 +282,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     companyId: () => company.view().id, companyName: () => company.view().name,
     savePersona: (d, k, c) => characters.save(d, k, c),
     ...(extra.hiringScoutMs !== undefined ? { scoutMs: extra.hiringScoutMs } : {}),
+    ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
   });
   const reqId = (params: unknown) => (params as { reqId: string }).reqId;
   app.get('/api/hiring/current', async () => parse(HiringCurrentSchema, { request: await hiring.current() }));
@@ -313,6 +317,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   // ---- executive assistant: draft a new floor in the dialogue window (feature spec 4.3) ----
   const assistant = new AssistantService({
     departments, provisioning, model: extra.chatModel ?? noModel,
+    ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
     companyId: () => company.view().id, companyName: () => company.view().name,
   });
   app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
