@@ -363,7 +363,9 @@ function DeptLoadout({ d }: { d: Dept }) {
                 </div>
               );
             };
-            const active = view.skills.filter(isOn), rest = view.skills.filter((k) => !isOn(k));
+            // grouped by what Hermes has, so a toggled skill stays put (in amber) until the sync moves it
+            const inHermes = (k: { enabled: boolean; essential: boolean }) => k.essential || k.enabled;
+            const active = view.skills.filter(inHermes), rest = view.skills.filter((k) => !inHermes(k));
             return (
               <>
                 <div className="skill-grid">{active.map(card)}</div>
