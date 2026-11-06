@@ -386,20 +386,19 @@ function DeptLoadout({ d }: { d: Dept }) {
 
         <section className="pane-sec">
           <h3 className="sec-t">Toolsets</h3>
-          <p className="fine">Every agent of the department gets these toolsets. Switched off in Hermes unless allowed; delegation and cronjob are never given to department agents. Changes apply when you sync again.</p>
+          <p className="fine">Every agent of the department gets these toolsets. Switched off in Hermes unless allowed. Changes apply when you sync again.</p>
           <div className="slot-grid">
-            {[...TOOLSETS].map((t) => {
+            {TOOLSETS.filter(shownToolset).map((t) => {
               const allowedT = !!inv?.allowedToolsets.includes(t);
-              const never = AGENT_EXCLUDED.includes(t);
               const inHermes = observedTools.get(t);
-              const pending = inHermes !== undefined && !never && t !== 'kanban' && allowedT !== inHermes;
+              const pending = inHermes !== undefined && allowedT !== inHermes;
               return (
                 <div key={t} className={`slot-card ${allowedT ? '' : 'disabled'}${pending ? ' pending' : ''}`}>
                   <div className="slot-top"><span className="slot-ic"><Icon n="plug" size={15} /></span>
-                    <button className={`toggle${allowedT ? ' on' : ''}`} disabled={saving || !inv || never} aria-label={`${t}: ${allowedT ? 'allowed' : 'not allowed'}`} aria-pressed={allowedT}
+                    <button className={`toggle${allowedT ? ' on' : ''}`} disabled={saving || !inv} aria-label={`${t}: ${allowedT ? 'allowed' : 'not allowed'}`} aria-pressed={allowedT}
                       onClick={() => inv && save({ allowedToolsets: allowedT ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}><i /></button></div>
                   <div className="slot-name mono">{t}</div>
-                  <div className={`slot-desc${pending ? ' pending-t' : ''}`}>{pending ? `turns ${allowedT ? 'on' : 'off'} at the next sync` : never ? 'never given to agents' : inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}{t === 'kanban' ? ' · always on for task reporting' : ''}</div>
+                  <div className={`slot-desc${pending ? ' pending-t' : ''}`}>{pending ? `turns ${allowedT ? 'on' : 'off'} at the next sync` : inHermes === undefined ? 'not reported by Hermes' : inHermes ? 'on in Hermes' : 'off in Hermes'}</div>
                 </div>
               );
             })}
@@ -748,7 +747,7 @@ export function AgentPanel() {
             {me && me.skills.length > 0 && <KV rows={[['Own skills', <span className="mono">{me.skills.join(', ')}</span>]]} />}
             {view?.observedAt && <KV rows={[
               ['Skills on in Hermes', <span className="mono">{view.skills.filter((k) => k.enabled).map((k) => k.name).join(', ') || 'none'}</span>],
-              ['Toolsets on in Hermes', <span className="mono">{view.toolsets.filter((t) => t.enabled).map((t) => t.name).join(', ') || 'none'}</span>],
+              ['Toolsets on in Hermes', <span className="mono">{view.toolsets.filter((t) => t.enabled && shownToolset(t.name)).map((t) => t.name).join(', ') || 'none'}</span>],
             ]} />}
             <Btn kind="secondary" onClick={() => s.openPanel('dept', { deptTab: 'loadout' })}>Edit the department loadout</Btn>
           </section>
@@ -1091,7 +1090,9 @@ function ResultsSection({ deptId, status, extra }: { deptId: string; status: Que
 /* ============ B1 · create department ============ */
 const WIZARD_STEPS = ['Basics', 'Capabilities', 'Team & review'] as const;
 const isToolset = (t: string): t is Toolset => (TOOLSETS as readonly string[]).includes(t);
-const AGENT_EXCLUDED: readonly string[] = AGENT_EXCLUDED_TOOLSETS;
+/** Not shown: never given to agents (delegation, cronjob) or always on (kanban), so there is nothing to choose. */
+const HIDDEN_TOOLSETS: readonly string[] = [...AGENT_EXCLUDED_TOOLSETS, 'kanban'];
+const shownToolset = (t: string) => !HIDDEN_TOOLSETS.includes(t);
 
 /**
  * Three steps: name and purpose; capabilities pre-filled from Hermes' default profile (editable); team size and review.
@@ -1178,11 +1179,11 @@ export function CreateDeptModal() {
             {loadErr && <div className="banner warn" role="alert"><Glyph k="awaiting" /><div><b>Could not read Hermes’ default profile</b><p>{loadErr}</p><Btn kind="secondary" onClick={() => void load()}>Try again</Btn></div></div>}
           </div>
           {defaults && <>
-            <h3 className="inv-h">Toolsets <span>{toolsets.length} on · kanban is always on</span></h3>
+            <h3 className="inv-h">Toolsets <span>{toolsets.length} on</span></h3>
             <div className="chk-grid">
-              {defaults.toolsets.map((t) => (
-                <label key={t.name} className={`chk${t.manageable ? '' : ' off'}`} title={t.manageable ? '' : t.name === 'kanban' ? 'Always on: agents report through Kanban.' : AGENT_EXCLUDED.includes(t.name) ? 'Never given to department agents: it would run work outside the department board.' : 'Not a toolset Vibe City manages.'}>
-                  <input type="checkbox" disabled={!t.manageable} checked={t.name === 'kanban' || (isToolset(t.name) && toolsets.includes(t.name))}
+              {defaults.toolsets.filter((t) => shownToolset(t.name)).map((t) => (
+                <label key={t.name} className={`chk${t.manageable ? '' : ' off'}`} title={t.manageable ? '' : 'Not a toolset Vibe City manages.'}>
+                  <input type="checkbox" disabled={!t.manageable} checked={isToolset(t.name) && toolsets.includes(t.name)}
                     onChange={() => { if (isToolset(t.name)) toggle(toolsets, setToolsets, t.name); }} />
                   <span className="mono">{t.name}</span>{t.enabled && <small className="muted">default</small>}
                 </label>
@@ -1213,7 +1214,7 @@ export function CreateDeptModal() {
           </Field>
           <KV rows={[
             ['Name', name.trim()],
-            ['Toolsets', <span className="mono">{['kanban', ...toolsets].sort().join(', ')}</span>],
+            ['Toolsets', <span className="mono">{[...toolsets].sort().join(', ') || 'none'}</span>],
             ['Skills', skills.length ? `${skills.length} enabled` : 'none (Hermes keeps hermes-agent on)'],
             ['Model', <span className="mono">{model ? `${model.id} · ${model.provider}` : 'profile default'}</span>],
             ['Agents', workers === 0 ? '1 · the lead alone' : `${workers + 1} · a lead + ${workers} teammate${workers === 1 ? '' : 's'}`],
