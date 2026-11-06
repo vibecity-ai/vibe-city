@@ -51,10 +51,11 @@ const agentApp = (answer?: ConstructorParameters<typeof FakeAgentChat>[1]) => {
 };
 
 test('chat talks to the agent\'s own profile, in one session, with its own key, and returns a quest proposal', async () => {
-  const { app, hermes, agentChat, readyDept } = agentApp((t, history) => history.length
+  const { app, hermes, kanban, agentChat, readyDept } = agentApp((t, history) => history.length
     ? 'I can have a brief by Friday.\n<vc>{"mood":"focused","replies":["Do it","Not now"],"proposal":{"title":"Competitor brief","objective":"Summarise three competitors."}}</vc>'
     : 'Hey boss.\n<vc>{"mood":"happy","replies":["What are you on?"],"proposal":null}</vc>');
   const d = await readyDept('Research', {});
+  await kanban.createTask(d.board, { title: 'Scan competitor pricing' });
   const url = `/api/departments/${d.id}/characters/chief/chat`;
   assert.equal((await app.inject(url)).json().modelReady, true);
   const r1 = await app.inject({ method: 'POST', url, payload: { message: 'Hello' } });
@@ -74,6 +75,8 @@ test('chat talks to the agent\'s own profile, in one session, with its own key, 
   assert.equal(t2!.message, 'Can you look at our competitors?'); // Hermes holds the history: only the new message is sent
   assert.match(t1!.system, /Research/);
   assert.match(t1!.system, /Research lead/);
+  assert.match(t1!.system, /\[ready\] Scan competitor pricing/, 'the board is in the prompt');
+  assert.doesNotMatch(t1!.system, /terminal/, 'chat is never pointed at the shell');
   assert.equal((await app.inject(url)).json().messages.length, 4);
   // A teammate is its own profile, with its own key and session.
   await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/W-01/chat`, payload: { message: 'Hi' } });

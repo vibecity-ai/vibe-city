@@ -30,7 +30,7 @@ test('every agent is its own profile, with the same rules and the others named a
     const p = t.hermes.profiles.get(me)!;
     assert.equal(p.toolsets.file, true, `${me} has the department toolsets`);
     for (const o of others) assert.ok(p.soul.includes(`"${o}"`), `${me} knows teammate ${o}`);
-    assert.ok(!p.soul.includes(`"${me}"`), `${me} is not its own teammate`);
+    assert.ok(p.soul.includes(`You are the Hermes profile "${me}". Your teammates`), `${me} knows itself apart from its teammates`);
   }
   assert.match(t.hermes.profiles.get(lead)!.soul, /New quests for the department are assigned to you/);
   assert.doesNotMatch(t.hermes.profiles.get(w1)!.soul, /New quests/);
@@ -88,7 +88,7 @@ test('a team quest names every teammate; each task is attributed to the agent it
   const { questId } = (await t.create(d.id, { objective: 'Research three markets' })).json();
   const body = (await t.kanban.getTask(d.board, questId)).task.body!;
   assert.ok(body.includes(`"${w1}"`) && body.includes(`"${w2}"`), 'both teammates are offered');
-  assert.ok(!body.includes(`"${lead}"`), 'the lead does not hand work to itself');
+  assert.match(body, new RegExp(`You are the Hermes profile "${lead}"`), 'the lead may take a part itself');
   t.kanban.complete(d.board, questId, 'split in two');
   const a = t.kanban.seedTask(d.board, { title: 'Market A', assignee: w1!, parents: [questId] });
   const b = t.kanban.seedTask(d.board, { title: 'Market B', assignee: w2!, parents: [questId] });
@@ -98,6 +98,16 @@ test('a team quest names every teammate; each task is attributed to the agent it
   assert.deepEqual(q.tasks.map((n: any) => n.agentKey), ['chief', 'W-01', 'W-02']);
   assert.equal(q.counts.running, 2, 'two agents work at the same time');
   assert.deepEqual(q.violations, []);
+  // The compile task joins the parts: the quest stays open until it is done, and the lead may own it.
+  const c = t.kanban.seedTask(d.board, { title: 'Compile', assignee: lead!, parents: [a.id, b.id] });
+  t.kanban.complete(d.board, a.id, 'A');
+  t.kanban.complete(d.board, b.id, 'B');
+  const open = await t.get_(d.id, questId);
+  assert.equal(open.tasks.length, 4);
+  assert.equal(open.status, 'running', 'not done while the compile task is still to run');
+  assert.deepEqual(open.violations, []);
+  t.kanban.complete(d.board, c.id, 'matrix');
+  assert.equal((await t.get_(d.id, questId)).status, 'completed');
 });
 
 test('runtime defaults report the default profile: model, toolsets (with manageability) and skills', async () => {

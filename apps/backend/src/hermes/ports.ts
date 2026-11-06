@@ -69,6 +69,8 @@ export type HermesHealth = HealthView['hermes'];
  * (dashboard REST + `hermes` CLI); never Hermes' databases or source.
  * All profile-scoped methods touch exactly the named profile.
  */
+export type ToolsetPlatform = 'cli' | 'api_server';
+
 export interface HermesRuntime {
   health(): Promise<HermesHealth>;
 
@@ -79,9 +81,10 @@ export interface HermesRuntime {
   listBoards(): Promise<BoardInfo[]>;
   createBoard(slug: string, name: string): Promise<void>;
 
-  /** Map of toolset name -> enabled, for every toolset Hermes lists (built-in and plugin). */
-  getToolsets(profile: string): Promise<Record<string, boolean>>;
-  setToolsets(profile: string, change: { enable: string[]; disable: string[] }): Promise<void>;
+  /** Map of toolset name -> enabled, for every toolset Hermes lists (built-in and plugin). `platform` defaults to
+      'cli' (what Kanban workers get); 'api_server' is what the dialogue-window chat gets. */
+  getToolsets(profile: string, platform?: ToolsetPlatform): Promise<Record<string, boolean>>;
+  setToolsets(profile: string, change: { enable: string[]; disable: string[] }, platform?: ToolsetPlatform): Promise<void>;
 
   listSkills(profile: string): Promise<SkillInfo[]>;
   setDisabledSkills(profile: string, names: string[]): Promise<void>;

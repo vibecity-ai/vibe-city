@@ -13,7 +13,7 @@ import { agentModel, agentSkills, type AgentRow, type DepartmentService } from '
 import { buildBlock, hasBlock, upsertBlock } from './instructions.ts';
 import {
   ESSENTIAL_SKILLS, REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, desiredToolsetMap, diffObserved,
-  effectiveSkills, effectiveToolsets, modelToApply, parseObserved, skillsToDisable, withBaseline, type ObservedConfig, type ObservedRole,
+  chatToolsets, effectiveSkills, effectiveToolsets, modelToApply, parseObserved, skillsToDisable, withBaseline, type ObservedConfig, type ObservedRole,
 } from './inventoryPolicy.ts';
 
 type Step = ProvisioningError['step'];
@@ -532,7 +532,7 @@ export class ProvisioningService {
   private block(id: string, m: Member, team: Member[]): string {
     const row = this.depts.getRow(id);
     return buildBlock({
-      deptId: id, deptName: row.name, purpose: row.purpose, agentKey: m.key, lead: m.lead,
+      deptId: id, deptName: row.name, purpose: row.purpose, agentKey: m.key, lead: m.lead, self: m.profile,
       teammates: team.filter((t) => t.key !== m.key).map((t) => t.profile), inv: this.depts.getInventory(id),
     });
   }
@@ -542,13 +542,14 @@ export class ProvisioningService {
     // The CLI read goes first: a `hermes` run can install newly bundled skills into the profile, so skills read alongside
     // it can miss one that is enabled a moment later (seen on freshly cloned profiles). The rest is milliseconds.
     const toolsets = await this.hermes.getToolsets(m.profile);
+    const chatToolsets = await this.hermes.getToolsets(m.profile, 'api_server');
     const [skills, model, soul] = await Promise.all([
       this.hermes.listSkills(m.profile), this.hermes.getModel(m.profile), this.hermes.readInstructions(m.profile),
     ]);
     return {
       soul,
       observed: {
-        profile: m.profile, toolsets,
+        profile: m.profile, toolsets, chatToolsets,
         installedSkills: skills.map((s) => s.name), enabledSkills: skills.filter((s) => s.enabled).map((s) => s.name),
         model: model.id, provider: model.provider, instructionsPresent: hasBlock(soul, block),
       },
@@ -561,6 +562,8 @@ export class ProvisioningService {
     const wantTools = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(want));
     const enable = Object.keys(wantTools).filter((t) => wantTools[t] && !o.toolsets[t]);
     const disable = Object.keys(wantTools).filter((t) => !wantTools[t] && o.toolsets[t]);
+    const chat = o.chatToolsets ?? {}, wantChat = desiredToolsetMap(Object.keys(chat), chatToolsets(want));
+    const chatOn = Object.keys(wantChat).filter((t) => wantChat[t] && !chat[t]), chatOff = Object.keys(wantChat).filter((t) => !wantChat[t] && chat[t]);
     const wantSkills = effectiveSkills(want, o.installedSkills);
     const skillsOn = wantSkills.filter((k) => !o.enabledSkills.includes(k)), skillsOff = o.enabledSkills.filter((k) => !wantSkills.includes(k));
     const skillsOk = JSON.stringify(wantSkills) === JSON.stringify([...o.enabledSkills].sort());
@@ -568,6 +571,7 @@ export class ProvisioningService {
     const nextSoul = upsertBlock(soul, block, id, m.key);
     const what = [
       enable.length ? `${enable.join(', ')} off in Hermes (should be on)` : '', disable.length ? `${disable.join(', ')} on in Hermes (should be off)` : '',
+      chatOn.length ? `chat: ${chatOn.join(', ')} off (should be on)` : '', chatOff.length ? `chat: ${chatOff.join(', ')} on (should be off)` : '',
       skillsOn.length ? `skills to turn on: ${skillsOn.join(', ')}` : '', skillsOff.length ? `skills to turn off: ${skillsOff.join(', ')}` : '', skillsOk || skillsOn.length || skillsOff.length ? '' : 'skills differ', model ? `model is ${o.model ?? 'unset'} (should be ${model.id})` : '', nextSoul === soul ? '' : 'instructions are out of date',
     ].filter(Boolean);
     if (!what.length) return 'same';
@@ -577,6 +581,7 @@ export class ProvisioningService {
       // toolsets, skills and model all live in the profile's config.yaml: one writer at a time
       (async () => {
         if (enable.length || disable.length) await this.hermes.setToolsets(m.profile, { enable, disable });
+        if (chatOn.length || chatOff.length) await this.hermes.setToolsets(m.profile, { enable: chatOn, disable: chatOff }, 'api_server');
         if (!skillsOk) await this.hermes.setDisabledSkills(m.profile, skillsToDisable(want, o.installedSkills));
         if (model) await this.hermes.setModel(m.profile, model);
       })(),

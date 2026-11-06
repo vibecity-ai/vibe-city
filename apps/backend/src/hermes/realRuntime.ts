@@ -4,7 +4,7 @@ import type { ModelChoice } from '@vibe-city/shared';
 import { HermesHttp } from './http.ts';
 import {
   HermesAuthError, HermesCliMissingError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo,
+  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo, type ToolsetPlatform,
 } from './ports.ts';
 
 const execFileP = promisify(execFile);
@@ -151,16 +151,16 @@ export class RealHermesRuntime implements HermesRuntime {
     await this.cli(['profile', 'create', name, '--clone', '--no-alias', '--description', opts.description]);
   }
 
-  async getToolsets(profile: string): Promise<Record<string, boolean>> {
-    const map = parseToolsList(await this.cli(['tools', 'list'], profile));
+  async getToolsets(profile: string, platform: ToolsetPlatform = 'cli'): Promise<Record<string, boolean>> {
+    const map = parseToolsList(await this.cli(['tools', 'list', '--platform', platform], profile));
     if (!Object.keys(map).length) throw new HermesRejectedError('could not read toolsets (unexpected CLI output)');
     return map;
   }
 
-  async setToolsets(profile: string, change: { enable: string[]; disable: string[] }): Promise<void> {
+  async setToolsets(profile: string, change: { enable: string[]; disable: string[] }, platform: ToolsetPlatform = 'cli'): Promise<void> {
     for (const n of [...change.enable, ...change.disable]) if (!TOOLSET_RE.test(n)) throw new HermesRejectedError('invalid toolset name');
-    if (change.enable.length) await this.cli(['tools', 'enable', ...change.enable], profile);
-    if (change.disable.length) await this.cli(['tools', 'disable', ...change.disable], profile);
+    if (change.enable.length) await this.cli(['tools', 'enable', ...change.enable, '--platform', platform], profile);
+    if (change.disable.length) await this.cli(['tools', 'disable', ...change.disable, '--platform', platform], profile);
   }
 
   async listSkills(profile: string): Promise<SkillInfo[]> {

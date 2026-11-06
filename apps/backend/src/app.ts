@@ -232,6 +232,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const characters = new CharacterService(db);
   const chat = new ChatService({
     db, departments, characters, hermes: runtime, companyName: () => company.view().name,
+    ...(extra.kanban ? { kanban: extra.kanban } : {}),
     ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), ...(extra.agentEnv ? { agentEnv: extra.agentEnv } : {}),
   });
   /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */

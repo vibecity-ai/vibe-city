@@ -5,6 +5,7 @@ import {
 import { HermesNotFoundError, HermesRejectedError } from '../hermes/ports.ts';
 import type { KanbanApi, RawRun, TaskDetail } from '../hermes/kanbanApi.ts';
 import { describeEvent } from './activity.ts';
+import { delegationRules } from './instructions.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
 import type { DepartmentService } from './departmentService.ts';
 import { aggregateQuest, type AggNode } from './questAggregation.ts';
@@ -37,8 +38,8 @@ interface Tree {
   truncated: boolean;
 }
 
-/** `teammates` are the other agents' profiles (empty: the lead does the work itself). */
-export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, teammates: string[]): string {
+/** `lead` gets the quest; `teammates` are the other agents' profiles (empty: the lead does the work itself). */
+export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, lead: string, teammates: string[]): string {
   return [
     `# Quest: ${q.title}`,
     '',
@@ -47,17 +48,9 @@ export function buildQuestBody(q: { title: string; objective: string; instructio
     ...(q.instructions ? ['', '## Additional instructions', q.instructions] : []),
     '',
     '## How to execute (department workflow)',
-    ...(teammates.length === 0
-      ? [
-        'You have no teammates: do the work yourself.',
-        'Do not create Kanban tasks for any other profile. When the work is done, complete this task with a summary of the result and attach any output files.',
-      ]
-      : [
-        'You own this quest. Do the work yourself, or, when parts of it can run independently, create one child Kanban task per part,',
-        `assigned to one of your teammates (${teammates.map((t) => `"${t}"`).join(', ')}), with parents set to this task's id. Spread the parts across teammates: each one works in parallel.`,
-        'Each child task must be self-contained: the teammate cannot see this quest, so put every instruction and input it needs in the child task.',
-        'Do not assign tasks to any other profile. Complete this task with a summary of what you did and each child task id with what it covers.',
-      ]),
+    'This task is a quest and you own it.',
+    ...delegationRules(lead, teammates),
+    'Complete every task with a summary of what you did (and which child tasks you created) and attach any output files.',
   ].join('\n');
 }
 
@@ -328,7 +321,7 @@ export class QuestService {
     const ctx = this.ctx(departmentId, { requireReady: true });
     const { task, warning } = await this.kanban.createTask(ctx.board, {
       title: input.title,
-      body: buildQuestBody(input, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
+      body: buildQuestBody(input, ctx.lead, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
       assignee: ctx.lead,
       // Same clientRequestId -> Hermes returns the existing task instead of creating a duplicate.
       idempotency_key: `vibe-city:${departmentId}:${input.clientRequestId}`,

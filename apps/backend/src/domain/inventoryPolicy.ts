@@ -21,6 +21,11 @@ export function effectiveToolsets(inv: Inventory): string[] {
   return [...new Set([...allowed, ...REQUIRED_TOOLSETS])].sort();
 }
 
+/** Dialogue-window chat only talks: work goes on the board as a quest. Of the agent's toolsets it keeps these, which
+    only recall what the agent already knows. Hermes keeps chat's set (platform 'api_server') apart from the workers' ('cli'). */
+export const CHAT_TOOLSETS = ['memory', 'session_search'] as const;
+export const chatToolsets = (inv: Inventory) => effectiveToolsets(inv).filter((t) => (CHAT_TOOLSETS as readonly string[]).includes(t));
+
 /** What one agent's profile must have: the department inventory plus the agent's own skills, and its own model if it has one. */
 export function agentInventory(inv: Inventory, agent: { model: ModelChoice | null; skills: string[] }): Inventory {
   return { ...inv, model: agent.model ?? inv.model, allowedSkillIds: [...new Set([...inv.allowedSkillIds, ...agent.skills])] };
@@ -80,6 +85,8 @@ export function desiredHash(inv: Inventory, agents: { key: string; profile: stri
 export interface ObservedRole {
   profile: string;
   toolsets: Record<string, boolean>;
+  /** The chat's toolsets (Hermes platform 'api_server'); absent in observations stored before chat was restricted. */
+  chatToolsets?: Record<string, boolean>;
   enabledSkills: string[];
   installedSkills: string[];
   model: string | null;
@@ -108,6 +115,8 @@ export function diffObserved(inv: Inventory, o: ObservedRole): string[] {
   const diffs: string[] = [];
   const want = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(inv));
   for (const [t, on] of Object.entries(want)) if (o.toolsets[t] !== on) diffs.push(`toolset ${t} is ${o.toolsets[t] ? 'enabled' : 'disabled'}, expected ${on ? 'enabled' : 'disabled'}`);
+  const chat = o.chatToolsets ?? {}, wantChat = desiredToolsetMap(Object.keys(chat), chatToolsets(inv));
+  for (const [t, on] of Object.entries(wantChat)) if (chat[t] !== on) diffs.push(`chat toolset ${t} is ${chat[t] ? 'enabled' : 'disabled'}, expected ${on ? 'enabled' : 'disabled'}`);
   const wantSkills = effectiveSkills(inv, o.installedSkills);
   const have = [...o.enabledSkills].sort();
   if (JSON.stringify(wantSkills) !== JSON.stringify(have)) diffs.push('enabled skills differ from the inventory');
