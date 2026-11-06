@@ -601,10 +601,13 @@ const modelKey = (m: ModelChoice | null) => (m ? `${m.provider}\u0000${m.id}` : 
  * One model, chosen from Hermes' list (grouped by provider). A saved choice Hermes no longer offers stays visible,
  * marked, so it is never silently replaced.
  */
-function ModelPicker({ label, hint, models, error, onRetry, value, onChange, disabled }: {
+function ModelPicker({ label, hint, models, error, onRetry, value: chosen, fallback, onChange, disabled }: {
   label: string; hint: string; models: HermesModelsView | null; error: string | null; onRetry: () => void;
   value: ModelChoice | null; onChange: (m: ModelChoice | null) => void; disabled?: boolean;
+  /** The model in use without a choice: shown instead of a "keep" option. */
+  fallback?: ModelChoice | null;
 }) {
+  const value = chosen ?? fallback ?? null;
   const offered = !value || !models || models.providers.some((p) => p.slug === value.provider && p.models.includes(value.id));
   return (
     <Field label={label} hint={hint} error={error ? `${error}` : !offered ? `${value!.id} (${value!.provider}) is not in Hermes’ list anymore. Choose another model.` : null}>
@@ -618,7 +621,7 @@ function ModelPicker({ label, hint, models, error, onRetry, value, onChange, dis
               onChange({ provider: provider!, id: id! });
             }}
             options={!models ? [] : [
-              { value: '', label: 'Keep the profile’s own model' },
+              ...(fallback === undefined ? [{ value: '', label: 'Keep the profile’s own model' }] : []),
               ...(!offered ? [{ value: modelKey(value), label: `${value!.id} · ${value!.provider}`, note: 'not offered' }] : []),
               ...models.providers.flatMap((pr) => pr.models.map((m) => ({ value: modelKey({ provider: pr.slug, id: m }), label: m, group: `${pr.name}${pr.current ? ' · current provider' : ''}` }))),
             ]} />
@@ -739,9 +742,9 @@ export function AgentPanel() {
           <section className="pane-sec">
             <h3 className="sec-t">Loadout</h3>
             <p className="fine">This agent gets the department’s skills, toolsets and MCP tools.{me?.skills.length ? ' On top of that it has its own skills from its hire.' : ''}</p>
-            {me && agentKey && <ModelPicker label="Model" hint={`Changes apply when you sync again.${inv?.model ? ` Without a choice it uses the department’s ${inv.model.id}.` : ''}${view?.provider ? ` Hermes now reports ${view.model ?? '—'} via ${view.provider}.` : ''}`}
+            {me && agentKey && <ModelPicker label="Model" hint={`Changes apply when you sync again.${view?.provider ? ` Hermes now reports ${view.model ?? '—'} via ${view.provider}.` : ''}`}
               models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
-              value={me.model} disabled={saving} onChange={(m) => void setAgentModel(d.id, agentKey, m)} />}
+              value={me.model} fallback={inv?.model ?? (view?.model && view.provider ? { provider: view.provider, id: view.model } : null)} disabled={saving} onChange={(m) => void setAgentModel(d.id, agentKey, m)} />}
             {me && me.skills.length > 0 && <KV rows={[['Own skills', <span className="mono">{me.skills.join(', ')}</span>]]} />}
             {view?.observedAt && <KV rows={[
               ['Skills on in Hermes', <span className="mono">{view.skills.filter((k) => k.enabled).map((k) => k.name).join(', ') || 'none'}</span>],
