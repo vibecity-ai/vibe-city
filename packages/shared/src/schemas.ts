@@ -46,7 +46,9 @@ export const InventorySchema = z.object({
     /** Per-task runtime cap passed to Hermes as max_runtime_seconds when tasks are created. */
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable().default(null),
     maxDelegationDepth: z.literal(1).default(1),
-  }).default({ maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 }),
+    /** Daily model budget in credits (1 credit = 1 US cent of model usage), enforced by the metering proxy. Null = no cap. */
+    dailyBudgetCredits: z.number().int().min(0).nullable().default(null),
+  }).default({ maxTaskRuntimeSeconds: null, maxDelegationDepth: 1, dailyBudgetCredits: null }),
 }).strict();
 export type Inventory = z.infer<typeof InventorySchema>;
 
@@ -60,6 +62,7 @@ export const InventoryPatchSchema = z.object({
   limits: z.object({
     maxTaskRuntimeSeconds: z.number().int().min(10).max(86_400).nullable(),
     maxDelegationDepth: z.literal(1),
+    dailyBudgetCredits: z.number().int().min(0).nullable(),
   }).partial().strict().optional(),
 }).strict();
 export type InventoryPatch = z.infer<typeof InventoryPatchSchema>;
@@ -79,6 +82,8 @@ export const DepartmentCreateSchema = z.object({
   inventory: InventoryPatchSchema.optional(),
   /** Agents to start with besides the lead. Each gets its own Hermes profile when the department is provisioned. */
   teammates: z.number().int().min(0).max(MAX_TEAMMATES).default(0),
+  /** Hire from a template (brief 01): its seats replace `teammates`, its inventory and purpose fill what is not given. */
+  template: z.string().trim().min(1).max(60).optional(),
 }).strict();
 export type DepartmentCreate = z.infer<typeof DepartmentCreateSchema>;
 
@@ -966,3 +971,105 @@ export const MoneyViewSchema = z.object({
 }).strict();
 export type MoneyView = z.infer<typeof MoneyViewSchema>;
 export const WalletLinkSchema = z.object({ accountId: z.string().regex(NEAR_ACCOUNT_RE) }).strict();
+
+// ---- hackathon foundation (docs/briefs/00-foundation.md) -------------------------------------------------------------
+
+/** One seat of a template: the lead is the first. Becomes one department_agent row and one Hermes profile. */
+export const TemplateSeatSchema = z.object({
+  title: z.string().trim().min(1).max(60),
+  model: ModelChoiceSchema.nullable(),
+  skills: z.array(z.string()),
+  toolsets: z.array(z.string()),
+}).strict();
+export type TemplateSeat = z.infer<typeof TemplateSeatSchema>;
+
+export const TemplateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  purpose: z.string(),
+  /** The CEO quest that unlocks this template; null = available as soon as hiring is on. */
+  unlock: z.string().nullable(),
+  /** Runs on a loop: hiring it creates one disabled schedule. */
+  loop: z.boolean(),
+  inventory: InventorySchema,
+  seats: z.array(TemplateSeatSchema).min(1),
+  /** OutLayer / NEAR skill ids the agents may load. */
+  skills: z.array(z.string()),
+  wallet: z.enum(['none', 'company']),
+  dailyBudgetCredits: z.number().int().min(0),
+  /** Not offered in the hire grid (the Chief of Staff). */
+  hidden: z.boolean().default(false),
+}).strict();
+export type Template = z.infer<typeof TemplateSchema>;
+export const TemplateListSchema = z.array(TemplateSchema.extend({ locked: z.boolean(), unlocks: z.string().nullable() }));
+export type TemplateList = z.infer<typeof TemplateListSchema>;
+
+export const CompanySettingsSchema = z.object({
+  nearAiApiKeySet: z.boolean(),
+  nearAiCreditsLoadedCents: z.number().int().min(0).nullable(),
+  outlayerWalletId: z.string().nullable(),
+  outlayerAccountId: z.string().nullable(),
+  marketAgentHandle: z.string().nullable(),
+  marketVerifiedAt: z.string().nullable(),
+  githubConnected: z.boolean(),
+  githubLogin: z.string().nullable(),
+  policyConfirmedAt: z.string().nullable(),
+}).strict();
+export type CompanySettings = z.infer<typeof CompanySettingsSchema>;
+/** Write-only secrets are accepted here and never returned. */
+export const CompanySettingsPatchSchema = z.object({
+  nearAiApiKey: z.string().trim().min(1).max(500),
+  nearAiCreditsLoadedCents: z.number().int().min(0).nullable(),
+  marketAgentHandle: z.string().trim().max(100).nullable(),
+  marketAgentToken: z.string().trim().min(1).max(500),
+  githubToken: z.string().trim().min(1).max(500),
+}).partial().strict();
+export type CompanySettingsPatch = z.infer<typeof CompanySettingsPatchSchema>;
+
+export const WalletStateSchema = z.object({
+  registered: z.boolean(),
+  accountId: z.string().nullable(),
+  handoffUrl: z.string().nullable(),
+  binding: z.object({ accountId: z.string().nullable(), status: z.enum(['none', 'pending', 'active']) }).strict(),
+  balances: z.array(z.object({ token: z.string(), amount: z.string(), source: z.enum(['wallet', 'intents', 'confidential', 'bound']) }).strict()),
+  shielded: z.boolean(),
+  error: z.string().nullable(),
+}).strict();
+export type WalletState = z.infer<typeof WalletStateSchema>;
+export const WalletBindSchema = z.object({ accountId: z.string().regex(NEAR_ACCOUNT_RE, 'not a NEAR account id') }).strict();
+export const WalletBindReplySchema = z.object({ connectUrl: z.string() }).strict();
+
+export const ListingDraftSchema = z.object({
+  name: z.string(), tagline: z.string(), description: z.string(), priceUsdc: z.number(), slaHours: z.number(), deliverables: z.array(z.string()),
+}).strict();
+export type ListingDraft = z.infer<typeof ListingDraftSchema>;
+
+export const AiUsageSummarySchema = z.object({
+  byDepartment: z.array(z.object({
+    departmentId: z.string(), todayCents: z.number(), sevenDayCents: z.number(), budgetCents: z.number().nullable(), overBudget: z.boolean(),
+  }).strict()),
+  companyTodayCents: z.number(),
+  companySevenDayAvgCents: z.number(),
+}).strict();
+export type AiUsageSummary = z.infer<typeof AiUsageSummarySchema>;
+
+export const CeoQuestSchema = z.object({ id: z.string(), title: z.string(), done: z.boolean(), hint: z.string(), unlocks: z.string().nullable() }).strict();
+export type CeoQuest = z.infer<typeof CeoQuestSchema>;
+export const DecisionSchema = z.object({
+  id: z.string(), kind: z.enum(['approval', 'owner_confirm', 'answer', 'budget']), departmentId: z.string(), title: z.string(), href: z.string(),
+}).strict();
+export type Decision = z.infer<typeof DecisionSchema>;
+export const RunwaySchema = z.object({
+  creditsRemainingCents: z.number().nullable(), dailyBurnCents: z.number(), days: z.number().nullable(), earnedCents: z.number(), estimated: z.literal(true),
+}).strict();
+export type Runway = z.infer<typeof RunwaySchema>;
+export const GameStateSchema = z.object({
+  quests: z.array(CeoQuestSchema), decisions: z.array(DecisionSchema), runway: RunwaySchema, ipoUnlocked: z.boolean(),
+}).strict();
+export type GameState = z.infer<typeof GameStateSchema>;
+
+export const IpoStateSchema = z.object({
+  daoAccountId: z.string().nullable(), tokenAccountId: z.string().nullable(), txHashes: z.array(z.string()),
+  state: z.enum(['locked', 'ready', 'done', 'error']), error: z.string().nullable(),
+}).strict();
+export type IpoState = z.infer<typeof IpoStateSchema>;

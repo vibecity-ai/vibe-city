@@ -143,7 +143,7 @@ test('inventory defaults, partial patch merge, and persistence of limits', async
   const inv0 = (await app.inject(url)).json();
   assert.deepEqual(inv0, {
     allowedSkillIds: [], allowedMcpTools: [], model: null, allowedToolsets: [], sharedContextRefs: [],
-    limits: { maxTaskRuntimeSeconds: null, maxDelegationDepth: 1 },
+    limits: { maxTaskRuntimeSeconds: null, maxDelegationDepth: 1, dailyBudgetCredits: null },
   });
   const p1 = await app.inject({ method: 'PATCH', url, payload: {
     allowedSkillIds: ['pdf', 'pdf', 'arxiv'], allowedMcpTools: ['github:create_issue'], allowedToolsets: ['file', 'file', 'kanban'],
@@ -154,7 +154,7 @@ test('inventory defaults, partial patch merge, and persistence of limits', async
   assert.deepEqual(p2.model, { provider: 'near-ai', id: 'm1' });
   assert.deepEqual(p2.allowedSkillIds, ['pdf', 'arxiv'], 'deduped, kept');
   assert.deepEqual(p2.allowedToolsets, ['file', 'kanban']);
-  assert.deepEqual(p2.limits, { maxTaskRuntimeSeconds: 600, maxDelegationDepth: 1 });
+  assert.deepEqual(p2.limits, { maxTaskRuntimeSeconds: 600, maxDelegationDepth: 1, dailyBudgetCredits: null });
   assert.deepEqual((await app.inject(url)).json(), p2);
 });
 
@@ -220,4 +220,16 @@ test('all organizational data survives a backend restart', async () => {
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM company').get() as { n: number }).n, 1);
   // new department after restart continues the floor sequence
   assert.equal((await createDept(app, { name: 'Ops' })).json.floorOrder, 4);
+});
+
+test('hackathon route modules answer with views that parse with their schemas', async () => {
+  const { app } = memApp();
+  const { AiUsageSummarySchema, CompanySettingsSchema, GameStateSchema, IpoStateSchema, TemplateListSchema, WalletStateSchema } = await import('@vibe-city/shared');
+  const cases = [['/api/templates', TemplateListSchema], ['/api/company/settings', CompanySettingsSchema], ['/api/wallet', WalletStateSchema],
+    ['/api/ai/usage', AiUsageSummarySchema], ['/api/game', GameStateSchema], ['/api/ipo', IpoStateSchema]] as const;
+  for (const [url, schema] of cases) {
+    const r = await app.inject(url);
+    assert.equal(r.statusCode, 200, `${url}: ${r.body}`);
+    schema.parse(r.json());
+  }
 });

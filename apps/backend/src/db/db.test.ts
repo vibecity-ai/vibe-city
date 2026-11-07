@@ -79,3 +79,15 @@ test('v10 turns the chief and the worker desks into agents with their own profil
   assert.ok(!cols.some((c) => /^(chief|worker)_/.test(c)));
   assert.equal((db.prepare("SELECT agent_key FROM run_reference WHERE id = 'r'").get() as { agent_key: string }).agent_key, 'W-01');
 });
+
+test('the hackathon foundation migration applies to a database at the previous version and keeps its departments', () => {
+  const path = join(tempDir(), 'h.sqlite');
+  const prev = openDb(path, MIGRATIONS.slice(0, -1));
+  prev.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'X', 't')").run();
+  prev.close();
+  const db = openDb(path);
+  assert.equal(schemaVersion(db), MIGRATIONS.length);
+  assert.ok(['company_settings', 'ai_usage', 'ipo'].every((t) => tables(db).includes(t)));
+  const cols = (db.prepare('PRAGMA table_info(department)').all() as { name: string }[]).map((c) => c.name);
+  assert.ok(cols.includes('template_id'));
+});

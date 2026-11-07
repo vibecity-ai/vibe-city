@@ -41,6 +41,12 @@ import { QuestRequestService } from './domain/questRequests.ts';
 import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
+import { register as registerTemplates } from './routes/templates.ts';
+import { register as registerCompany } from './routes/company.ts';
+import { register as registerWallet } from './routes/wallet.ts';
+import { register as registerAi } from './routes/ai.ts';
+import { register as registerGame } from './routes/game.ts';
+import { register as registerIpo } from './routes/ipo.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
@@ -59,6 +65,9 @@ export interface AppServices {
   hub: LiveHub | null;
   /** Call tick() periodically (the server does every 30 s) to fire due schedules. */
   schedules: ScheduleService;
+  db: DatabaseSync;
+  departments: DepartmentService;
+  money: MoneyService;
 }
 
 export interface ServicesExtra {
@@ -498,5 +507,9 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     });
   }
 
-  return { app, provisioning, quests: quests_, hub, schedules };
+  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money };
+  // hackathon route modules (docs/briefs): one line each
+  registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
+  registerAi(app, services); registerGame(app, services); registerIpo(app, services);
+  return services;
 }

@@ -1,0 +1,40 @@
+/* Company settings (brief 00 stub; briefs 02 and 04 add the write paths for the market token and the NEAR AI key).
+   One row in company_settings. Secrets live under `secrets` and never leave this module. */
+import type { FastifyInstance } from 'fastify';
+import type { DatabaseSync } from 'node:sqlite';
+import { CompanySettingsSchema, type CompanySettings } from '@vibe-city/shared';
+import type { AppServices } from '../app.ts';
+
+type Stored = Partial<Omit<CompanySettings, 'nearAiApiKeySet' | 'githubConnected'>> & { secrets?: Record<string, unknown> };
+
+function stored(db: DatabaseSync): Stored {
+  const r = db.prepare('SELECT settings_json FROM company_settings WHERE id = 1').get() as { settings_json: string } | undefined;
+  return r ? (JSON.parse(r.settings_json) as Stored) : {};
+}
+
+/** The settings view: never contains a secret, only whether one is set. */
+export function readSettings(db: DatabaseSync, env: NodeJS.ProcessEnv = process.env): CompanySettings {
+  const s = stored(db), secrets = s.secrets ?? {};
+  return CompanySettingsSchema.parse({
+    nearAiApiKeySet: !!(secrets.nearAiApiKey || env.NEAR_AI_API_KEY),
+    nearAiCreditsLoadedCents: s.nearAiCreditsLoadedCents ?? null,
+    outlayerWalletId: s.outlayerWalletId ?? null,
+    outlayerAccountId: s.outlayerAccountId ?? null,
+    marketAgentHandle: s.marketAgentHandle ?? null,
+    marketVerifiedAt: s.marketVerifiedAt ?? null,
+    githubConnected: !!secrets.githubToken,
+    githubLogin: s.githubLogin ?? null,
+    policyConfirmedAt: s.policyConfirmedAt ?? null,
+  });
+}
+
+/** Merge plain (non-secret) fields into the stored settings. */
+export function writeSettings(db: DatabaseSync, patch: Partial<Stored>): void {
+  const next = { ...stored(db), ...patch };
+  db.prepare('INSERT INTO company_settings (id, settings_json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET settings_json = excluded.settings_json')
+    .run(JSON.stringify(next));
+}
+
+export function register(app: FastifyInstance, deps: AppServices) {
+  app.get('/api/company/settings', async () => readSettings(deps.db));
+}

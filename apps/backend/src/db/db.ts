@@ -228,6 +228,14 @@ export const MIGRATIONS: readonly string[] = [
    UPDATE chat_message SET session_id = (SELECT c.session_id FROM agent_chat c JOIN department_agent a ON a.profile_ref = c.profile
      WHERE a.department_id = chat_message.department_id AND a.agent_key = chat_message.agent_key);
    CREATE INDEX chat_message_session_idx ON chat_message(session_id, seq);`,
+  // hackathon foundation (docs/briefs/00-foundation.md): company settings (secrets under a `secrets` key, never
+  // returned), metered model usage per department, the IPO state, and the template a department was hired from.
+  `CREATE TABLE company_settings (id INTEGER PRIMARY KEY CHECK (id = 1), settings_json TEXT NOT NULL);
+   CREATE TABLE ai_usage (id INTEGER PRIMARY KEY, department_id TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER,
+     output_tokens INTEGER, cost_nano_usd INTEGER NOT NULL, request_id TEXT, at TEXT NOT NULL);
+   CREATE INDEX ai_usage_dept_at_idx ON ai_usage(department_id, at);
+   CREATE TABLE ipo (id INTEGER PRIMARY KEY CHECK (id = 1), state_json TEXT NOT NULL);
+   ALTER TABLE department ADD COLUMN template_id TEXT;`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {
