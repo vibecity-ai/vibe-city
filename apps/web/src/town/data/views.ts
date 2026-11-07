@@ -62,7 +62,7 @@ export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoar
   const hermes = [d.hermesBoardRef && 'its board', profiles && `its ${profiles} agent profile${profiles === 1 ? '' : 's'}`].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
-    'Vibe City keeps the department record, its loadout and settings. You can still inspect it under Executive Office → Archived.',
+    'Vibe City keeps the department record, its loadout and settings.',
     hermes.length
       ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every quest, result and attachment stay there.`
       : 'It was never synced, so it has no Hermes resources.',

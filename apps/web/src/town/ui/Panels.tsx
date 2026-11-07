@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type DepartmentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
 import { floorNum, useStore, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
-  archiveDepartment, cancelQuest, createDepartment, createQuest, fireAgent, loadAgent, loadArchived, setAgentModel, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
+  archiveDepartment, cancelQuest, createDepartment, createQuest, fireAgent, loadAgent, setAgentModel, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
   checkDepartment, refreshAll, refreshOne, saveDepartmentSettings, stopCancellationPoll,
 } from '../data/live';
 import { clock } from '../data/derive';
@@ -54,14 +54,11 @@ export function TopBar() {
 
 /* ============ A · executive office ============ */
 export function ExecPanel() {
-  const { company, depts, ui, ui$, openFloor, openPanel, loaded } = useStore();
-  const archived = useStore((s) => s.archived);
+  const { company, depts, ui$, openFloor, openPanel, loaded } = useStore();
   const running = depts.reduce((n, d) => n + d.workers.filter((w) => w.status === 'running').length + (d.chief?.status === 'running' ? 1 : 0), 0);
   const attention = depts.filter((d) => d.state === 'attention' || d.state === 'offline');
   const unconf = depts.filter((d) => d.state === 'unconfigured');
   const blocked = blockedQuests(useStore((s) => s.quests));
-  const view = ui.execView;
-  useEffect(() => { if (view === 'archived') void loadArchived(); }, [view]);
   return (
     <div className="pane">
       <div className="pane-scroll">
@@ -72,12 +69,8 @@ export function ExecPanel() {
           <div className="actions"><Btn kind="secondary" onClick={() => openPanel('board', { composer: false, boardDept: null })}>Quest board</Btn>
             <Btn kind="secondary" onClick={() => openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" sw={3} />New quest</Btn>
             <Btn kind="secondary" onClick={() => void callAr()}><Icon n="phone" size={14} />Call AR</Btn></div>
-          <Tabs label="Departments" idBase="exec" value={view} onChange={(v) => ui$({ execView: v })}
-            options={[{ key: 'active', label: 'Active floors' }, { key: 'archived', label: <>Archived{archived.list && <span className="count">{archived.list.length}</span>}</> }]} />
         </section>
-        <div id="exec-panel" role="tabpanel" aria-labelledby={`exec-tab-${view}`}>
-          {view === 'active' && (
-            <>
+        <div>
               <PendingRequests />
               <section className="pane-sec">
                 <h3 className="sec-t">Company status</h3>
@@ -130,41 +123,10 @@ export function ExecPanel() {
                   })}
                 </div>
               </section>
-            </>
-          )}
-          {view === 'archived' && <ArchivedList />}
         </div>
       </div>
-      {view === 'active' && <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ newDept: true })}><Icon n="plus" sw={3} />Add department</button></div>}
+      <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ newDept: true })}><Icon n="plus" sw={3} />Add department</button></div>
     </div>
-  );
-}
-
-function ArchivedList() {
-  const { list, error, loading } = useStore((s) => s.archived);
-  return (
-    <section className="pane-sec" aria-busy={loading}>
-      <p className="fine">Archived departments are read-only. Archiving deleted nothing in Hermes: their boards, profiles and results are still there. There is no restore in this version.</p>
-      {error && <div className="banner bad" role="alert"><Glyph k="failed" /><div><b>Could not load archived departments</b><p>{error}{list ? ' Showing the last list received.' : ''}</p><Btn kind="destructive" onClick={() => void loadArchived()}>Retry</Btn></div></div>}
-      {loading && !list && <p className="muted">Loading…</p>}
-      {list && list.length === 0 && <p className="muted">No archived departments.</p>}
-      <div className="stack">{list?.map((d) => <ArchivedCard key={d.id} d={d} />)}</div>
-    </section>
-  );
-}
-
-function ArchivedCard({ d }: { d: DepartmentView }) {
-  return (
-    <details className="kv-card arch">
-      <summary><Glyph k="disconnected" /><b>{d.name}</b><span className="muted small">archived {formatTime(d.archivedAt)}</span></summary>
-      <KV rows={[
-        ['Purpose', d.purpose || '—'],
-        ['Created', formatTime(d.createdAt)],
-        ['State when archived', PROVISIONING_STATE_LABEL[d.state]],
-        ['Hermes board', d.hermesBoardRef ? 'Kept in Hermes' : 'Never created'],
-        ['Agent profiles', d.agents.some((a) => a.profileRef) ? `${d.agents.filter((a) => a.profileRef).length} kept in Hermes` : 'None'],
-      ]} />
-    </details>
   );
 }
 

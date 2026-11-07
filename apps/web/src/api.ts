@@ -83,8 +83,7 @@ const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURICompone
 
 export const api = {
   company: (): Promise<CompanyView> => request('GET', '/api/company', CompanyViewSchema),
-  departments: async (opts: { includeArchived?: boolean } = {}): Promise<DepartmentView[]> =>
-    (await request('GET', `/api/departments${opts.includeArchived ? '?includeArchived=true' : ''}`, DepartmentListSchema)).departments,
+  departments: async (): Promise<DepartmentView[]> => (await request('GET', '/api/departments', DepartmentListSchema)).departments,
   department: (dept: string): Promise<DepartmentView> => request('GET', d(dept), DepartmentViewSchema),
   createDepartment: (input: Partial<DepartmentCreate> & { name: string }): Promise<DepartmentView> => request('POST', '/api/departments', DepartmentViewSchema, input),
   updateDepartment: (dept: string, input: DepartmentUpdate): Promise<DepartmentView> => request('PATCH', d(dept), DepartmentViewSchema, input),

@@ -468,8 +468,6 @@ fieldset.plain { border: 0; padding: 0; margin: 8px 0 0; display: flex; flex-dir
 .sync-list li { display: flex; align-items: center; gap: 8px; }
 .danger { border-top: 2px dashed rgba(255,92,122,.4); }
 .conseq { margin: 6px 0 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-dim); }
-details.arch summary { display: flex; gap: 10px; align-items: center; cursor: pointer; flex-wrap: wrap; }
-details.arch[open] summary { margin-bottom: 6px; }
 .tasks { list-style: none; padding: 0; margin: 0; }
 .trow-w { list-style: none; }
 .trow-w .trow { width: 100%; color: inherit; font: inherit; text-align: left; border: 0; cursor: pointer; flex-wrap: wrap; }

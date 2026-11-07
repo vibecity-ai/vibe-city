@@ -306,16 +306,6 @@ export async function loadAgent(deptId: string, agentKey: string) {
   }
 }
 
-export async function loadArchived() {
-  useStore.setState((s) => ({ archived: { ...s.archived, loading: true, error: null } }));
-  try {
-    const list = (await api.departments({ includeArchived: true })).filter((d) => d.archivedAt);
-    useStore.setState({ archived: { list, loading: false, error: null } });
-  } catch (e) {
-    useStore.setState((s) => ({ archived: { ...s.archived, loading: false, error: message(e) } }));
-  }
-}
-
 /* ---------- actions ---------- */
 
 function setBusy(key: string, on: boolean) {
@@ -383,20 +373,13 @@ export async function archiveDepartment(id: string): Promise<ApiError | null> {
   if (st().ui.floorId === id) st().closeFloor();
   st().ui$({ modal: null });
   await refreshAll(); // removes the floor, closes its socket, timers and polls (forgetGone/syncSockets)
-  if (st().archived.list) void loadArchived();
   st().toast(archivedNotice(value.department.name, value.hermesResourcesRetained), value.hermesResourcesRetained ? 'warn' : 'good');
   return null;
 }
 
-export interface ProvisionOptions { leadProfileRef?: string | null; confirmModifyProfiles?: string[] }
-
-/** Sync with Hermes. It runs synchronously on the backend (it can take a while: profile creation). Existing profiles need explicit consent. */
-export async function provisionDepartment(id: string, opts: ProvisionOptions = {}) {
-  const status = await run(`provision:${id}`, 'Sync failed', async () => {
-    if (opts.leadProfileRef !== undefined) await api.updateDepartment(id, { leadProfileRef: opts.leadProfileRef });
-    if (opts.confirmModifyProfiles?.length) await api.updateDepartment(id, { confirmModifyProfiles: opts.confirmModifyProfiles });
-    return api.provision(id);
-  });
+/** Sync with Hermes. It runs synchronously on the backend (it can take a while: profile creation). */
+export async function provisionDepartment(id: string) {
+  const status = await run(`provision:${id}`, 'Sync failed', () => api.provision(id));
   await refreshOne(id);
   if (!status) return;
   if (status.state === 'ready') st().toast(status.agents.length > 1 ? `Floor is ready. All ${status.agents.length} agent profiles are verified.` : 'Floor is ready. The lead\'s profile is verified.');
