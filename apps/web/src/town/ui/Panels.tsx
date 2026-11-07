@@ -23,7 +23,8 @@ import { PendingRequests } from './Requests';
 import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, NeedsInput, PersonaLine, TaskSteps } from './AgentView';
 import { SchedulesView } from './Schedules';
 import { HireGrid, type HireTemplate } from './HirePanel';
-import { QuestLog } from './QuestLog';
+import { CurrentQuestCard } from './QuestLog';
+import { progressLabel } from '../data/game';
 import { DecisionsList } from './DecisionsList';
 import { RunwayCard } from './RunwayCard';
 
@@ -35,6 +36,8 @@ export function TopBar() {
   const stale = useStore((s) => s.stale);
   const attn = useStore((s) => attentionCount(s.quests));
   const onBoard = useStore((s) => s.ui.panel === 'board');
+  const game = useStore((s) => s.game);
+  const questLogOpen = useStore((s) => s.ui.questLog);
   const openPanel = useStore((s) => s.openPanel);
   const closeFloor = useStore((s) => s.closeFloor);
   const pill = (ok: boolean, label: string) => (
@@ -45,8 +48,11 @@ export function TopBar() {
     <header className="top">
       <div className="logo"><span className="wordmark" data-t="VIBE CITY">VIBE CITY</span><span className="tag-line">Build your AI empire</span></div>
       <button className="plate" title="Back to the tower" onClick={closeFloor}>{company?.name ?? '…'}</button>
-      <button className="btn secondary qb-btn" aria-pressed={onBoard} aria-label={`Quest board${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
-        <span className="qb-long" aria-hidden="true">Quest board</span><span className="qb-short" aria-hidden="true">Quests</span>{attn > 0 && <span className="count bad" title="Quests that need attention" aria-hidden="true">{attn}</span>}
+      {game && <button className="btn secondary ql-btn" aria-pressed={questLogOpen} aria-label={`Quest log: ${progressLabel(game)}`} onClick={() => useStore.getState().ui$({ questLog: true })}>
+        <span className="qb-long" aria-hidden="true">Quests</span><span className="ql-btn-n" aria-hidden="true">{game.quests.filter((q) => q.done).length}/{game.quests.length}</span>
+      </button>}
+      <button className="btn secondary qb-btn" aria-pressed={onBoard} aria-label={`Ops board: your agents' quests${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
+        <span className="qb-long" aria-hidden="true">Ops board</span><span className="qb-short" aria-hidden="true">Ops</span>{attn > 0 && <span className="count bad" title="Quests that need attention" aria-hidden="true">{attn}</span>}
       </button>
       <span className="grow" />
       {stale && <span className="demo" title="The last refresh failed; floors show the last data received"><span>Out of date</span></span>}
@@ -70,12 +76,12 @@ export function ExecPanel() {
           <Where n="PH" tone="gold">Executive office</Where>
           <h1 className="display" tabIndex={-1}>{company?.name ?? 'Your company'}</h1>
           <p className="sub">{loaded ? 'Everything below is read from Hermes through the Vibe City backend.' : 'Connecting to the backend…'}</p>
-          <div className="actions"><Btn kind="secondary" onClick={() => openPanel('board', { composer: false, boardDept: null })}>Quest board</Btn>
+          <div className="actions"><Btn kind="secondary" onClick={() => openPanel('board', { composer: false, boardDept: null })}>Ops board</Btn>
             <Btn kind="secondary" onClick={() => openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" sw={3} />New quest</Btn>
             <Btn kind="secondary" onClick={() => ui$({ newDept: true })}><Icon n="phone" size={14} />Chief of Staff</Btn></div>
         </section>
         <div>
-              <QuestLog />
+              <CurrentQuestCard />
               <DecisionsList />
               <RunwayCard />
               <PendingRequests />
@@ -224,10 +230,10 @@ export function DeptPanel() {
           {tab === 'loadout' && <DeptLoadout d={d} />}
           {tab === 'quests' && (
             <section className="pane-sec">
-              <p className="fine">You give and manage quests on the company quest board. This department’s own Hermes board belongs to its agents; this list is read-only.</p>
+              <p className="fine">You give and manage quests on the company Ops board. This department’s own Hermes board belongs to its agents; this list is read-only.</p>
               {s.questSync[d.id] === 'not_loaded' && <p className="field-err"><Glyph k="disconnected" />Quests for this department are not loaded yet, so this list is incomplete.</p>}
               <div className="stack">{quests.map((q) => <QuestMini key={q.summary.id} q={q} />)}{quests.length === 0 && s.questSync[d.id] !== 'not_loaded' && <p className="muted">No quests yet.</p>}</div>
-              <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Open on the quest board</Btn>
+              <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Open on the Ops board</Btn>
             </section>
           )}
         </div>
@@ -759,11 +765,11 @@ export function QuestBoard() {
         <section className="qb-head">
           <div className="qb-title">
             <Where n="PH" tone="gold">Company</Where>
-            <h1 className="display" tabIndex={-1}>Quest board</h1>
+            <h1 className="display" tabIndex={-1}>Ops board</h1>
             <p className="sync" aria-live="polite"><Icon n="refresh" size={12} />{withBoards.length === 0
               ? 'No department has a Hermes board yet. Sync a department to give it quests.'
               : `Read from ${withBoards.length} Hermes board${withBoards.length === 1 ? '' : 's'}`}</p>
-            <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={leave} aria-label="Close quest board"><Icon n="x" /></button></div>
+            <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={leave} aria-label="Close the Ops board"><Icon n="x" /></button></div>
           </div>
           <div className="qb-tools" role="toolbar" aria-label="Filter, search and sort quests">
             <div className="qb-dept"><PixelSelect value={dept ?? ''} onChange={(v) => s.ui$({ boardDept: v || null })} aria-describedby={undefined}
@@ -903,7 +909,7 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
             ? <button className="link" onClick={() => s.ui$({ boardQuest: null })}><Icon n="x" size={14} />Close</button>
             : s.ui.questFrom === 'dept' && s.ui.floorId
             ? <button className="link" onClick={() => s.openPanel('dept')}><Icon n="back" size={14} />{s.depts.find((x) => x.id === s.ui.floorId)?.name ?? 'Department'}</button>
-            : <button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Quest board</button>}</div>
+            : <button className="link" onClick={() => s.openPanel('board')}><Icon n="back" size={14} />Ops board</button>}</div>
           <div className="title-row"><h1 className="display sm" tabIndex={-1}>{sum.title}</h1><Chip k={questStatus(sum.status)} label={STATUS[sum.status].label} /></div>
           <p className="meta"><span className="meta-f"><FloorKey n={'F' + floorNum(s.depts, item.deptId)} />{d?.name}</span><span>Lead <b className="gold-n">{d?.chief ? <AgentName deptId={d.id} agentKey="chief" /> : '—'}</b></span><span className="mono">{formatTime(sum.createdAt)}{sum.completedAt ? ` → ${formatTime(sum.completedAt)}` : ''}</span></p>
           <p className="fine">{STATUS[sum.status].hint}</p>

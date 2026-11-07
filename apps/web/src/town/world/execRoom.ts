@@ -12,7 +12,7 @@ export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calend
 export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number, number, number, number, number] }[] = [
   { id: 'phone', label: 'Phone', b: [15, 119, 13, 9, 7, 6] },
   { id: 'desk', label: 'Your desk', b: [13, 117, 0, 38, 16, 26] },
-  { id: 'trophy', label: 'Trophy shelf', b: [0, 118, 0, 8, 20, 46] },
+  { id: 'trophy', label: 'Quest log', b: [0, 118, 0, 8, 20, 46] },
   { id: 'safe', label: 'Safe', b: [0, 70, 0, 16, 18, 20] },
   { id: 'calendar', label: 'Calendar', b: [-1, 76, 21, 2, 15, 19] },
   { id: 'ar', label: 'Hiring office', b: [-1, 56, 0, 2, 18, 42] },

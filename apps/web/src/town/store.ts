@@ -68,6 +68,8 @@ interface UI {
   execRoom: boolean; execModal: 'org' | 'safe' | 'calendar' | null;
   /** Calendar opened from a floor: show only that floor's schedules. */
   scheduleDept: string | null;
+  /** The CEO quest log window (brief 05). */
+  questLog: boolean;
 }
 
 export interface State {
@@ -132,7 +134,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, origins: {}, schedules: [], personas: {},

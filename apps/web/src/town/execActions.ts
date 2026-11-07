@@ -9,7 +9,7 @@ export function execAction(id: ExecObjectId) {
   switch (id) {
     case 'desk': s.openPanel('board', { composer: true, composerDept: null, boardDept: null, boardQuest: null }); break;
     case 'table': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
-    case 'trophy': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'finished', boardQuest: null }); break;
+    case 'trophy': s.ui$({ questLog: true }); break;
     case 'org': case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
     case 'assistant': s.ui$({ newDept: true }); break;
     case 'phone': {

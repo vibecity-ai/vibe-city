@@ -8,6 +8,7 @@ import { HiringLayer } from './ui/Hiring';
 import { NewDeptWindow } from './ui/NewDept';
 import { RequestsPoll } from './ui/Requests';
 import { ExecRoomModal } from './ui/ExecRoom';
+import { QuestLogWindow } from './ui/QuestLog';
 import { TopBar, ExecPanel, DeptPanel, SettingsSheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
@@ -70,6 +71,7 @@ export default function App() {
       <NewDeptWindow />
       <RequestsPoll />
       <ExecRoomModal />
+      <QuestLogWindow />
     </div>
   );
 }

@@ -29,3 +29,13 @@ test('a decision href leads to its quest, the floor settings or a chat', () => {
   assert.deepEqual(decisionTarget('chat/d1/chief'), { kind: 'chat', deptId: 'd1', agentKey: 'chief' });
   assert.equal(decisionTarget('nonsense'), null);
 });
+
+test('the quest log groups quests into three acts in order, and counts progress', async () => {
+  const { acts, progressLabel } = await import('./game.ts');
+  const g = { ...fixture, quests: [...fixture.quests, { id: 'ipo', title: 'IPO', done: false, hint: '', unlocks: 'IPO button' }, { id: 'new-quest', title: 'New', done: false, hint: '', unlocks: null }] };
+  const a = acts(g);
+  assert.deepEqual(a.map((x) => x.title), ['Set up the company', 'Earn', 'Go public']);
+  assert.deepEqual(a[0]!.quests.map((q) => q.id), ['connect-ai', 'connect-github', 'treasury', 'hire', 'new-quest']);
+  assert.deepEqual(a[2]!.quests.map((q) => q.id), ['ipo']);
+  assert.equal(progressLabel(g), '2 of 6 done');
+});
