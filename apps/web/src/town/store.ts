@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { GameState } from '@vibe-city/shared';
 import type {
   HiringRequestView, QuestOrigin, QuestRequestView, Schedule, Character,
   ActivityEvent, AgentView, CancellationStatus, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
@@ -99,6 +100,8 @@ export interface State {
   schedules: Schedule[];
   /** Personas of agent seats, keyed `<deptId>:<agentKey>` (loaded when a floor opens). */
   personas: Record<string, Character>;
+  /** The game loop (brief 05): CEO quests, decisions, runway. Null until first read. */
+  game: GameState | null;
   origins: Record<string, QuestOrigin>;
   hiring$: (h: HiringRequestView | null) => void;
   toasts: Toast[];
@@ -132,7 +135,7 @@ export const useStore = create<State>((set) => ({
   ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null },
   toasts: [], fx: [], log: [],
   hiring: null,
-  requests: [], origins: {}, schedules: [], personas: {},
+  requests: [], game: null, origins: {}, schedules: [], personas: {},
   hiring$: (h) => set({ hiring: h }),
 
   ui$: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),

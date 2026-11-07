@@ -23,6 +23,9 @@ import { PendingRequests } from './Requests';
 import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, NeedsInput, PersonaLine, TaskSteps } from './AgentView';
 import { SchedulesView } from './Schedules';
 import { HireGrid, type HireTemplate } from './HirePanel';
+import { QuestLog } from './QuestLog';
+import { DecisionsList } from './DecisionsList';
+import { RunwayCard } from './RunwayCard';
 
 
 /* ============ top bar ============ */
@@ -72,6 +75,9 @@ export function ExecPanel() {
             <Btn kind="secondary" onClick={() => void callAr()}><Icon n="phone" size={14} />Call AR</Btn></div>
         </section>
         <div>
+              <QuestLog />
+              <DecisionsList />
+              <RunwayCard />
               <PendingRequests />
               <section className="pane-sec">
                 <h3 className="sec-t">Company status</h3>
@@ -1134,7 +1140,7 @@ export function CreateDeptModal() {
         onSubmit={(e) => { e.preventDefault(); if (step < 2) { if (name.trim()) go(step + 1); } else submit(); }}>
         <div className="head-row"><Where n={'F' + next} tone="amber">New floor</Where><button type="button" className="x" onClick={() => s.ui$({ modal: null })} aria-label="Close"><Icon n="x" /></button></div>
         <h2 id="cd-t" className="display">{picking ? 'Hire a department' : tpl ? `Hire the ${tpl.name}` : 'Create a department'}</h2>
-        {picking && <HireGrid onPick={pick} onBlank={() => pick(null)} onAssistant={() => s.ui$({ modal: null, newDept: true })} />}
+        {picking && <HireGrid onPick={pick} onBlank={() => pick(null)} onAssistant={() => s.ui$({ modal: null, newDept: true })} questTitle={(id) => s.game?.quests.find((q) => q.id === id)?.title ?? null} />}
         {!picking && <>
         <ol className="wiz-steps" aria-label="Steps">
           {WIZARD_STEPS.map((t, i) => <li key={t} className={i === step ? 'on' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}><span className="num">{i + 1}</span>{t}</li>)}

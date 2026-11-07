@@ -7,7 +7,7 @@ import { Icon } from './kit';
 
 export type HireTemplate = TemplateList[number];
 
-/** "Locked until <quest>": the game loop (brief 05) names the quest; until then the quest id is shown. */
+/** "Unlocks after <quest>": the game loop (brief 05) names the quest; until then the quest id is shown. */
 export function HireGrid({ onPick, onBlank, onAssistant, questTitle }: {
   onPick: (t: HireTemplate) => void; onBlank: () => void; onAssistant: () => void; questTitle?: (id: string) => string | null;
 }) {
@@ -27,7 +27,7 @@ export function HireGrid({ onPick, onBlank, onAssistant, questTitle }: {
               <li key={t.id}>
                 <button type="button" className={`tpl-card${t.locked ? ' locked' : ''}`} disabled={t.locked} onClick={() => onPick(t)} aria-describedby={`tpl-${t.id}`}>
                   <span className="tpl-top"><b>{t.name}</b>
-                    {t.locked ? <span className="tpl-lock"><Icon n="lock" size={12} />Locked until {quest}</span> : t.wallet === 'company' && <span className="tpl-chip" title="Spends from the shared company wallet">Wallet</span>}</span>
+                    {t.locked ? <span className="tpl-lock"><Icon n="lock" size={12} />Unlocks after {quest}</span> : t.wallet === 'company' && <span className="tpl-chip" title="Spends from the shared company wallet">Wallet</span>}</span>
                   <span id={`tpl-${t.id}`} className="tpl-seats">{t.seats.map((s) => s.title).join(' · ')}</span>
                   <span className="tpl-row"><i>Tools</i>{t.inventory.allowedToolsets.join(', ')}</span>
                   <span className="tpl-row"><i>Budget</i>{t.dailyBudgetCredits} credits a day{t.loop ? ' · runs on a schedule' : ''}</span>

@@ -17,7 +17,7 @@ import {
   MoneySettingsSchema, MoneyViewSchema, type MoneySettings, type MoneyView,
   TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
-import { TemplateListSchema, type TemplateList } from '@vibe-city/shared';
+import { AiUsageSummarySchema, GameStateSchema, TemplateListSchema, type AiUsageSummary, type GameState, type TemplateList } from '@vibe-city/shared';
 import type { z } from 'zod';
 
 export interface FieldIssue { path: string; message: string }
@@ -122,6 +122,9 @@ export const api = {
   chatHistory: (dept: string, agentKey: string, session?: string): Promise<ChatHistory> =>
     request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat${session ? `?session=${encodeURIComponent(session)}` : ''}`, ChatHistorySchema),
   templates: (): Promise<TemplateList> => request('GET', '/api/templates', TemplateListSchema),
+  game: (): Promise<GameState> => request('GET', '/api/game', GameStateSchema),
+  aiUsage: (): Promise<AiUsageSummary> => request('GET', '/api/ai/usage', AiUsageSummarySchema),
+  confirmPolicy: (): Promise<GameState> => request('POST', '/api/game/confirm-policy', GameStateSchema),
   money: (fresh = false): Promise<MoneyView> => request('GET', `/api/money${fresh ? '?fresh=1' : ''}`, MoneyViewSchema),
   setMoneySettings: (patch: Partial<MoneySettings>): Promise<MoneySettings> => request('PATCH', '/api/money/settings', MoneySettingsSchema, patch),
   linkWallet: (accountId: string): Promise<MoneyView> => request('POST', '/api/money/wallets', MoneyViewSchema, { accountId }),

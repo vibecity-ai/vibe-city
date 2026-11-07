@@ -216,8 +216,9 @@ function fail(e: unknown) {
 export async function refreshAll() {
   const t = gate.begin('all');
   try {
-    const [health, company, depts] = await Promise.all([api.health().catch(() => null), api.company(), api.departments()]);
+    const [health, company, depts, game] = await Promise.all([api.health().catch(() => null), api.company(), api.departments(), api.game().catch(() => null)]);
     if (!gate.current('all', t)) return;
+    if (game) useStore.setState({ game });
     raw.health = health; raw.companyName = company.name; raw.depts = depts;
     forgetGone();
     await Promise.all(depts.filter((d) => !d.archivedAt).map(async (v) => { await loadLocal(v); await loadQuests(v); }));

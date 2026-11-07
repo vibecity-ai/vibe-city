@@ -46,5 +46,17 @@ test('hiring the Trading Desk creates four agents and one disabled schedule; the
   assert.equal((await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'X', template: 'nope' } })).statusCode, 400);
   const list = (await app.inject('/api/templates')).json();
   assert.equal(list.length, 6);
-  assert.equal(list.find((t: any) => t.id === 'trading-desk').unlocks, 'treasury');
+  // without NEAR AI connected, hiring is off: every card points at that quest first
+  const saved = process.env.NEAR_AI_API_KEY;
+  delete process.env.NEAR_AI_API_KEY;
+  try {
+    const { app: fresh } = memApp();
+    const off = (await fresh.inject('/api/templates')).json();
+    assert.ok(off.every((t: any) => t.locked && t.unlocks === 'connect-ai'));
+    process.env.NEAR_AI_API_KEY = 'test-key';
+    const { app: on } = memApp();
+    const tl = (await on.inject('/api/templates')).json();
+    assert.equal(tl.find((t: any) => t.id === 'trading-desk').unlocks, 'treasury');
+    assert.equal(tl.find((t: any) => t.id === 'trading-desk').locked, true);
+  } finally { if (saved === undefined) delete process.env.NEAR_AI_API_KEY; else process.env.NEAR_AI_API_KEY = saved; }
 });
