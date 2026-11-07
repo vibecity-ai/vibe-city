@@ -66,6 +66,10 @@ export class KanbanClient implements KanbanApi {
     await this.http.json('POST', this.p(`/tasks/${encodeURIComponent(id)}/comments${q(board)}`), { body: { author, body } });
   }
 
+  async unblockTask(board: string, id: string): Promise<void> {
+    await this.http.json('PATCH', this.p(`/tasks/${encodeURIComponent(id)}${q(board)}`), { body: { status: 'ready' } });
+  }
+
   downloadAttachment(board: string, attachmentId: number): Promise<Response> {
     return this.http.raw('GET', this.p(`/attachments/${attachmentId}${q(board)}`), { timeoutMs: 60_000 });
   }

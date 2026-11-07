@@ -10,6 +10,7 @@
 import type {
   CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ModelChoice, ProvisioningStatus, QuestDetail, QuestSummary, SyncCheck,
 } from '@vibe-city/shared';
+import { KANBAN_EVENT_LABELS, KANBAN_EVENT_NOISE } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
 import { clock, deriveDept, isLiveQuest } from './derive.ts';
@@ -170,9 +171,10 @@ function forgetGone() {
 }
 
 function pushLog(deptId: string, taskId: string, kind: string, at: string) {
+  if (KANBAN_EVENT_NOISE.includes(kind)) return; // heartbeats and worker bookkeeping
   const title = raw.live[deptId]?.flatMap((q) => q.tasks).find((t) => t.id === taskId)?.title ?? taskId;
   const k = /fail|block|crash|timed/i.test(kind) ? 'failed' : /complet|done/i.test(kind) ? 'completed' : /start|claim|spawn|run|promot/i.test(kind) ? 'running' : 'idle';
-  const line: LogLine = { t: clock(at), dept: deptId, kind: k, text: `${title} · ${kind.replace(/_/g, ' ')}`, taskId };
+  const line: LogLine = { t: clock(at), dept: deptId, kind: k, text: `${title} · ${(KANBAN_EVENT_LABELS[kind] ?? kind.replace(/_/g, ' ')).toLowerCase()}`, taskId };
   useStore.setState((s) => ({ log: [line, ...s.log].slice(0, 80) }));
 }
 
@@ -304,16 +306,6 @@ export async function loadAgent(deptId: string, agentKey: string) {
   }
 }
 
-export async function loadArchived() {
-  useStore.setState((s) => ({ archived: { ...s.archived, loading: true, error: null } }));
-  try {
-    const list = (await api.departments({ includeArchived: true })).filter((d) => d.archivedAt);
-    useStore.setState({ archived: { list, loading: false, error: null } });
-  } catch (e) {
-    useStore.setState((s) => ({ archived: { ...s.archived, loading: false, error: message(e) } }));
-  }
-}
-
 /* ---------- actions ---------- */
 
 function setBusy(key: string, on: boolean) {
@@ -381,20 +373,13 @@ export async function archiveDepartment(id: string): Promise<ApiError | null> {
   if (st().ui.floorId === id) st().closeFloor();
   st().ui$({ modal: null });
   await refreshAll(); // removes the floor, closes its socket, timers and polls (forgetGone/syncSockets)
-  if (st().archived.list) void loadArchived();
   st().toast(archivedNotice(value.department.name, value.hermesResourcesRetained), value.hermesResourcesRetained ? 'warn' : 'good');
   return null;
 }
 
-export interface ProvisionOptions { leadProfileRef?: string | null; confirmModifyProfiles?: string[] }
-
-/** Sync with Hermes. It runs synchronously on the backend (it can take a while: profile creation). Existing profiles need explicit consent. */
-export async function provisionDepartment(id: string, opts: ProvisionOptions = {}) {
-  const status = await run(`provision:${id}`, 'Sync failed', async () => {
-    if (opts.leadProfileRef !== undefined) await api.updateDepartment(id, { leadProfileRef: opts.leadProfileRef });
-    if (opts.confirmModifyProfiles?.length) await api.updateDepartment(id, { confirmModifyProfiles: opts.confirmModifyProfiles });
-    return api.provision(id);
-  });
+/** Sync with Hermes. It runs synchronously on the backend (it can take a while: profile creation). */
+export async function provisionDepartment(id: string) {
+  const status = await run(`provision:${id}`, 'Sync failed', () => api.provision(id));
   await refreshOne(id);
   if (!status) return;
   if (status.state === 'ready') st().toast(status.agents.length > 1 ? `Floor is ready. All ${status.agents.length} agent profiles are verified.` : 'Floor is ready. The lead\'s profile is verified.');
@@ -420,6 +405,15 @@ export async function cancelQuest(deptId: string, questId: string) {
   if (out.state === 'confirmed') st().toast('Quest cancelled. Hermes confirms nothing is running.', 'good');
   else { st().toast('Cancellation requested. Waiting for Hermes to confirm every task stopped.', 'warn'); pollCancellation(deptId, questId); }
   await refreshDept(deptId);
+}
+
+/** Answers a blocked task (posted on the task as the boss's comment) and resumes it. */
+export async function answerTask(deptId: string, questId: string, taskId: string, message: string): Promise<boolean> {
+  const out = await run(`answer:${taskId}`, 'Could not send your answer', () => api.answerTask(deptId, questId, taskId, message));
+  if (!out) return false;
+  st().toast('Answer sent. The task is back in the queue.', 'good');
+  await Promise.all([loadQuest(deptId, questId, true), refreshDept(deptId)]);
+  return true;
 }
 
 export function stopCancellationPoll(questId: string) { polls.get(questId)?.stop(); }

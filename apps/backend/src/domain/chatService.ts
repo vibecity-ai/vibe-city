@@ -1,8 +1,9 @@
 /* Dialogue-window chat with one agent: the CEO talks to the agent's own Hermes profile (its model, tools, skills,
-   memory and SOUL.md) through the gateway API server, in one Hermes session per profile that holds the conversation.
-   Vibe City adds only the persona and the dialogue conventions, as an ephemeral system message, and keeps its own copy
-   of the transcript for the window. For bigger work the agent can still propose a quest; the user's Accept creates it
-   through the quest API. */
+   memory and SOUL.md) through the gateway API server. Each chat is one Hermes session of the profile; the window opens on
+   the last one used, and any earlier chat can be reopened and continued.
+   Vibe City adds the persona, a snapshot of the department's board and the dialogue conventions, as an ephemeral system
+   message, and keeps its own copy of the transcript for the window. Chat only talks (provisioning leaves it no tools that
+   act): work is proposed as a quest, and the user's Accept creates it through the quest API. */
 import type { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
@@ -10,8 +11,9 @@ import {
   type Character, type ChatHistory, type ChatMessage, type ChatReply, type ChatSend, type Mood,
 } from '@vibe-city/shared';
 import { ModelUnavailableError } from '../model/chatModel.ts';
-import { HermesAuthError, type HermesRuntime } from '../hermes/ports.ts';
+import { HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime } from '../hermes/ports.ts';
 import type { AgentChat, AgentChatEvent } from '../hermes/agentChat.ts';
+import type { KanbanApi, RawTask } from '../hermes/kanbanApi.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { CharacterService } from './characters.ts';
 import { ConflictError } from './errors.ts';
@@ -25,12 +27,15 @@ export interface ChatDeps {
   /** Extra variables every agent profile needs in its .env to answer through the gateway (its model provider's key). */
   agentEnv?: Record<string, string>;
   hermes: HermesRuntime;
+  /** Reads the department's board for the chat's snapshot. Omit: the agent is told the board cannot be read. */
+  kanban?: KanbanApi;
   companyName: () => string;
 }
 
 interface ChatCreds { profile: string; api_key: string; session_id: string }
 
 const newKey = () => randomBytes(24).toString('hex');
+const newSession = () => `vibecity-ceo-${randomBytes(4).toString('hex')}`;
 
 export class ChatService {
   private d: ChatDeps;
@@ -45,8 +50,35 @@ export class ChatService {
     return this.d.characters.get(departmentId, dept.name, agentKey);
   }
 
-  history(departmentId: string, agentKey: string): ChatHistory {
-    return { character: this.character(departmentId, agentKey), messages: this.load(departmentId, agentKey, 200), modelReady: this.profileOf(departmentId, agentKey) !== null };
+  /**
+   * One chat: `session` (a Hermes session id), or 'new' for a fresh one, or omitted for the last one used. Messages come
+   * from Vibe City's copy; a chat it has no copy of (started before it kept one, or outside it) is read from Hermes.
+   */
+  async history(departmentId: string, agentKey: string, session?: string): Promise<ChatHistory> {
+    const character = this.character(departmentId, agentKey);
+    const profile = this.profileOf(departmentId, agentKey);
+    const sessionId = session === 'new' ? newSession() : session ?? (profile && this.currentSession(profile)) ?? newSession();
+    let messages = session === 'new' ? [] : this.load(departmentId, agentKey, sessionId, 200);
+    if (!messages.length && session && session !== 'new' && profile) messages = await this.fromHermes(profile, sessionId);
+    return { character, sessionId, messages, modelReady: profile !== null };
+  }
+
+  private currentSession(profile: string): string | null {
+    return (this.d.db.prepare('SELECT session_id FROM agent_chat WHERE profile = ?').get(profile) as { session_id: string } | undefined)?.session_id ?? null;
+  }
+
+  private async fromHermes(profile: string, sessionId: string): Promise<ChatMessage[]> {
+    try {
+      const said = (await this.d.hermes.sessionMessages(profile, sessionId, 500)).filter((m) => m.role !== 'tool' && m.content.trim());
+      return said.slice(-200).map((m, i) => ChatMessageSchema.parse({
+        id: `${sessionId}:${i}`, from: m.role === 'user' ? 'user' : 'agent', at: m.at ?? new Date(0).toISOString(),
+        ...(m.role === 'user' ? { text: m.content.slice(0, 4000), mood: null, replies: [], proposal: null } : parseAgentReply(m.content)),
+      }));
+    } catch (e) {
+      // Not found or Hermes away: the chat shows empty and can still be continued.
+      if (e instanceof HermesRejectedError || e instanceof HermesUnavailableError || e instanceof HermesAuthError) return [];
+      throw e;
+    }
   }
 
   /** The agent's Hermes profile, once provisioning has created it; null when chat cannot reach the agent. */
@@ -64,77 +96,110 @@ export class ChatService {
     this.busy.add(profile);
     try {
       const ch = this.character(departmentId, agentKey);
-      const system = this.systemMessage(departmentId, ch, input.taskTitle);
-      let creds = await this.creds(profile);
+      const system = await this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask);
+      let creds = await this.creds(profile, input.sessionId);
+      // Hermes titles are unique per profile: the session suffix lets two chats open with the same line.
+      const turn = (c: ChatCreds) => this.d.agentChat!.turn({ profile, key: c.api_key, sessionId: c.session_id, title: `${input.message.slice(0, 50)} · ${c.session_id.slice(-8)}`, message: input.message, system }, onEvent);
       let raw: string;
       try {
-        raw = await this.d.agentChat.turn({ profile, key: creds.api_key, sessionId: creds.session_id, message: input.message, system }, onEvent);
+        raw = await turn(creds);
       } catch (e) {
         // The profile's .env lost or changed the key (re-created profile, manual edit): set a fresh one and retry once.
         if (!(e instanceof HermesAuthError)) throw e;
-        creds = await this.creds(profile, true);
-        raw = await this.d.agentChat.turn({ profile, key: creds.api_key, sessionId: creds.session_id, message: input.message, system }, onEvent);
+        creds = await this.creds(profile, input.sessionId, true);
+        raw = await turn(creds);
       }
       const at = new Date().toISOString();
       const user = ChatMessageSchema.parse({ id: randomUUID(), from: 'user', text: input.message, mood: null, replies: [], proposal: null, at });
       const agent = ChatMessageSchema.parse({ id: randomUUID(), from: 'agent', ...parseAgentReply(raw), at: new Date().toISOString() });
-      this.store(departmentId, agentKey, user);
-      this.store(departmentId, agentKey, agent);
+      this.store(departmentId, agentKey, creds.session_id, user);
+      this.store(departmentId, agentKey, creds.session_id, agent);
       return { user, agent };
     } finally {
       this.busy.delete(profile);
     }
   }
 
-  /** The profile's API key and session, set up on first chat (or with a new key when `rotate`). The key and the
-      provider credentials are written to the profile's .env on first use in this process. */
-  private async creds(profile: string, rotate = false): Promise<ChatCreds> {
+  /** The profile's API key (set up on first chat, or fresh when `rotate`) and the chat to talk in, which becomes the
+      one the window opens on next. The key and the provider credentials are written to the profile's .env on first
+      use in this process. */
+  private async creds(profile: string, sessionId: string | undefined, rotate = false): Promise<ChatCreds> {
     const row = this.d.db.prepare('SELECT profile, api_key, session_id FROM agent_chat WHERE profile = ?').get(profile) as ChatCreds | undefined;
-    if (row && !rotate && this.synced.has(profile)) return row;
-    const key = row && !rotate ? row.api_key : newKey();
-    await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv, API_SERVER_KEY: key });
-    this.synced.add(profile);
-    const session = row?.session_id ?? `vibecity-ceo-${randomBytes(4).toString('hex')}`;
+    const session = sessionId ?? row?.session_id ?? newSession();
+    let key = row?.api_key;
+    if (!key || rotate || !this.synced.has(profile)) {
+      key = key && !rotate ? key : newKey();
+      await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv, API_SERVER_KEY: key });
+      this.synced.add(profile);
+    }
     this.d.db.prepare(`INSERT INTO agent_chat (profile, api_key, session_id, created_at) VALUES (?, ?, ?, ?)
-      ON CONFLICT(profile) DO UPDATE SET api_key = excluded.api_key`).run(profile, key, session, new Date().toISOString());
+      ON CONFLICT(profile) DO UPDATE SET api_key = excluded.api_key, session_id = excluded.session_id`).run(profile, key, session, new Date().toISOString());
     return { profile, api_key: key, session_id: session };
   }
 
-  private systemMessage(departmentId: string, ch: Character, taskTitle?: string): string {
+  private async systemMessage(departmentId: string, ch: Character, taskTitle?: string, blocked?: ChatSend['blockedTask']): Promise<string> {
     const dept = this.d.departments.get(departmentId);
+    const board = await this.boardSnapshot(dept.hermesBoardSlug);
     return [
       `The CEO of ${this.d.companyName()} is talking to you through Vibe City's dialogue window. Vibe City is the game-like office where the company's departments of Hermes agents work; you are an agent of the "${dept.name}" department.`,
       `In this window you appear as ${ch.name}, ${ch.title}. Personality: ${ch.traits.join(', ')}. Way of speaking: ${ch.speechStyle}. Quirk: ${ch.quirk}. You call the CEO "boss". Keep the character light; being right matters more.`,
       taskTitle ? `Your current task on the board: "${taskTitle}".` : '',
-      // Outside a dispatched task the agent has no board context: name the board and the commands, or it goes digging.
-      `Your department's Kanban board is "${dept.hermesBoardSlug}". Read it with the terminal: \`hermes kanban --board ${dept.hermesBoardSlug} list --sort completed-desc --json\` (add --status done, running…), and \`hermes kanban --board ${dept.hermesBoardSlug} show <task_id> --json\` for a task's result, comments and runs.`,
+      blocked ? [
+        `The boss opened this chat about your task "${blocked.title}", which is blocked waiting for their input.${blocked.reason ? ` The reason you gave when blocking it: "${blocked.reason}"` : ''}`,
+        'Explain plainly what is wrong and exactly what you need from the boss to carry on. Ask follow-up questions until it is clear.',
+        'Once the boss has given you what the task needs, add "resume" to the final tag: their answer, written as a short instruction for the task (it is posted on the task as their comment and the task is resumed). Leave it out until then.',
+      ].join(' ') : '',
+      // Outside a dispatched task the agent has no board context, and chat has no tools to read it: hand it the board.
+      `Your department's Kanban board right now (open tasks first, then the latest finished):\n${board}`,
       '',
       'How to answer:',
-      '- You have your usual tools, your department\'s Kanban board, your files and your memory. When the boss asks about work, results or status, look them up (board tasks, their results and comments, your files) and answer from what you find. Never guess or invent results.',
-      '- Quick things the boss asks for you may simply do now. For bigger or multi-step work that your team should carry out on the board, propose a quest instead of doing it here.',
+      '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
+      '- To see what a task produced, use list_task_files with its task id from the board, then read_task_file to read a file. Read the files before describing or summarising the work.',
+      '- When the boss wants something done, however small, propose a quest: it goes on the board and the team carries it out. Do not say you will do it yourself.',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',
       '- End every reply with one final line, exactly in this form (JSON inside the tag):',
-      `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}}</vc>`,
+      `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}${blocked ? ', "resume": "<only once the boss has answered>"' : ''}}</vc>`,
     ].filter(Boolean).join('\n');
   }
 
-  private load(departmentId: string, agentKey: string, limit: number): ChatMessage[] {
-    const rows = this.d.db.prepare('SELECT message_json FROM chat_message WHERE department_id = ? AND agent_key = ? ORDER BY seq DESC LIMIT ?')
-      .all(departmentId, agentKey, limit) as { message_json: string }[];
+  /** One line per task: the open ones, then the most recently finished. */
+  private async boardSnapshot(slug: string): Promise<string> {
+    if (!this.d.kanban) return '(the board cannot be read right now)';
+    let tasks: RawTask[];
+    try {
+      tasks = await this.d.kanban.listBoardTasks(slug);
+    } catch (e) {
+      if (e instanceof HermesRejectedError || e instanceof HermesUnavailableError || e instanceof HermesAuthError) return '(the board cannot be read right now)';
+      throw e;
+    }
+    const open = tasks.filter((t) => t.status !== 'done').sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
+    const done = tasks.filter((t) => t.status === 'done').sort((a, b) => (b.completed_at ?? 0) - (a.completed_at ?? 0));
+    // shortcut: a fixed cap keeps the prompt small; older work is out of chat's sight until it can look tasks up on demand.
+    const shown = [...open, ...done].slice(0, 15);
+    if (!shown.length) return '(the board is empty)';
+    return shown.map((t) => {
+      const note = (t.result ?? t.latest_summary ?? t.last_failure_error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
+      return `- ${t.id} [${t.status}${t.assignee ? `, ${t.assignee}` : ''}] ${t.title}${note ? `: ${note}` : ''}`;
+    }).join('\n') + (tasks.length > shown.length ? `\n(${tasks.length - shown.length} older tasks not shown)` : '');
+  }
+
+  private load(departmentId: string, agentKey: string, sessionId: string, limit: number): ChatMessage[] {
+    const rows = this.d.db.prepare('SELECT message_json FROM chat_message WHERE department_id = ? AND agent_key = ? AND session_id = ? ORDER BY seq DESC LIMIT ?')
+      .all(departmentId, agentKey, sessionId, limit) as { message_json: string }[];
     return rows.reverse().map((r) => ChatMessageSchema.parse(JSON.parse(r.message_json)));
   }
 
-  private store(departmentId: string, agentKey: string, m: ChatMessage) {
+  private store(departmentId: string, agentKey: string, sessionId: string, m: ChatMessage) {
     const next = (this.d.db.prepare('SELECT COALESCE(MAX(seq), 0) + 1 AS n FROM chat_message WHERE department_id = ? AND agent_key = ?')
       .get(departmentId, agentKey) as { n: number }).n;
-    this.d.db.prepare('INSERT INTO chat_message (id, department_id, agent_key, seq, message_json, created_at) VALUES (?, ?, ?, ?, ?, ?)')
-      .run(m.id, departmentId, agentKey, next, JSON.stringify(m), m.at);
+    this.d.db.prepare('INSERT INTO chat_message (id, department_id, agent_key, seq, session_id, message_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(m.id, departmentId, agentKey, next, sessionId, JSON.stringify(m), m.at);
   }
 }
 
 /** Splits the agent's reply into what it says and the trailing <vc>{…}</vc> metadata. A missing or broken tag just
     means plain speech: the agent's words are never lost to a formatting slip. */
-export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' | 'replies' | 'proposal'> {
+export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' | 'replies' | 'proposal' | 'resume'> {
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const tag = /<vc>([\s\S]*?)(?:<\/vc>|$)/i.exec(clean);
   let meta: Record<string, unknown> = {};
@@ -148,5 +213,6 @@ export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' 
     ? meta.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3)
     : [];
   const p = ChatProposalSchema.safeParse({ kind: 'quest', ...(meta.proposal && typeof meta.proposal === 'object' ? meta.proposal : {}) });
-  return { text, mood, replies, proposal: meta.proposal && p.success ? p.data : null };
+  const resume = typeof meta.resume === 'string' && meta.resume.trim() ? { resume: meta.resume.trim().slice(0, 4000) } : {};
+  return { text, mood, replies, proposal: meta.proposal && p.success ? p.data : null, ...resume };
 }

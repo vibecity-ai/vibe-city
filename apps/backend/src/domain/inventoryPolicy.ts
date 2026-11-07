@@ -9,6 +9,9 @@ const withGuarantee = (e: Draft): CapabilityEntry => ({ ...e, guarantee: e.statu
 export const REQUIRED_TOOLSETS = ['kanban'] as const;
 /** Hermes pins these skills on ("cannot be disabled from any surface", agent/skill_utils.py ESSENTIAL_SKILLS). */
 export const ESSENTIAL_SKILLS = ['hermes-agent'] as const;
+/** Never enabled, never offered: they delegate to the Claude Code / Codex CLIs, which the container does not have (agents run on NEAR AI only). */
+export const EXCLUDED_SKILLS = ['claude-code', 'codex'] as const;
+export const usableSkill = (s: string) => !(EXCLUDED_SKILLS as readonly string[]).includes(s);
 /** Restrictions whose runtime effect was verified against real Hermes (a disabled toolset was confirmed unavailable to the agent). */
 export const BEHAVIOR_TESTED_TOOLSETS = ['terminal', 'file', 'web', 'browser', 'code_execution'] as const;
 
@@ -20,6 +23,11 @@ export function effectiveToolsets(inv: Inventory): string[] {
   const allowed = inv.allowedToolsets.filter((t) => !(AGENT_EXCLUDED_TOOLSETS as readonly string[]).includes(t));
   return [...new Set([...allowed, ...REQUIRED_TOOLSETS])].sort();
 }
+
+/** Dialogue-window chat only talks: work goes on the board as a quest. Of the agent's toolsets it keeps these, which
+    only recall what the agent already knows. Hermes keeps chat's set (platform 'api_server') apart from the workers' ('cli'). */
+export const CHAT_TOOLSETS = ['memory', 'session_search'] as const;
+export const chatToolsets = (inv: Inventory) => effectiveToolsets(inv).filter((t) => (CHAT_TOOLSETS as readonly string[]).includes(t));
 
 /** What one agent's profile must have: the department inventory plus the agent's own skills, and its own model if it has one. */
 export function agentInventory(inv: Inventory, agent: { model: ModelChoice | null; skills: string[] }): Inventory {
@@ -46,11 +54,11 @@ export function desiredToolsetMap(universe: string[], effective: string[]): Reco
 }
 
 export const effectiveSkills = (inv: Inventory, installed: string[]) =>
-  installed.filter((s) => inv.allowedSkillIds.includes(s) || (ESSENTIAL_SKILLS as readonly string[]).includes(s)).sort();
+  installed.filter((s) => (inv.allowedSkillIds.includes(s) && usableSkill(s)) || (ESSENTIAL_SKILLS as readonly string[]).includes(s)).sort();
 
 /** Skills to put in Hermes' disabled list: everything installed that is neither allowed nor essential. */
 export const skillsToDisable = (inv: Inventory, installed: string[]) =>
-  installed.filter((s) => !inv.allowedSkillIds.includes(s) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
+  installed.filter((s) => (!inv.allowedSkillIds.includes(s) || !usableSkill(s)) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
 
 /** The model to set on the profile; null when the department keeps the profile's own default. Unchanged pairs are not rewritten. */
 export const modelToApply = (inv: Inventory, current: { id: string | null; provider: string | null }): ModelChoice | null => {
@@ -80,6 +88,8 @@ export function desiredHash(inv: Inventory, agents: { key: string; profile: stri
 export interface ObservedRole {
   profile: string;
   toolsets: Record<string, boolean>;
+  /** The chat's toolsets (Hermes platform 'api_server'); absent in observations stored before chat was restricted. */
+  chatToolsets?: Record<string, boolean>;
   enabledSkills: string[];
   installedSkills: string[];
   model: string | null;
@@ -108,6 +118,8 @@ export function diffObserved(inv: Inventory, o: ObservedRole): string[] {
   const diffs: string[] = [];
   const want = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(inv));
   for (const [t, on] of Object.entries(want)) if (o.toolsets[t] !== on) diffs.push(`toolset ${t} is ${o.toolsets[t] ? 'enabled' : 'disabled'}, expected ${on ? 'enabled' : 'disabled'}`);
+  const chat = o.chatToolsets ?? {}, wantChat = desiredToolsetMap(Object.keys(chat), chatToolsets(inv));
+  for (const [t, on] of Object.entries(wantChat)) if (chat[t] !== on) diffs.push(`chat toolset ${t} is ${chat[t] ? 'enabled' : 'disabled'}, expected ${on ? 'enabled' : 'disabled'}`);
   const wantSkills = effectiveSkills(inv, o.installedSkills);
   const have = [...o.enabledSkills].sort();
   if (JSON.stringify(wantSkills) !== JSON.stringify(have)) diffs.push('enabled skills differ from the inventory');

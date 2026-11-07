@@ -4,7 +4,7 @@ import type { ModelChoice } from '@vibe-city/shared';
 import { HermesHttp } from './http.ts';
 import {
   HermesAuthError, HermesCliMissingError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SkillInfo,
+  type BoardInfo, type HermesHealth, type ModelCatalog, type HermesRuntime, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo, type ToolsetPlatform,
 } from './ports.ts';
 
 const execFileP = promisify(execFile);
@@ -21,6 +21,7 @@ export interface RealRuntimeOptions {
 const PROFILE_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 const TOOLSET_RE = /^[a-z0-9_]{1,64}$/;
 const MODEL_RE = /^[A-Za-z0-9._:/@+-]{1,128}$/;
+const SESSION_RE = /^[A-Za-z0-9._-]{1,128}$/;
 
 // ---- parsers for `hermes` CLI output (exported for fixture tests) ------------
 
@@ -93,8 +94,25 @@ export class RealHermesRuntime implements HermesRuntime {
     return (j.sessions ?? []).filter((r) => typeof r.id === 'string').map((r) => ({
       id: r.id as string, title: str(r.title), source: str(r.source), model: str(r.model),
       startedAt: num(r.started_at), endedAt: num(r.ended_at), lastActive: num(r.last_active), active: r.is_active === true,
-      messageCount: num(r.message_count), toolCallCount: num(r.tool_call_count), endReason: str(r.end_reason),
+      messageCount: num(r.message_count), toolCallCount: num(r.tool_call_count), endReason: str(r.end_reason), preview: str(r.preview),
     }));
+  }
+
+  async sessionMessages(profile: string, sessionId: string, limit: number): Promise<SessionMessage[]> {
+    if (!PROFILE_RE.test(profile)) throw new HermesRejectedError('invalid profile name');
+    if (!SESSION_RE.test(sessionId)) throw new HermesRejectedError('invalid session id');
+    const n = Math.min(Math.max(Math.floor(limit), 1), 500);
+    type Call = { id?: unknown; call_id?: unknown; function?: { name?: unknown; arguments?: unknown } };
+    const j = await this.http<{ messages: { role?: unknown; content?: unknown; timestamp?: unknown; tool_calls?: unknown; tool_call_id?: unknown; tool_name?: unknown }[] }>(
+      'GET', `/api/sessions/${encodeURIComponent(sessionId)}/messages?profile=${encodeURIComponent(profile)}&limit=${n}&order=latest`);
+    const s = (v: unknown) => (typeof v === 'string' ? v : null);
+    return (j.messages ?? []).flatMap((m) => (m.role === 'user' || m.role === 'assistant' || m.role === 'tool' ? [{
+      role: m.role, content: s(m.content) ?? '', at: typeof m.timestamp === 'number' ? new Date(m.timestamp * 1000).toISOString() : null,
+      calls: (Array.isArray(m.tool_calls) ? (m.tool_calls as Call[]) : []).map((c) => ({
+        id: s(c.call_id) ?? s(c.id) ?? '', name: s(c.function?.name) ?? 'tool', args: s(c.function?.arguments) ?? '',
+      })),
+      toolCallId: s(m.tool_call_id), toolName: s(m.tool_name),
+    }] : []));
   }
 
   async listBoards(): Promise<BoardInfo[]> {
@@ -133,16 +151,16 @@ export class RealHermesRuntime implements HermesRuntime {
     await this.cli(['profile', 'create', name, '--clone', '--no-alias', '--description', opts.description]);
   }
 
-  async getToolsets(profile: string): Promise<Record<string, boolean>> {
-    const map = parseToolsList(await this.cli(['tools', 'list'], profile));
+  async getToolsets(profile: string, platform: ToolsetPlatform = 'cli'): Promise<Record<string, boolean>> {
+    const map = parseToolsList(await this.cli(['tools', 'list', '--platform', platform], profile));
     if (!Object.keys(map).length) throw new HermesRejectedError('could not read toolsets (unexpected CLI output)');
     return map;
   }
 
-  async setToolsets(profile: string, change: { enable: string[]; disable: string[] }): Promise<void> {
+  async setToolsets(profile: string, change: { enable: string[]; disable: string[] }, platform: ToolsetPlatform = 'cli'): Promise<void> {
     for (const n of [...change.enable, ...change.disable]) if (!TOOLSET_RE.test(n)) throw new HermesRejectedError('invalid toolset name');
-    if (change.enable.length) await this.cli(['tools', 'enable', ...change.enable], profile);
-    if (change.disable.length) await this.cli(['tools', 'disable', ...change.disable], profile);
+    if (change.enable.length) await this.cli(['tools', 'enable', ...change.enable, '--platform', platform], profile);
+    if (change.disable.length) await this.cli(['tools', 'disable', ...change.disable, '--platform', platform], profile);
   }
 
   async listSkills(profile: string): Promise<SkillInfo[]> {
@@ -197,6 +215,13 @@ export class RealHermesRuntime implements HermesRuntime {
   async setMcpServer(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void> {
     // Same mechanism as skills.disabled: a JSON value under a dotted key of the profile's config.yaml.
     await this.cli(['config', 'set', `mcp_servers.${name}`, JSON.stringify(config), '--force'], profile);
+  }
+
+  async setPlatformMcpServers(profile: string, platform: ToolsetPlatform, servers: string[]): Promise<void> {
+    for (const s of servers) if (!PROFILE_RE.test(s)) throw new HermesRejectedError('invalid MCP server name');
+    // `tools enable` refuses MCP names, but its later saves keep them in the list, so writing them once sticks.
+    const on = Object.entries(await this.getToolsets(profile, platform)).filter(([, v]) => v).map(([k]) => k);
+    await this.cli(['config', 'set', `platform_toolsets.${platform}`, JSON.stringify([...new Set([...on, ...servers])].sort()), '--force'], profile);
   }
 
   async setProfileEnv(profile: string, vars: Record<string, string>): Promise<void> {

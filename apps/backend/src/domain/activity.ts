@@ -1,30 +1,9 @@
+import { KANBAN_EVENT_LABELS as LABELS, KANBAN_EVENT_NOISE } from '@vibe-city/shared';
 import type { RawEvent } from '../hermes/kanbanApi.ts';
 import { scrub } from './scrub.ts';
 
-/** Events that describe Hermes plumbing rather than something a user cares about. */
-const NOISE = new Set(['heartbeat', 'owner_admitted', 'worker_bound', 'tip_scratch_workspace', 'worker_result', 'spawned']);
+const NOISE = new Set(KANBAN_EVENT_NOISE);
 
-const LABELS: Record<string, string> = {
-  created: 'Task created',
-  claimed: 'Worker started',
-  completed: 'Task completed',
-  blocked: 'Task blocked',
-  unblocked: 'Task unblocked',
-  archived: 'Task archived',
-  crashed: 'Run crashed',
-  gave_up: 'Task failed (retries exhausted)',
-  reclaimed: 'Run reclaimed',
-  commented: 'Comment added',
-  attached: 'File attached',
-  worker_lost: 'Worker lost',
-  promoted: 'Task ready',
-  assigned: 'Task assigned',
-  edited: 'Task edited',
-  status: 'Status changed',
-  review_requested: 'Review requested',
-  archive_worker_termination: 'Worker terminated',
-  skipped_nonspawnable: 'Assignee profile not runnable',
-};
 
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 

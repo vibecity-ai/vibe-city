@@ -30,6 +30,17 @@ export interface SkillInfo {
 }
 
 /** A Hermes session row reduced to the fields Vibe City may relay (times are epoch seconds). */
+/** One message of a session. Assistant messages may carry tool calls (`calls`); a `tool` message is one call's result. */
+export interface SessionMessage {
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  at: string | null;
+  calls: { id: string; name: string; args: string }[];
+  /** On a tool message: the call it answers, and the tool's name. */
+  toolCallId: string | null;
+  toolName: string | null;
+}
+
 export interface SessionInfo {
   id: string;
   title: string | null;
@@ -42,6 +53,8 @@ export interface SessionInfo {
   messageCount: number | null;
   toolCallCount: number | null;
   endReason: string | null;
+  /** The start of the first message (a Kanban run's starts `# Kanban task <id>:`). */
+  preview: string | null;
 }
 
 export interface ModelCatalog {
@@ -56,6 +69,8 @@ export type HermesHealth = HealthView['hermes'];
  * (dashboard REST + `hermes` CLI); never Hermes' databases or source.
  * All profile-scoped methods touch exactly the named profile.
  */
+export type ToolsetPlatform = 'cli' | 'api_server';
+
 export interface HermesRuntime {
   health(): Promise<HermesHealth>;
 
@@ -66,9 +81,10 @@ export interface HermesRuntime {
   listBoards(): Promise<BoardInfo[]>;
   createBoard(slug: string, name: string): Promise<void>;
 
-  /** Map of toolset name -> enabled, for every toolset Hermes lists (built-in and plugin). */
-  getToolsets(profile: string): Promise<Record<string, boolean>>;
-  setToolsets(profile: string, change: { enable: string[]; disable: string[] }): Promise<void>;
+  /** Map of toolset name -> enabled, for every toolset Hermes lists (built-in and plugin). `platform` defaults to
+      'cli' (what Kanban workers get); 'api_server' is what the dialogue-window chat gets. */
+  getToolsets(profile: string, platform?: ToolsetPlatform): Promise<Record<string, boolean>>;
+  setToolsets(profile: string, change: { enable: string[]; disable: string[] }, platform?: ToolsetPlatform): Promise<void>;
 
   listSkills(profile: string): Promise<SkillInfo[]>;
   setDisabledSkills(profile: string, names: string[]): Promise<void>;
@@ -85,11 +101,16 @@ export interface HermesRuntime {
 
   /** Most recent sessions of one profile (dashboard `GET /api/sessions?profile=`), newest activity first. */
   listSessions(profile: string, limit: number): Promise<SessionInfo[]>;
+  /** The last `limit` messages of one session (user, assistant with its tool calls, tool results), oldest first. */
+  sessionMessages(profile: string, sessionId: string, limit: number): Promise<SessionMessage[]>;
 
   /** Host-wide `kanban.max_in_progress_per_profile`, or null when unset/unlimited. */
   getConcurrencyCap(): Promise<number | null>;
   /** Adds (or replaces) one MCP server in a profile's config (`mcp_servers.<name>`). Optional: not every runtime has it. */
   setMcpServer?(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void>;
+  /** Names MCP servers in a platform's toolset list, which makes it an allowlist: that platform gets only these servers.
+      The platform's enabled toolsets are kept. */
+  setPlatformMcpServers?(profile: string, platform: ToolsetPlatform, servers: string[]): Promise<void>;
   /** Writes variables into the profile's own .env. Under gateway multiplexing a profile reads credentials only from its
       .env (never the process env): its API_SERVER_KEY for /p/<profile>/ requests, and its model provider's key. */
   setProfileEnv?(profile: string, vars: Record<string, string>): Promise<void>;

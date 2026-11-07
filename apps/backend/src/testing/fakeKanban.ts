@@ -184,6 +184,21 @@ export class FakeKanban implements KanbanApi {
     b.comments.push({ id: b.comments.length + 1, task_id: id, author, body, created_at: this.now() });
   }
 
+  async unblockTask(board: string, id: string): Promise<void> {
+    this.enter('unblockTask', [board, id]);
+    const t = this.task(this.board(board), id);
+    if (t.status !== 'blocked') throw new HermesRejectedError(`status transition to 'ready' not valid from ${t.status}`);
+    Object.assign(t, { status: 'ready', consecutive_failures: 0 });
+    this.event(this.board(board), id, 'unblocked');
+  }
+  /** The agent asks for input: blocked with a reason, not a failure. */
+  block(board: string, id: string, reason: string) {
+    const b = this.board(board);
+    for (const r of b.runs.filter((x) => x.task_id === id && x.ended_at === null)) Object.assign(r, { status: 'blocked', outcome: 'blocked', ended_at: this.now() });
+    this.task(b, id).status = 'blocked';
+    this.event(b, id, 'blocked', { reason });
+  }
+
   async downloadAttachment(board: string, attachmentId: number): Promise<Response> {
     this.enter('downloadAttachment', [board, attachmentId]);
     const a = this.board(board).attachments.find((x) => x.id === attachmentId);

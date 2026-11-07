@@ -1,13 +1,13 @@
 import type { ModelChoice } from '@vibe-city/shared';
 import {
-  HermesAuthError, HermesRejectedError, HermesUnavailableError,
-  type BoardInfo, type HermesHealth, type HermesRuntime, type ModelCatalog, type ProfileInfo, type SessionInfo, type SkillInfo,
+  HermesAuthError, HermesNotFoundError, HermesRejectedError, HermesUnavailableError,
+  type BoardInfo, type HermesHealth, type HermesRuntime, type ModelCatalog, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo, type ToolsetPlatform,
 } from '../hermes/ports.ts';
 
 type Method = keyof HermesRuntime;
 
 interface FakeProfile {
-  description: string; model: string; provider: string; toolsets: Record<string, boolean>; skills: Record<string, boolean>; soul: string;
+  description: string; model: string; provider: string; toolsets: Record<string, boolean>; chatToolsets: Record<string, boolean>; skills: Record<string, boolean>; soul: string;
 }
 
 export const FAKE_TOOLSETS = ['web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'skills', 'todo', 'kanban', 'memory', 'delegation', 'cronjob', 'tts'];
@@ -40,6 +40,7 @@ export class FakeHermes implements HermesRuntime {
     return {
       description, model: 'base-model', provider: 'near-ai',
       toolsets: Object.fromEntries(FAKE_TOOLSETS.map((t) => [t, true])),
+      chatToolsets: Object.fromEntries(FAKE_TOOLSETS.map((t) => [t, true])),
       skills: Object.fromEntries(FAKE_SKILLS.map((s) => [s, true])),
       soul: '# Soul\nBe helpful.\n',
     };
@@ -98,16 +99,18 @@ export class FakeHermes implements HermesRuntime {
     if (!this.boards.has(slug)) this.boards.set(slug, { slug, name, archived: false });
   }
 
-  async getToolsets(profile: string) {
-    this.enter('getToolsets', [profile]);
-    return { ...this.profile(profile).toolsets };
+  async getToolsets(profile: string, platform: ToolsetPlatform = 'cli') {
+    this.enter('getToolsets', platform === 'cli' ? [profile] : [profile, platform]);
+    const p = this.profile(profile);
+    return { ...(platform === 'cli' ? p.toolsets : p.chatToolsets) };
   }
 
-  async setToolsets(profile: string, change: { enable: string[]; disable: string[] }) {
-    this.enter('setToolsets', [profile]);
+  async setToolsets(profile: string, change: { enable: string[]; disable: string[] }, platform: ToolsetPlatform = 'cli') {
+    this.enter('setToolsets', platform === 'cli' ? [profile] : [profile, platform]);
     const p = this.profile(profile);
-    for (const n of change.enable) if (n in p.toolsets) p.toolsets[n] = true;
-    for (const n of change.disable) if (n in p.toolsets) p.toolsets[n] = false;
+    const ts = platform === 'cli' ? p.toolsets : p.chatToolsets;
+    for (const n of change.enable) if (n in ts) ts[n] = true;
+    for (const n of change.disable) if (n in ts) ts[n] = false;
   }
 
   async listSkills(profile: string): Promise<SkillInfo[]> {
@@ -155,6 +158,15 @@ export class FakeHermes implements HermesRuntime {
     this.profile(profile).soul = text;
   }
 
+  /** Session transcripts, keyed `profile/sessionId`. */
+  sessionLog = new Map<string, SessionMessage[]>();
+  async sessionMessages(profile: string, sessionId: string, limit: number) {
+    this.enter('sessionMessages', [profile]);
+    const log = this.sessionLog.get(`${profile}/${sessionId}`);
+    if (!log) throw new HermesNotFoundError('Hermes: not found');
+    return log.slice(-limit);
+  }
+
   async listSessions(profile: string, limit: number) {
     this.enter('listSessions', [profile]);
     this.profile(profile);
@@ -164,6 +176,10 @@ export class FakeHermes implements HermesRuntime {
   mcpServers = new Map<string, Record<string, { url: string; headers: Record<string, string>; tools: { include: string[] } }>>();
   async setMcpServer(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void> {
     this.mcpServers.set(profile, { ...(this.mcpServers.get(profile) ?? {}), [name]: config });
+  }
+  platformMcp = new Map<string, Record<string, string[]>>();
+  async setPlatformMcpServers(profile: string, platform: ToolsetPlatform, servers: string[]): Promise<void> {
+    this.platformMcp.set(profile, { ...(this.platformMcp.get(profile) ?? {}), [platform]: [...servers] });
   }
   /** Each profile's .env (API_SERVER_KEY is what the gateway API server accepts for it). */
   env = new Map<string, Record<string, string>>();

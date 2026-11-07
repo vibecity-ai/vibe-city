@@ -15,6 +15,7 @@ import {
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
   MoneySettingsSchema, MoneyViewSchema, type MoneySettings, type MoneyView,
+  TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
 
@@ -82,8 +83,7 @@ const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURICompone
 
 export const api = {
   company: (): Promise<CompanyView> => request('GET', '/api/company', CompanyViewSchema),
-  departments: async (opts: { includeArchived?: boolean } = {}): Promise<DepartmentView[]> =>
-    (await request('GET', `/api/departments${opts.includeArchived ? '?includeArchived=true' : ''}`, DepartmentListSchema)).departments,
+  departments: async (): Promise<DepartmentView[]> => (await request('GET', '/api/departments', DepartmentListSchema)).departments,
   department: (dept: string): Promise<DepartmentView> => request('GET', d(dept), DepartmentViewSchema),
   createDepartment: (input: Partial<DepartmentCreate> & { name: string }): Promise<DepartmentView> => request('POST', '/api/departments', DepartmentViewSchema, input),
   updateDepartment: (dept: string, input: DepartmentUpdate): Promise<DepartmentView> => request('PATCH', d(dept), DepartmentViewSchema, input),
@@ -99,6 +99,9 @@ export const api = {
   checkSync: (dept: string): Promise<SyncCheck> => request('POST', `${d(dept)}/check`, SyncCheckSchema),
   profiles: (dept: string): Promise<ProfilesView> => request('GET', `${d(dept)}/profiles`, ProfilesViewSchema),
   agent: (dept: string, agentKey: string): Promise<AgentView> => request('GET', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, AgentViewSchema),
+  /** What the agent did on one of its tasks (tools used, notes), from its Hermes run sessions. */
+  taskSteps: (dept: string, agentKey: string, taskId: string): Promise<TaskStepsView> =>
+    request('GET', `${d(dept)}/agents/${encodeURIComponent(agentKey)}/tasks/${encodeURIComponent(taskId)}/steps`, TaskStepsViewSchema),
   health: (): Promise<HealthView> => request('GET', '/api/runtime/health', HealthViewSchema),
   hermesDefaults: (): Promise<HermesDefaultsView> => request('GET', '/api/runtime/defaults', HermesDefaultsViewSchema),
   hermesModels: (): Promise<HermesModelsView> => request('GET', '/api/runtime/models', HermesModelsViewSchema),
@@ -110,8 +113,13 @@ export const api = {
   activity: async (dept: string, quest: string): Promise<ActivityEvent[]> => (await request('GET', `${q(dept, quest)}/activity`, QuestActivitySchema)).events,
   results: (dept: string, quest: string): Promise<QuestResults> => request('GET', `${q(dept, quest)}/results`, QuestResultsSchema),
   cancel: (dept: string, quest: string): Promise<CancellationStatus> => request('POST', `${q(dept, quest)}/cancel`, CancellationStatusSchema),
+  /** The boss's answer to a blocked task: posted on it, and the task resumes. Returns the quest as it is now. */
+  answerTask: (dept: string, quest: string, taskId: string, message: string): Promise<QuestDetail> =>
+    request('POST', `${q(dept, quest)}/tasks/${encodeURIComponent(taskId)}/answer`, QuestDetailSchema, { message }),
   character: (dept: string, agentKey: string): Promise<Character> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}`, CharacterSchema),
-  chatHistory: (dept: string, agentKey: string): Promise<ChatHistory> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatHistorySchema),
+  /** One chat with the agent: a Hermes session id, 'new', or omitted for the last one used. */
+  chatHistory: (dept: string, agentKey: string, session?: string): Promise<ChatHistory> =>
+    request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat${session ? `?session=${encodeURIComponent(session)}` : ''}`, ChatHistorySchema),
   money: (fresh = false): Promise<MoneyView> => request('GET', `/api/money${fresh ? '?fresh=1' : ''}`, MoneyViewSchema),
   setMoneySettings: (patch: Partial<MoneySettings>): Promise<MoneySettings> => request('PATCH', '/api/money/settings', MoneySettingsSchema, patch),
   linkWallet: (accountId: string): Promise<MoneyView> => request('POST', '/api/money/wallets', MoneyViewSchema, { accountId }),

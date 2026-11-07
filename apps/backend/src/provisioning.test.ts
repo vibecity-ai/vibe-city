@@ -4,6 +4,8 @@ import { profileNameForAgent } from '@vibe-city/shared';
 import { HermesRejectedError } from './hermes/ports.ts';
 import { FakeHermes } from './testing/fakeHermes.ts';
 import { provApp } from './testUtils.ts';
+import { InventorySchema } from '@vibe-city/shared';
+import { effectiveSkills, skillsToDisable } from './domain/inventoryPolicy.ts';
 
 const count = (h: FakeHermes, prefix: string) => h.calls.filter((c) => c.startsWith(prefix)).length;
 /** Managed profile names of the lead and the first teammate (provApp departments have one teammate). */
@@ -70,6 +72,7 @@ test('an empty allowance gives every agent Hermes\' default toolsets and skills,
   for (const n of [chief, worker]) {
     const p = t.hermes.profiles.get(n)!;
     assert.deepEqual(Object.keys(p.toolsets).filter((k) => !p.toolsets[k]).sort(), ['cronjob', 'delegation', 'tts'], n);
+    assert.deepEqual(Object.keys(p.chatToolsets).filter((k) => p.chatToolsets[k]), ['memory'], `${n}: chat only talks, workers keep their tools`);
     assert.ok(Object.values(p.skills).every(Boolean), n);
   }
   const eff = (await t.app.inject(`/api/departments/${d.id}/effective-inventory`)).json();
@@ -370,7 +373,7 @@ test('a background check of an unchanged department only reads: no writes, and i
   const before = t.hermes.calls.length;
   const seen: string[] = [];
   const read = t.hermes.getToolsets.bind(t.hermes);
-  t.hermes.getToolsets = async (p: string) => { seen.push(t.provisioning.status(d.id).state); return read(p); };
+  t.hermes.getToolsets = async (p: string, platform?: 'cli' | 'api_server') => { seen.push(t.provisioning.status(d.id).state); return read(p, platform); };
   await t.provisioning.reconcile(d.id);
   assert.deepEqual(t.hermes.calls.slice(before).filter((c) => /^(create|set|write)/.test(c)), []);
   assert.ok(seen.length > 0 && seen.every((s) => s === 'ready'), seen.join());
@@ -401,3 +404,10 @@ test('check lists drift without fixing it; Sync then fixes it', async () => {
   assert.equal((await check(t, d.id)).inSync, true);
 });
 
+
+test('claude-code and codex are never enabled, even when allowed: the container has no Claude Code or Codex CLI', () => {
+  const inv = InventorySchema.parse({ allowedSkillIds: ['pdf', 'codex', 'claude-code'] });
+  const installed = ['hermes-agent', 'pdf', 'codex', 'claude-code', 'arxiv'];
+  assert.deepEqual(effectiveSkills(inv, installed), ['hermes-agent', 'pdf']);
+  assert.deepEqual(skillsToDisable(inv, installed), ['codex', 'claude-code', 'arxiv']);
+});

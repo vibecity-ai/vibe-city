@@ -25,7 +25,7 @@ test('provisioning gives every agent the Vibe City MCP server with its departmen
   assert.deepEqual(hermes.mcpServers.get(research.teammate)!.vibecity, a, 'teammates share their department\'s token');
   const init = (await rpc('initialize', { protocolVersion: '2025-06-18' })).json();
   assert.equal(init.result.serverInfo.name, 'vibe-city');
-  assert.deepEqual((await rpc('tools/list')).json().result.tools.map((t: any) => t.name), ['list_departments', 'request_quest', 'check_request']);
+  assert.deepEqual((await rpc('tools/list')).json().result.tools.map((t: any) => t.name), ['list_departments', 'request_quest', 'check_request', 'list_task_files', 'read_task_file']);
   assert.equal((await rpc('tools/list', {}, 'vc_wrong')).statusCode, 401);
 });
 
@@ -86,4 +86,28 @@ test('quests the CEO creates are recorded with origin user', async () => {
   const r = await create(research.id, { title: 'Mine' });
   const origins = (await app.inject('/api/quest-origins')).json().origins;
   assert.equal(origins.find((o: any) => o.questId === r.json().questId).origin, 'user');
+});
+
+test('chat gets a read-only server entry with only the file tools; it reads its own board\'s task files, never another\'s', async () => {
+  const { hermes, kanban, research, growth, tool } = await setup();
+  const chat = hermes.mcpServers.get(growth.lead)!['vibecity-chat']!;
+  assert.deepEqual(chat.tools.include, ['list_task_files', 'read_task_file']);
+  assert.equal(chat.headers.Authorization, hermes.mcpServers.get(growth.lead)!.vibecity!.headers.Authorization);
+  assert.deepEqual(hermes.platformMcp.get(growth.lead), { api_server: ['vibecity-chat'] }, 'naming it makes chat an allowlist: no request_quest');
+
+  const mine = (await kanban.createTask(growth.board, { title: 'Market scan' })).task;
+  kanban.attach(growth.board, mine.id, 'scan.md', '# Scan\nThree competitors.');
+  kanban.attach(growth.board, mine.id, 'logo.png', 'PNG\u0000\u0001binary');
+  const theirs = (await kanban.createTask(research.board, { title: 'Secret' })).task;
+  kanban.attach(research.board, theirs.id, 'secret.md', 'not yours');
+
+  assert.match((await tool('list_task_files', { task_id: mine.id })).content[0].text, /scan\.md \(\d+ bytes\)[\s\S]*logo\.png/);
+  assert.equal((await tool('read_task_file', { task_id: mine.id, filename: 'scan.md' })).content[0].text, '# Scan\nThree competitors.');
+  const bin = await tool('read_task_file', { task_id: mine.id, filename: 'logo.png' });
+  assert.ok(bin.isError && /binary/.test(bin.content[0].text));
+  assert.ok((await tool('read_task_file', { task_id: mine.id, filename: 'nope.md' })).isError);
+  for (const r of [await tool('list_task_files', { task_id: theirs.id }), await tool('read_task_file', { task_id: theirs.id, filename: 'secret.md' })]) {
+    assert.ok(r.isError, 'another department\'s task is not found');
+    assert.doesNotMatch(r.content[0].text, /not yours/);
+  }
 });

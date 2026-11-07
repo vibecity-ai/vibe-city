@@ -10,14 +10,34 @@ const END = '<!-- vibe-city:end -->';
 const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 /**
+ * How to run a quest, in the same words in SOUL.md and in each quest's body. The lead plans and hands out by default:
+ * left optional, it did whole quests alone while teammates sat idle. Child tasks wait for the quest task (parent links
+ * are dependencies), so it completes with the plan and a compile task joins the results.
+ */
+export function delegationRules(self: string, teammates: string[]): string[] {
+  if (!teammates.length) return ['You have no teammates: do the work yourself.', 'Do not create Kanban tasks for any other profile.'];
+  return [
+    `You are the Hermes profile "${self}". Your teammates are the Hermes profiles ${teammates.map((t) => `"${t}"`).join(', ')}. Each is an agent like you and works in parallel with the others.`,
+    'When you own a quest (a task with no parent), you lead it: plan the work and hand it out rather than doing it all yourself.',
+    '1. Split the quest into parts that can run in parallel. For each part create one child Kanban task with parents set to the quest task, assigned to a teammate or to yourself. Give every teammate a part before taking a second one yourself.',
+    '2. When the parts must come together into one deliverable, also create a final compile task with parents set to every part task, assigned to a teammate or yourself. It starts once all the parts are done and sees their results; say in it exactly what to deliver.',
+    '3. Then complete the quest task with the plan: each child task id and what it covers. The child tasks start only after the quest task is complete, so do not wait for them.',
+    'Each child task must be self-contained: its assignee cannot see the quest, so put every instruction and input it needs in the task.',
+    'Do a quest alone only when it is a single step that cannot be split.',
+    'When a task was handed to you (it has a parent), do it yourself and do not split it further.',
+    'Never assign tasks to a profile other than yourself and your teammates.',
+  ];
+}
+
+/**
  * The managed block written into an agent profile's SOUL.md. Everything outside the markers is left untouched.
  * Every agent gets the same rules; `lead` only says that new quests arrive with this agent. `teammates` are the other
- * agents' profile names: the only profiles this agent may hand tasks to.
+ * agents' profile names: with `self`, the only profiles this agent may hand tasks to.
  */
 export function buildBlock(opts: {
-  deptId: string; deptName: string; purpose: string; agentKey: string; lead: boolean; teammates: string[]; inv: Inventory;
+  deptId: string; deptName: string; purpose: string; agentKey: string; lead: boolean; self: string; teammates: string[]; inv: Inventory;
 }): string {
-  const { deptId, deptName, purpose, agentKey, lead, teammates, inv } = opts;
+  const { deptId, deptName, purpose, agentKey, lead, self, teammates, inv } = opts;
   const lines = [
     beginMarker(deptId, agentKey),
     `# Department: ${clean(deptName)}`,
@@ -25,18 +45,7 @@ export function buildBlock(opts: {
     '',
     [
       `You are an agent of this department (seat ${agentKey}).${lead ? ' New quests for the department are assigned to you.' : ''}`,
-      teammates.length
-        ? `Your teammates are the Hermes profiles ${teammates.map((t) => `"${t}"`).join(', ')}. Each is an agent like you and works in parallel with the others.`
-        : 'You have no teammates: do the work yourself.',
-      ...(teammates.length
-        ? [
-          'When you own a quest (a task with no parent) and parts of it can run independently, create one child Kanban task',
-          'per part, assigned to a teammate, with parents set to your task. Each child task must be self-contained: the',
-          'teammate cannot see your task, so put every instruction and input it needs in the child task. Spread the parts',
-          'across teammates. When a task was handed to you (it has a parent), do it yourself and do not split it further.',
-          'Never assign tasks to a profile that is not one of your teammates.',
-        ]
-        : ['Do not create Kanban tasks for any other profile.']),
+      ...delegationRules(self, teammates),
       'Complete every task with a summary of what you did (and which child tasks you created) and attach any output files.',
       CROSS_DEPT,
     ].join('\n'),

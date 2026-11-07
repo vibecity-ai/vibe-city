@@ -51,10 +51,11 @@ const agentApp = (answer?: ConstructorParameters<typeof FakeAgentChat>[1]) => {
 };
 
 test('chat talks to the agent\'s own profile, in one session, with its own key, and returns a quest proposal', async () => {
-  const { app, hermes, agentChat, readyDept } = agentApp((t, history) => history.length
+  const { app, hermes, kanban, agentChat, readyDept } = agentApp((t, history) => history.length
     ? 'I can have a brief by Friday.\n<vc>{"mood":"focused","replies":["Do it","Not now"],"proposal":{"title":"Competitor brief","objective":"Summarise three competitors."}}</vc>'
     : 'Hey boss.\n<vc>{"mood":"happy","replies":["What are you on?"],"proposal":null}</vc>');
   const d = await readyDept('Research', {});
+  await kanban.createTask(d.board, { title: 'Scan competitor pricing' });
   const url = `/api/departments/${d.id}/characters/chief/chat`;
   assert.equal((await app.inject(url)).json().modelReady, true);
   const r1 = await app.inject({ method: 'POST', url, payload: { message: 'Hello' } });
@@ -74,6 +75,8 @@ test('chat talks to the agent\'s own profile, in one session, with its own key, 
   assert.equal(t2!.message, 'Can you look at our competitors?'); // Hermes holds the history: only the new message is sent
   assert.match(t1!.system, /Research/);
   assert.match(t1!.system, /Research lead/);
+  assert.match(t1!.system, /\[ready\] Scan competitor pricing/, 'the board is in the prompt');
+  assert.doesNotMatch(t1!.system, /terminal/, 'chat is never pointed at the shell');
   assert.equal((await app.inject(url)).json().messages.length, 4);
   // A teammate is its own profile, with its own key and session.
   await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/W-01/chat`, payload: { message: 'Hi' } });
@@ -92,6 +95,38 @@ test('a rejected key is replaced once and the turn retried', async () => {
   assert.equal(agentChat.turns.length, 2);
   assert.equal(agentChat.turns[1]!.key, hermes.env.get(d.lead)?.API_SERVER_KEY);
   assert.equal(agentChat.turns[1]!.sessionId, agentChat.turns[0]!.sessionId); // same conversation
+});
+
+test('an agent has many chats: a new one, then resuming the old one; a chat Vibe City never saw is read from Hermes', async () => {
+  const { app, hermes, agentChat, readyDept } = agentApp();
+  const d = await readyDept('Chats', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  await app.inject({ method: 'POST', url, payload: { message: 'first chat' } });
+  const first = (await app.inject(url)).json();
+  assert.equal(first.messages.length, 2);
+  assert.match(agentChat.turns[0]!.title, /^first chat · [0-9a-f]{8}$/); // the Hermes session is named after its opening line
+
+  const fresh = (await app.inject(`${url}?session=new`)).json();
+  assert.notEqual(fresh.sessionId, first.sessionId);
+  assert.deepEqual(fresh.messages, []);
+  await app.inject({ method: 'POST', url, payload: { message: 'second chat', sessionId: fresh.sessionId } });
+  assert.equal(agentChat.turns[1]!.sessionId, fresh.sessionId);
+  assert.equal((await app.inject(url)).json().sessionId, fresh.sessionId, 'the window reopens on the last chat used');
+
+  await app.inject({ method: 'POST', url, payload: { message: 'back to the first', sessionId: first.sessionId } });
+  assert.equal(agentChat.turns[2]!.sessionId, first.sessionId);
+  assert.deepEqual((await app.inject(`${url}?session=${first.sessionId}`)).json().messages.map((m: any) => m.text).filter((_: string, i: number) => i % 2 === 0), ['first chat', 'back to the first']);
+
+  hermes.sessionLog.set(`${d.lead}/cli-chat-1`, [
+    { role: 'user', content: 'hi from the terminal', at: '2026-11-01T10:00:00.000Z', calls: [], toolCallId: null, toolName: null },
+    { role: 'assistant', content: '', at: '2026-11-01T10:00:02.000Z', calls: [{ id: 'c1', name: 'terminal', args: '{"command":"ls"}' }], toolCallId: null, toolName: null },
+    { role: 'tool', content: '{"output":"a.md"}', at: '2026-11-01T10:00:03.000Z', calls: [], toolCallId: 'c1', toolName: 'terminal' },
+    { role: 'assistant', content: 'Hello.\n<vc>{"mood":"happy","replies":["Thanks"],"proposal":null}</vc>', at: '2026-11-01T10:00:05.000Z', calls: [], toolCallId: null, toolName: null },
+  ]);
+  const old = (await app.inject(`${url}?session=cli-chat-1`)).json();
+  assert.deepEqual(old.messages.map((m: any) => [m.from, m.text, m.mood]), [['user', 'hi from the terminal', null], ['agent', 'Hello.', 'happy']]);
+  assert.deepEqual((await app.inject(`${url}?session=gone-1`)).json().messages, []);
+  assert.equal((await app.inject(`${url}?session=..%2Fx`)).statusCode, 400);
 });
 
 test('the stream endpoint relays progress, then the reply; errors arrive as an error event', async () => {
@@ -148,7 +183,7 @@ test('the Hermes agent client creates the session, follows the stream and maps a
   }) as typeof fetch;
   const client = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642/', fetch: fetch_ });
   const events: unknown[] = [];
-  const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', message: 'what did you find?', system: 'persona' };
+  const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', title: 'what did you find?', message: 'what did you find?', system: 'persona' };
   assert.equal(await client.turn(turn, (e) => events.push(e)), 'Found it, boss.');
   assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }]);
   assert.equal(seen[1]!.url, 'http://hermes.test:8642/p/vc-abc-chief/api/sessions/vibecity-ceo-1/chat/stream');
@@ -164,4 +199,14 @@ test('the Hermes agent client creates the session, follows the stream and maps a
   const denied = new HermesAgentChat({ baseUrl: 'http://hermes.test:8642', fetch: (async () => new Response('{"error":{"message":"Invalid gateway API key"}}', { status: 401 })) as typeof fetch });
   await assert.rejects(denied.turn(turn), HermesAuthError);
   await assert.rejects(client.turn({ ...turn, profile: '../x' }), /invalid profile/);
+});
+
+test('a chat about a blocked task tells the agent why it is blocked, and its resume suggestion reaches the window', async () => {
+  const { app, agentChat, readyDept } = agentApp(() => 'I can skip the install and list the commands.\n<vc>{"mood":"focused","replies":[],"proposal":null,"resume":"Skip the install; document the 5 commands."}</vc>');
+  const d = await readyDept('Desk', {});
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'What do you need?', blockedTask: { title: 'Install skills', reason: 'No shell access' } } });
+  assert.equal(r.statusCode, 200);
+  assert.equal(r.json().agent.resume, 'Skip the install; document the 5 commands.');
+  assert.match(agentChat.turns[0]!.system, /"Install skills", which is blocked .*No shell access/);
+  assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
 });

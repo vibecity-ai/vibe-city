@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type {
   HiringRequestView, QuestOrigin, QuestRequestView, Schedule, Character,
-  ActivityEvent, AgentView, CancellationStatus, DepartmentView, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
+  ActivityEvent, AgentView, CancellationStatus, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
 } from '@vibe-city/shared';
 import type { AgentStatus, Connection, Dept } from './data/types';
 import type { QuestSync } from './data/company';
@@ -25,6 +25,9 @@ export type Fx =
 export type View = 'tower' | 'floor';
 export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';
 export type DeptTab = 'overview' | 'loadout' | 'quests';
+
+/** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
+export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
 
 export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
 export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string; taskId?: string }
@@ -51,10 +54,9 @@ interface UI {
   boardDept: string | null; composerDept: string | null;
   /** Where quest detail returns to: the company board, or the floor it was opened from. */
   questFrom: 'board' | 'dept';
-  /** Executive Office list: active floors or the read-only archived list. */
-  execView: 'active' | 'archived';
-  /** The dialogue window: who you are talking to (a chief or a worker desk). */
-  talk: { deptId: string; agentKey: string } | null;
+  /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
+      'new'; omitted = their last chat). */
+  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
   /** AR hiring: the dialogue window on AR's head (intake) or on a candidate (interview), or the shortlist popup. */
   call: { mode: 'ar' | 'interview' | 'shortlist'; reqId: string; candId?: string } | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */
@@ -84,8 +86,6 @@ export interface State {
   stale: boolean;
   /** Agent views keyed `<deptId>:<role>`; a failed reload keeps the last view and sets `error`. */
   agents: Record<string, { view: AgentView | null; error: string | null; loading: boolean }>;
-  /** Archived departments (read-only), loaded on demand with includeArchived=true. */
-  archived: { list: DepartmentView[] | null; error: string | null; loading: boolean };
   /** Departments whose live socket to the backend is down (REST polling still runs). */
   liveDown: Record<string, true>;
   /** In-flight mutations, keyed e.g. `provision:<deptId>`. */
@@ -127,10 +127,9 @@ export const useStore = create<State>((set) => ({
   loaded: false,
   stale: false,
   busy: {},
-  archived: { list: null, error: null, loading: false },
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', execView: 'active', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], origins: {}, schedules: [], personas: {},

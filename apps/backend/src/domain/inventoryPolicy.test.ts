@@ -97,7 +97,7 @@ test('known gaps are always reported as unsupported/unverified, never enforced',
 
 test('instruction block: appended once, replaced in place, rest of file untouched, markers sanitized', () => {
   const base = '# My soul\nKeep this.\n';
-  const mk = (purpose: string) => buildBlock({ deptId: 'D1', deptName: 'Eng', purpose, agentKey: 'chief', lead: true, teammates: ['w'], inv: inv() });
+  const mk = (purpose: string) => buildBlock({ deptId: 'D1', deptName: 'Eng', purpose, agentKey: 'chief', lead: true, self: 'c', teammates: ['w'], inv: inv() });
   const once = upsertBlock(base, mk('v1'), 'D1', 'chief');
   assert.ok(once.startsWith(base));
   const twice = upsertBlock(once, mk('v1'), 'D1', 'chief');
@@ -111,15 +111,18 @@ test('instruction block: appended once, replaced in place, rest of file untouche
 });
 
 test('instruction block: same rules for every agent, teammates named, and legacy role blocks of the department replaced', () => {
-  const lead = buildBlock({ deptId: 'D1', deptName: 'Eng', purpose: '', agentKey: 'chief', lead: true, teammates: ['p1', 'p2'], inv: inv() });
-  const mate = buildBlock({ deptId: 'D1', deptName: 'Eng', purpose: '', agentKey: 'W-01', lead: false, teammates: ['p0', 'p2'], inv: inv() });
+  const lead = buildBlock({ deptId: 'D1', deptName: 'Eng', purpose: '', agentKey: 'chief', lead: true, self: 'p0', teammates: ['p1', 'p2'], inv: inv() });
+  const mate = buildBlock({ deptId: 'D1', deptName: 'Eng', purpose: '', agentKey: 'W-01', lead: false, self: 'p1', teammates: ['p0', 'p2'], inv: inv() });
   assert.match(lead, /"p1", "p2"/);
   assert.match(mate, /"p0", "p2"/);
+  assert.match(lead, /You are the Hermes profile "p0"/);
+  assert.match(lead, /hand it out rather than doing it all yourself/, 'the lead plans by default');
+  assert.match(lead, /compile task with parents set to every part task/, 'results are joined after the parts finish');
   const rules = (b: string) => b.split('\n').filter((l) => /child Kanban task|do it yourself/.test(l));
   assert.deepEqual(rules(lead), rules(mate), 'the lead and its teammates follow the same rules');
   assert.match(lead, /New quests for the department are assigned to you/);
   assert.doesNotMatch(mate, /New quests/);
-  const solo = buildBlock({ deptId: 'D1', deptName: 'Eng', purpose: '', agentKey: 'chief', lead: true, teammates: [], inv: inv() });
+  const solo = buildBlock({ deptId: 'D1', deptName: 'Eng', purpose: '', agentKey: 'chief', lead: true, self: 'p0', teammates: [], inv: inv() });
   assert.match(solo, /no teammates: do the work yourself/);
 
   const legacy = '# Soul\n\n<!-- vibe-city:begin dept=D1 role=worker -->\nold rules\n<!-- vibe-city:end -->\n\n<!-- vibe-city:begin dept=D2 role=chief -->\nother dept\n<!-- vibe-city:end -->\n';

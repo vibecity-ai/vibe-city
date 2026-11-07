@@ -62,7 +62,7 @@ export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoar
   const hermes = [d.hermesBoardRef && 'its board', profiles && `its ${profiles} agent profile${profiles === 1 ? '' : 's'}`].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
-    'Vibe City keeps the department record, its loadout and settings. You can still inspect it under Executive Office → Archived.',
+    'Vibe City keeps the department record, its loadout and settings.',
     hermes.length
       ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every quest, result and attachment stay there.`
       : 'It was never synced, so it has no Hermes resources.',
@@ -145,10 +145,6 @@ export function assigneeWarning(t: Pick<TaskNode, 'agentKey' | 'assignee'>): str
   if (t.agentKey !== null) return null;
   return t.assignee ? 'Assigned to an agent outside this department. Detected, not prevented.' : 'Not assigned to any of this department’s agents yet.';
 }
-
-export const RUN_STATE_LABEL: Record<TaskNode['runs'][number]['state'], string> = {
-  queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', unknown: 'Unknown',
-};
 
 /* ---------- cancellation ---------- */
 

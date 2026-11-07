@@ -119,3 +119,6 @@ export function cardLines(tasks: readonly TaskNode[] | undefined): CardLines {
   if (done) return { plan, latest: { k: 'completed', text: `Last done: ${done.title}` } };
   return { plan, latest: workers.length ? { k: 'todo', text: `${workers.length} task${workers.length > 1 ? 's' : ''} waiting` } : null };
 }
+
+/** Quests with a blocked task (waiting for the boss's input, or stuck after failures), even while other tasks run. */
+export const blockedQuests = (quests: QuestItem[]) => quests.filter((q) => q.summary.status !== 'cancelling' && q.summary.counts.blocked + q.summary.counts.failed > 0);

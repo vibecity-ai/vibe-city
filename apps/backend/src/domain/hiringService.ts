@@ -13,6 +13,7 @@ import {
 } from '@vibe-city/shared';
 import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
 import { ModelUnavailableError } from '../model/chatModel.ts';
+import { dailyCredits, priceNote, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
 import { COLORS, FIRST, LAST, QUIRKS, STYLES, TRAITS, hash, pick } from './characters.ts';
@@ -26,6 +27,8 @@ export interface HiringDeps {
   model: ChatModel;
   companyId: () => string;
   companyName: () => string;
+  /** NEAR AI Cloud prices. Omit: costs are guessed from model names and every offered model is eligible. */
+  prices?: ModelPrices;
   /** How long scouting takes before the shortlist shows (the demo theatre). Default 45 s. */
   scoutMs?: number;
   /** Store the hire's persona on its new seat so the office and dialogue window show the same person. */
@@ -51,6 +54,8 @@ export function modelTier(id: string): 1 | 2 | 3 {
   return 2;
 }
 const TIER_COST = { 1: 40, 2: 140, 3: 420 } as const;
+/** Size class from real daily cost (credits = cents): under $0.30, under $3, above. */
+export const priceTier = (credits: number): 1 | 2 | 3 => (credits <= 30 ? 1 : credits <= 300 ? 2 : 3);
 
 /* The joke cast: original personas played for laughs, never real people or groups. */
 const JOKES = [
@@ -275,7 +280,7 @@ export class HiringService {
       `Floors:\n${depts.join('\n') || '- none yet'}`,
       skills.length ? `Skills installed in Hermes (a hire can only get these): ${skills.join(', ')}` : 'The list of installed skills is unavailable right now.',
       '',
-      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily budget in credits, and any must-have skills. Ask one thing at a time.',
+      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily budget in credits (1 credit = 1 US cent of model usage; a small model costs ~10-50 a day, a top model 500-1500), and any must-have skills. Ask one thing at a time.',
       'When you know enough, sum it up as a brief. The boss confirms it, then you go scouting. You do not hire anyone in this call.',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
       '- Reply with JSON only, no other text:',
@@ -310,12 +315,34 @@ export class HiringService {
     try { models = await this.d.provisioning.hermesModels(); } catch { /* Hermes down: keep the floor's model */ }
     let installed: string[] = [];
     try { installed = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name); } catch { /* unknown */ }
+    let prices: PriceList | null = null;
+    try { prices = (await this.d.prices?.list()) ?? null; } catch { /* price list down: guess from names */ }
     const all: ModelChoice[] = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
     const pool = all.length ? all : inv.model ? [inv.model] : [];
-    const byTier = (t: number) => pool.filter((m) => modelTier(m.id) === t);
-    const cheapest = byTier(1)[0] ?? byTier(2)[0] ?? pool[0] ?? null;
-    const balanced = byTier(2)[0] ?? byTier(1)[0] ?? pool[0] ?? null;
-    const premium = byTier(3)[0] ?? [...byTier(2)].reverse().find((m) => m.id !== balanced?.id) ?? balanced;
+    const seed = hash(`${requestId}:${brief.departmentId}`);
+    const pickOne = <T>(xs: T[], salt: string) => (xs.length ? xs[hash(`${seed}:${salt}`) % xs.length]! : null);
+    // Real prices: only models Hermes offers that NEAR AI prices and that can run an agent (text + tools), cheapest first.
+    const priced = prices && prices.size ? pool.filter((m) => prices!.has(m.id)) : [];
+    const price = (m: ModelChoice | null) => (m && prices?.get(m.id)) || null;
+    const daily = (m: ModelChoice) => dailyCredits(price(m)!);
+    let cheapest: ModelChoice | null, balanced: ModelChoice | null, premium: ModelChoice | null;
+    if (priced.length) {
+      const ranked = [...priced].sort((a, b) => daily(a) - daily(b));
+      const within = ranked.filter((m) => daily(m) <= brief.budgetPerDay);
+      const vendor = (m: ModelChoice | null) => m?.id.split('/')[0];
+      // Seeded picks so every shortlist differs: balanced from the cheaper half of what fits, premium from above it.
+      cheapest = pickOne(ranked.slice(0, 5), 'cheap');
+      balanced = pickOne(within.slice(0, Math.ceil(within.length / 2)), 'bal') ?? ranked[0]!;
+      const up = ranked.filter((m) => daily(m) > daily(balanced!));
+      premium = pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay && vendor(m) !== vendor(balanced)), 'prem')
+        ?? pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay), 'prem') ?? pickOne(up.slice(0, 3), 'prem') ?? balanced;
+    } else {
+      const byTier = (t: number) => pool.filter((m) => modelTier(m.id) === t);
+      cheapest = byTier(1)[0] ?? byTier(2)[0] ?? pool[0] ?? null;
+      balanced = byTier(2)[0] ?? byTier(1)[0] ?? pool[0] ?? null;
+      premium = byTier(3)[0] ?? [...byTier(2)].reverse().find((m) => m.id !== balanced?.id) ?? balanced;
+    }
+    const tierOf = (m: ModelChoice | null) => { const p = price(m); return p ? priceTier(dailyCredits(p)) : m ? modelTier(m.id) : 2; };
 
     const known = installed.length ? new Set(installed) : null;
     const wanted = brief.skills.filter((s) => !known || known.has(s));
@@ -330,14 +357,14 @@ export class HiringService {
       const budget = cost <= brief.budgetPerDay ? 1 : Math.max(0, 1 - (cost - brief.budgetPerDay) / brief.budgetPerDay);
       return Math.round(Math.min(98, 30 * need + 30 * budget + 12 * tier + 20));
     };
-    const seed = hash(`${requestId}:${brief.departmentId}`);
     const serious = [
       { model: balanced, skills: baseSkills, label: 'balanced' },
       { model: premium, skills: premiumSkills, label: 'premium' },
     ].map((s, i) => {
-      const tier = s.model ? modelTier(s.model.id) : 2;
-      // Same size class as the balanced pick: the premium hire still asks for more (more skills, senior rate).
-      const cost = Math.round(TIER_COST[tier] * (s.label === 'premium' ? 1.6 : 1)) + 10 * s.skills.length;
+      const tier = tierOf(s.model);
+      const p = price(s.model);
+      // Priced: the model's real cost at DAY_TOKENS. Unpriced guess: the premium hire asks more (more skills, senior rate).
+      const cost = p ? dailyCredits(p) : Math.round(TIER_COST[tier] * (s.label === 'premium' ? 1.6 : 1)) + 10 * s.skills.length;
       return { ...s, tier, cost, fit: fit(s.skills, cost, tier), i };
     });
     const personas = await this.seriousPersonas(brief, serious.map((s) => ({ model: s.model?.id ?? 'unknown', skills: s.skills, label: s.label })));
@@ -350,7 +377,7 @@ export class HiringService {
         id: randomUUID(), serious: true, character: ch, gag: null,
         pitch: p?.pitch ?? (s.label === 'premium' ? `Bigger model, more skills. I'll take the hard ${brief.departmentName} quests and get them right the first time.` : `Reliable and affordable. I'll keep ${brief.departmentName}'s queue moving without burning the budget.`),
         loadout: { model: s.model, skills: s.skills, toolsets: [] }, tier: s.tier, costPerDay: s.cost, fitScore: s.fit,
-        note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the ${brief.budgetPerDay} credit budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}`,
+        note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the ${brief.budgetPerDay} credit budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}${price(s.model) ? ` NEAR AI price: ${priceNote(price(s.model)!)}.` : ' Price unknown, cost guessed from the model name.'}`,
       });
     });
     const a = seed % JOKES.length, b = (a + 1 + (seed >>> 4) % (JOKES.length - 1)) % JOKES.length;
@@ -359,7 +386,7 @@ export class HiringService {
       const skills = offBrief.length ? [offBrief[(seed >>> (k + 3)) % offBrief.length]!] : [];
       out.push(CandidateSchema.parse({
         id: randomUUID(), serious: false, character: ch, gag: j.gag, pitch: j.pitch,
-        loadout: { model: cheapest, skills, toolsets: [] }, tier: cheapest ? modelTier(cheapest.id) : 1,
+        loadout: { model: cheapest, skills, toolsets: [] }, tier: cheapest ? tierOf(cheapest) : 1,
         costPerDay: j.cost, fitScore: j.fit, note: j.note,
       }));
     }

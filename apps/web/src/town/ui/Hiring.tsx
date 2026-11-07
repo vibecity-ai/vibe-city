@@ -273,7 +273,7 @@ function Shortlist({ reqId }: { reqId: string }) {
                 <dl className="cand-stats">
                   <dt>Model</dt><dd className="mono">{c.loadout.model?.id ?? 'floor default'} <small>{TIER[c.tier]}</small></dd>
                   <dt>Skills</dt><dd>{c.loadout.skills.length ? <span className="hire-skills">{c.loadout.skills.map((s) => <i key={s}>{s}</i>)}</span> : <small className="muted">none</small>}</dd>
-                  <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{c.costPerDay} credits/day <small>estimate{over ? ', over budget' : ''}</small></dd>
+                  <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{c.costPerDay} credits/day <small title="1 credit = 1 US cent, at 1M input + 100k output tokens a day">estimate{over ? ', over budget' : ''}</small></dd>
                   <dt>Fit</dt><dd><span className="fit" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.fitScore} aria-label="Fit score"><i style={{ width: `${c.fitScore}%` }} /></span> <b>{c.fitScore}</b></dd>
                 </dl>
                 <p className="cand-note"><span>AR:</span> {c.note}</p>

@@ -5,6 +5,7 @@ import {
 import { HermesNotFoundError, HermesRejectedError } from '../hermes/ports.ts';
 import type { KanbanApi, RawRun, TaskDetail } from '../hermes/kanbanApi.ts';
 import { describeEvent } from './activity.ts';
+import { delegationRules } from './instructions.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
 import type { DepartmentService } from './departmentService.ts';
 import { aggregateQuest, type AggNode } from './questAggregation.ts';
@@ -16,6 +17,9 @@ export const MAX_TREE_DEPTH = 8;
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const CANCEL_MARKER = '[vibe-city] cancel-requested';
 const MARKER_AUTHOR = 'vibe-city';
+/** Comment author of the boss's answers to blocked tasks, as the agent sees them on the board. */
+const ANSWER_AUTHOR = 'the boss (CEO)';
+const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const iso = (t: number | null | undefined) => (t == null ? null : new Date(t * 1000).toISOString());
 const isTerminal = (s: string) => s === 'done' || s === 'archived';
 
@@ -34,8 +38,8 @@ interface Tree {
   truncated: boolean;
 }
 
-/** `teammates` are the other agents' profiles (empty: the lead does the work itself). */
-export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, teammates: string[]): string {
+/** `lead` gets the quest; `teammates` are the other agents' profiles (empty: the lead does the work itself). */
+export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, lead: string, teammates: string[]): string {
   return [
     `# Quest: ${q.title}`,
     '',
@@ -44,17 +48,9 @@ export function buildQuestBody(q: { title: string; objective: string; instructio
     ...(q.instructions ? ['', '## Additional instructions', q.instructions] : []),
     '',
     '## How to execute (department workflow)',
-    ...(teammates.length === 0
-      ? [
-        'You have no teammates: do the work yourself.',
-        'Do not create Kanban tasks for any other profile. When the work is done, complete this task with a summary of the result and attach any output files.',
-      ]
-      : [
-        'You own this quest. Do the work yourself, or, when parts of it can run independently, create one child Kanban task per part,',
-        `assigned to one of your teammates (${teammates.map((t) => `"${t}"`).join(', ')}), with parents set to this task's id. Spread the parts across teammates: each one works in parallel.`,
-        'Each child task must be self-contained: the teammate cannot see this quest, so put every instruction and input it needs in the child task.',
-        'Do not assign tasks to any other profile. Complete this task with a summary of what you did and each child task id with what it covers.',
-      ]),
+    'This task is a quest and you own it.',
+    ...delegationRules(lead, teammates),
+    'Complete every task with a summary of what you did (and which child tasks you created) and attach any output files.',
   ].join('\n');
 }
 
@@ -152,6 +148,7 @@ export class QuestService {
         createdAt: iso(t.created_at), startedAt: iso(t.started_at), completedAt: iso(t.completed_at),
         summary: scrub(t.latest_summary ?? t.result ?? [...d.runs].reverse().find((r) => r.summary)?.summary ?? null),
         error: failed || t.status === 'blocked' ? scrub(t.last_failure_error ?? lastRun?.error ?? null) : null,
+        blockReason: t.status === 'blocked' ? scrub(str([...d.events].reverse().find((e) => e.kind === 'blocked')?.payload?.reason), 2000) : null,
         attachmentCount: d.attachments.length,
         runs: d.runs.map((r) => ({ id: r.id, profile: r.profile, state: runState(r), startedAt: iso(r.started_at), endedAt: iso(r.ended_at) })),
       };
@@ -248,6 +245,20 @@ export class QuestService {
     };
   }
 
+  /**
+   * The boss answers a blocked task of this quest: the answer goes on the task as a comment (the agent reads its
+   * comments when it runs again), then the task is unblocked.
+   */
+  async answer(departmentId: string, questId: string, taskId: string, message: string): Promise<void> {
+    const ctx = this.ctx(departmentId);
+    const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
+    const t = tree.details.get(taskId);
+    if (!t) throw new NotFoundError('task not found in this quest');
+    if (t.task.status !== 'blocked') throw new ConflictError('this task is not waiting for input any more');
+    await this.kanban.addComment(ctx.board, taskId, ANSWER_AUTHOR, message);
+    await this.kanban.unblockTask(ctx.board, taskId);
+  }
+
   async activity(departmentId: string, questId: string, limit = 200): Promise<ActivityEvent[]> {
     const ctx = this.ctx(departmentId);
     const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
@@ -304,13 +315,45 @@ export class QuestService {
     return { response, filename: att.filename, size: att.size, contentType: att.content_type };
   }
 
+  /** Files attached to one task of the department's own board (the MCP file tools). Unknown or foreign ids are not found. */
+  async taskFiles(departmentId: string, taskId: string): Promise<{ title: string; files: TaskDetail['attachments'] }> {
+    const ctx = this.ctx(departmentId);
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    try {
+      const d = await this.kanban.getTask(ctx.board, taskId);
+      return { title: d.task.title, files: d.attachments };
+    } catch (e) {
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('task not found');
+      throw e;
+    }
+  }
+
+  /** A task file's text, at most `maxChars`. Binary files are refused (chat can only read text). */
+  async readTaskFile(departmentId: string, taskId: string, filename: string, maxChars: number): Promise<{ text: string; truncated: boolean; size: number }> {
+    const { files } = await this.taskFiles(departmentId, taskId);
+    const att = [...files].reverse().find((a) => a.filename === filename); // a re-attached name: the latest wins
+    if (!att) throw new NotFoundError(`no file "${filename}" on task ${taskId}`);
+    if (att.size > MAX_ATTACHMENT_BYTES) throw new ConflictError('file is too large to read');
+    let res: Response;
+    try {
+      res = await this.kanban.downloadAttachment(this.ctx(departmentId).board, att.id);
+    } catch (e) {
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('file is no longer available');
+      throw e;
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.subarray(0, 8192).includes(0)) throw new ConflictError(`"${filename}" is a binary file and cannot be read as text`);
+    const text = new TextDecoder().decode(bytes);
+    return { text: text.slice(0, maxChars), truncated: text.length > maxChars, size: att.size };
+  }
+
   // ---- creation ----------------------------------------------------------------------
 
   async create(departmentId: string, input: QuestCreate): Promise<QuestCreated> {
     const ctx = this.ctx(departmentId, { requireReady: true });
     const { task, warning } = await this.kanban.createTask(ctx.board, {
       title: input.title,
-      body: buildQuestBody(input, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
+      body: buildQuestBody(input, ctx.lead, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
       assignee: ctx.lead,
       // Same clientRequestId -> Hermes returns the existing task instead of creating a duplicate.
       idempotency_key: `vibe-city:${departmentId}:${input.clientRequestId}`,

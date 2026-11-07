@@ -5,7 +5,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
   CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, DepartmentUpdateSchema, DepartmentViewSchema,
-  InventoryPatchSchema, InventorySchema,
+  InventoryPatchSchema, InventorySchema, ChatSessionIdSchema, HERMES_TASK_ID_RE, TaskAnswerSchema, TaskStepsViewSchema,
 } from '@vibe-city/shared';
 import {
   AgentViewSchema, EffectiveInventorySchema, HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, ProfilesViewSchema, ProvisioningStatusSchema, SyncCheckSchema,
@@ -35,9 +35,10 @@ import { ChatService } from './domain/chatService.ts';
 import type { AgentChat } from './hermes/agentChat.ts';
 import { ModelFailedError, ModelUnavailableError, type ChatModel } from './model/chatModel.ts';
 import { HiringService } from './domain/hiringService.ts';
+import type { ModelPrices } from './model/nearPrices.ts';
 import { AssistantService } from './domain/assistantService.ts';
 import { QuestRequestService } from './domain/questRequests.ts';
-import { MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
+import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
@@ -78,6 +79,8 @@ export interface ServicesExtra {
   agentEnv?: Record<string, string>;
   /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned agent gets it in its config. */
   mcpUrl?: string;
+  /** NEAR AI Cloud model prices for AR's shortlist. Omit: costs are guessed from model names. */
+  modelPrices?: ModelPrices;
   /** AR scouting time before the shortlist shows (ms). Default 45 s. */
   hiringScoutMs?: number;
 }
@@ -203,6 +206,13 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(AgentViewSchema, await provisioning.agent(id, key));
   });
 
+  app.get('/api/departments/:id/agents/:agentKey/tasks/:taskId/steps', async (req) => {
+    const { agentKey = '', taskId = '' } = req.params as { agentKey?: string; taskId?: string };
+    if (!AGENT_KEY_RE.test(agentKey)) throw new NotFoundError('agent not found');
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    return parse(TaskStepsViewSchema, await provisioning.taskSteps(idOf(req.params), agentKey, taskId));
+  });
+
   app.patch('/api/departments/:id/agents/:agentKey', async (req) => {
     const id = idOf(req.params);
     const key = (req.params as { agentKey?: string }).agentKey ?? '';
@@ -225,8 +235,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const characters = new CharacterService(db);
   const chat = new ChatService({
     db, departments, characters, hermes: runtime, companyName: () => company.view().name,
+    ...(extra.kanban ? { kanban: extra.kanban } : {}),
     ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), ...(extra.agentEnv ? { agentEnv: extra.agentEnv } : {}),
   });
+  /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */
+  const sessionOf = (query: unknown): string | undefined => {
+    const s = (query as { session?: unknown }).session;
+    return s === undefined || s === 'new' ? s : parse(ChatSessionIdSchema, s);
+  };
   const agentKeyOf = (params: unknown): string => {
     const key = (params as { agentKey?: string }).agentKey ?? '';
     if (!AGENT_KEY_RE.test(key)) throw new NotFoundError('agent not found');
@@ -235,7 +251,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.get('/api/departments/:id/characters/:agentKey', async (req) =>
     parse(CharacterSchema, chat.character(idOf(req.params), agentKeyOf(req.params))));
   app.get('/api/departments/:id/characters/:agentKey/chat', async (req) =>
-    parse(ChatHistorySchema, chat.history(idOf(req.params), agentKeyOf(req.params))));
+    parse(ChatHistorySchema, await chat.history(idOf(req.params), agentKeyOf(req.params), sessionOf(req.query))));
   app.post('/api/departments/:id/characters/:agentKey/chat', async (req) =>
     parse(ChatReplySchema, await chat.send(idOf(req.params), agentKeyOf(req.params), parse(ChatSendSchema, req.body))));
   /** Same turn as POST .../chat, as Server-Sent Events: `progress` (thinking, tool use, waiting for an approval) while the
@@ -266,6 +282,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     companyId: () => company.view().id, companyName: () => company.view().name,
     savePersona: (d, k, c) => characters.save(d, k, c),
     ...(extra.hiringScoutMs !== undefined ? { scoutMs: extra.hiringScoutMs } : {}),
+    ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
   });
   const reqId = (params: unknown) => (params as { reqId: string }).reqId;
   app.get('/api/hiring/current', async () => parse(HiringCurrentSchema, { request: await hiring.current() }));
@@ -300,6 +317,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   // ---- executive assistant: draft a new floor in the dialogue window (feature spec 4.3) ----
   const assistant = new AssistantService({
     departments, provisioning, model: extra.chatModel ?? noModel,
+    ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
     companyId: () => company.view().id, companyName: () => company.view().name,
   });
   app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
@@ -310,13 +328,19 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const questRequests = new QuestRequestService({
     db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
   });
-  registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q) });
+  registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
   if (extra.mcpUrl && hermes?.setMcpServer) {
     const url = extra.mcpUrl, rt = hermes;
     provisioning.afterProvision = async (deptId, profiles) => {
       // One token per department, shared by its agents (issuing rotates it, so every profile gets the new one).
       const token = questRequests.issueToken(deptId);
-      for (const p of profiles) await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers: { Authorization: `Bearer ${token}` }, tools: { include: [...MCP_TOOLS] } });
+      const headers = { Authorization: `Bearer ${token}` };
+      for (const p of profiles) {
+        await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers, tools: { include: [...MCP_TOOLS] } });
+        await rt.setMcpServer!(p, MCP_CHAT_SERVER_NAME, { url, headers, tools: { include: [...MCP_FILE_TOOLS] } });
+        // Naming the read-only entry makes chat's list an allowlist: chat reads task files but gets no request_quest.
+        await rt.setPlatformMcpServers?.(p, 'api_server', [MCP_CHAT_SERVER_NAME]);
+      }
     };
   }
   // ---- the safe (feature spec 6.1): wallets, treasury and credits, read-only; signing happens in the user's wallet ----
@@ -420,6 +444,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const status = await quests_.requestCancel(dept, quest);
     // 202: the request was accepted; `state` says whether Hermes has confirmed that everything stopped.
     return reply.code(202).send(parse(CancellationStatusSchema, status));
+  });
+
+  app.post('/api/departments/:id/quests/:questId/tasks/:taskId/answer', async (req) => {
+    const { dept, quest } = questParams(req.params);
+    const taskId = (req.params as { taskId?: string }).taskId ?? '';
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    await quests_.answer(dept, quest, taskId, parse(TaskAnswerSchema, req.body).message);
+    return parse(QuestDetailSchema, await quests_.detail(dept, quest));
   });
 
   app.get('/api/departments/:id/quests/:questId/cancellation', async (req) => {

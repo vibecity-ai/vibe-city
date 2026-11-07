@@ -2,15 +2,17 @@
    read from the backend (persona, stored chat, quests and tasks Hermes reports); numbers the game cannot know yet
    (cost, review grades) say so instead of guessing. */
 import { useEffect, useMemo, useState } from 'react';
-import type { Character, ChatMessage } from '@vibe-city/shared';
+import type { AgentSession, Character, ChatHistory, ChatMessage, TaskNode, TaskStepsView } from '@vibe-city/shared';
 import { useStore } from '../store';
 import type { Dept, AgentStatus } from '../data/types';
 import { api, ApiError } from '../../api';
+import { answerTask, loadAgent } from '../data/live';
 import { lookFor, quirkProp } from '../world/sprites';
 import { PortraitCanvas } from './Dialogue';
 import { formatTime } from './format';
+import { clock } from '../data/derive';
 import { agentLabel, taskStatusView } from '../data/views';
-import { Glyph } from './kit';
+import { Btn, Glyph } from './kit';
 
 /** Loads personas into the store (one request per seat, cached for the session). */
 const loading = new Set<string>();
@@ -31,6 +33,33 @@ export function usePersona(deptId: string, agentKey: string) {
   return ch;
 }
 
+
+/** A blocked task waiting for the boss: why, a chat with the agent about it, or an answer that resumes it right away. */
+export function NeedsInput({ deptId, questId, node }: { deptId: string; questId: string; node: Pick<TaskNode, 'id' | 'title' | 'agentKey' | 'blockReason' | 'summary' | 'error' | 'failed'> }) {
+  const ch = useStore((s) => (node.agentKey ? s.personas[`${deptId}:${node.agentKey}`] ?? null : null));
+  useEffect(() => { if (node.agentKey) loadPersonas(deptId, [node.agentKey]); }, [deptId, node.agentKey]);
+  const busy = useStore((s) => !!s.busy[`answer:${node.id}`]);
+  const [text, setText] = useState('');
+  const name = node.agentKey ? agentLabel(node.agentKey, ch) : 'The agent';
+  const reason = node.blockReason ?? node.error ?? node.summary;
+  const talk = () => useStore.getState().ui$({ talk: { deptId, agentKey: node.agentKey!, session: 'new', blocked: { questId, taskId: node.id, title: node.title, reason } } });
+  const send = async () => { if (await answerTask(deptId, questId, node.id, text.trim())) setText(''); };
+  return (
+    <div className="banner warn needs-input" role="group" aria-label={`${node.title} needs your input`}>
+      <Glyph k="blocked" />
+      <div>
+        <b>{node.failed ? `${name} got stuck and stopped` : `${name} needs your input`}</b>
+        {reason && <p className="box-p">{reason}</p>}
+        {node.agentKey && <p><button className="btn primary small" onClick={talk}>Talk to {name}</button> <span className="muted small">They explain what is wrong and resume the task once you agree.</span></p>}
+        <form onSubmit={(e) => { e.preventDefault(); void send(); }}>
+          <label className="field"><span className="lbl">Or answer directly</span>
+            <textarea className="input" rows={2} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} placeholder="What should they do?" /></label>
+          <Btn kind="secondary" type="submit" busy={busy} disabled={busy || !text.trim()}>{busy ? 'Sending…' : 'Send and resume'}</Btn>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 /** An agent's name as the user knows it; `agentKey` null = an assignee outside the floor. */
 export function AgentName({ deptId, agentKey }: { deptId: string; agentKey: string | null }) {
@@ -58,22 +87,45 @@ export function PersonaLine({ deptId, agentKey }: { deptId: string; agentKey: st
   );
 }
 
-export function ChatTranscript({ deptId, agentKey, onTalk }: { deptId: string; agentKey: string; onTalk: () => void }) {
+/** A chat's name: its Hermes title (the opening line), or its date for chats titled before that ("CEO chat 1a2b3c"). */
+export const chatTitle = (x: AgentSession) => (x.title && !/^CEO chat [0-9a-f]{6}$/.test(x.title) ? x.title : `Chat from ${formatTime(x.startedAt)}`);
+
+/** The agent's chats (its Hermes chat sessions): pick one to read it, resume it in the dialogue window, or start a new one. */
+export function ChatTranscript({ deptId, agentKey, sessions, sessionsError }: { deptId: string; agentKey: string; sessions: AgentSession[] | null; sessionsError: string | null }) {
   const ch = usePersona(deptId, agentKey);
-  const [messages, setMessages] = useState<ChatMessage[] | null>(null);
+  const talking = useStore((s) => !!s.ui.talk);
+  const [sel, setSel] = useState<string | undefined>(undefined);
+  const [h, setH] = useState<ChatHistory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState('');
-  useEffect(() => { api.chatHistory(deptId, agentKey).then((h) => setMessages(h.messages)).catch((e: ApiError) => setError(e.message)); }, [deptId, agentKey]);
+  // Reloaded when the dialogue window closes: the chat just used is now the last one, and Hermes lists it.
+  useEffect(() => {
+    if (talking) return;
+    setError(null);
+    api.chatHistory(deptId, agentKey, sel).then(setH).catch((e: ApiError) => setError(e.message));
+    void loadAgent(deptId, agentKey);
+  }, [deptId, agentKey, sel, talking]);
+  const talk = (session?: string) => { setSel(undefined); useStore.getState().ui$({ talk: { deptId, agentKey, ...(session ? { session } : {}) } }); };
+  const chats = (sessions ?? []).filter((x) => x.source === 'api_server');
+  const messages = h?.messages ?? null;
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const shown = (messages ?? []).filter((m) => words.every((w) => m.text.toLowerCase().includes(w)));
   return (
     <section className="pane-sec">
-      <div className="head-row"><h3 className="sec-t">Conversations {messages && <span className="count">{messages.length}</span>}</h3><button className="btn primary small" onClick={onTalk}>Talk</button></div>
-      <p className="fine">Every dialogue-window conversation with {ch?.name ?? 'this agent'}. Chat never starts work: a request becomes a quest proposal you accept.</p>
-      {messages && messages.length > 0 && <input className="input" type="search" placeholder="Search this transcript" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search the transcript" />}
+      <div className="head-row"><h3 className="sec-t">Chats {sessions && <span className="count">{chats.length}</span>}</h3>
+        <span className="row"><button className="btn small" onClick={() => talk('new')}>New chat</button>{h && <button className="btn primary small" onClick={() => talk(h.sessionId)}>{messages?.length ? 'Resume' : 'Talk'}</button>}</span></div>
+      <p className="fine">Every chat with {ch?.name ?? 'this agent'} is a session in Hermes, with its memory of what was said. Resume one to carry on where you left off. Chat never starts work: a request becomes a quest proposal you accept.</p>
+      {sessionsError && <p className="muted small"><Glyph k="disconnected" /> {sessionsError}</p>}
+      {chats.length > 0 && <ul className="stack tight chats">{chats.map((x) => (
+        <li key={x.id}><button className={`link session${x.id === h?.sessionId ? ' sel' : ''}`} aria-current={x.id === h?.sessionId || undefined} onClick={() => setSel(x.id)}>
+          <Glyph k={x.active ? 'running' : 'idle'} />
+          <span><b>{chatTitle(x)}</b><small className="muted">{[formatTime(x.lastActiveAt ?? x.startedAt), x.messageCount != null ? `${x.messageCount} messages` : null, x.active ? 'answering now' : null].filter(Boolean).join(' · ')}</small></span>
+        </button></li>
+      ))}</ul>}
+      {messages && messages.length > 0 && <input className="input" type="search" placeholder="Search this chat" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search this chat" />}
       {error && <p className="field-err" role="alert">{error}</p>}
       {!messages && !error && <p className="muted" aria-busy="true">Loading…</p>}
-      {messages?.length === 0 && <p className="muted">No conversations yet. Press Talk to start one.</p>}
+      {messages?.length === 0 && <p className="muted">{chats.length ? 'Nothing to show for this chat.' : 'No chats yet. Press Talk to start one.'}</p>}
       <ol className="transcript">
         {shown.map((m) => (
           <li key={m.id} className={m.from}>
@@ -85,6 +137,38 @@ export function ChatTranscript({ deptId, agentKey, onTalk }: { deptId: string; a
       </ol>
       {messages && messages.length > 0 && shown.length === 0 && <p className="muted small">Nothing matches “{q}”.</p>}
     </section>
+  );
+}
+
+const STEP_POLL_MS = 5000;
+
+/** The steps an agent took on one task (tools used, notes it wrote), newest first; refreshed while it is still working. */
+export function TaskSteps({ deptId, agentKey, taskId }: { deptId: string; agentKey: string; taskId: string }) {
+  const [v, setV] = useState<TaskStepsView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let live = true;
+    let timer: number | undefined;
+    const tick = () => api.taskSteps(deptId, agentKey, taskId)
+      .then((r) => { if (!live) return; setV(r); setError(null); if (r.active) timer = window.setTimeout(tick, STEP_POLL_MS); })
+      .catch((e: ApiError) => { if (live) setError(e.message); });
+    void tick();
+    return () => { live = false; window.clearTimeout(timer); };
+  }, [deptId, agentKey, taskId]);
+  const why = error ?? v?.error;
+  if (why) return <p className="muted small"><Glyph k="disconnected" /> {why}</p>;
+  if (!v) return <p className="muted small" aria-busy="true">Loading the steps…</p>;
+  if (!v.steps.length) return <p className="muted small">{v.active ? 'Just getting started…' : 'No steps recorded for this task.'}</p>;
+  return (
+    <ol className="feed steps" aria-live={v.active ? 'polite' : undefined}>
+      {[...v.steps].reverse().map((x, i) => (
+        <li key={v.steps.length - i} className={x.kind}>
+          <span className="mono muted">{x.at ? clock(x.at) : ''}</span>
+          <Glyph k={x.kind === 'failed' ? 'failed' : x.kind === 'note' ? 'awaiting' : 'completed'} />
+          <span>{x.kind === 'note' ? <i>{x.text}</i> : x.text}{x.detail && <small className="muted step-detail">{x.detail}</small>}</span>
+        </li>
+      ))}
+    </ol>
   );
 }
 
