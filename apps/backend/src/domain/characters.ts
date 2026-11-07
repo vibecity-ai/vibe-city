@@ -54,6 +54,19 @@ export function generateCharacter(departmentId: string, deptName: string, agentK
   });
 }
 
+/** The Chief of Staff: one person in the Executive Office who drafts floors and hires (the assistant and AR, merged).
+    Seeded like the former assistant, so existing companies keep the same person. */
+export function chiefOfStaff(companyId: string): Character {
+  const seed = hash(`${companyId}:assistant`);
+  return {
+    departmentId: 'company', agentKey: 'assistant', role: 'chief',
+    name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`, title: 'Chief of Staff',
+    traits: ['organised', 'sharp'], speechStyle: 'warm, brisk and practical; calls you "boss"',
+    quirk: 'carries a tablet with the tower blueprint and a clipboard of candidates',
+    color: '#9B5CFF', voice: 300 + (seed % 80),
+  };
+}
+
 export class CharacterService {
   private db: DatabaseSync;
   constructor(db: DatabaseSync) { this.db = db; }

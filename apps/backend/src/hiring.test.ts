@@ -41,7 +41,9 @@ test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -
   assert.equal(start.statusCode, 201);
   const id = start.json().id;
   assert.equal(start.json().state, 'intake');
-  assert.equal(start.json().ar.title, 'Head of Agent Resources');
+  assert.equal(start.json().ar.title, 'Chief of Staff');
+  // hiring and floor drafting are the same person: the assistant and AR merged into the Chief of Staff
+  assert.equal(start.json().ar.name, (await app.inject('/api/assistant')).json().character.name);
 
   // No brief yet: confirming is refused.
   assert.equal((await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/brief`, payload: {} })).statusCode, 400);

@@ -17,7 +17,8 @@ const TIER = ['', 'Small model', 'Balanced model', 'Large model'];
 
 const set = (h: HiringRequestView | null) => useStore.getState().hiring$(h);
 const call = (c: ReturnType<typeof useStore.getState>['ui']['call']) => useStore.getState().ui$({ call: c });
-const arLook = (h: HiringRequestView) => lookFor(`ar:${h.ar.name}`, '#2E8F6A', true);
+/** The Chief of Staff's face: the same look as in the floor-drafting dialogue (the assistant and AR are one person). */
+const arLook = (h: HiringRequestView) => lookFor(`assistant:${h.ar.name}`, '#9B5CFF', true);
 const candLook = (c: Candidate) => lookFor(c.character.agentKey, c.character.color, false);
 const fmtLeft = (ms: number) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -72,7 +73,7 @@ export async function callAr(departmentId?: string) {
     const h = await api.hiringStart(departmentId);
     set(h);
     call({ mode: h.state === 'shortlist' ? 'shortlist' : 'ar', reqId: h.id });
-  } catch (e) { useStore.getState().toast(e instanceof ApiError ? e.message : 'Could not reach AR.', 'bad'); }
+  } catch (e) { useStore.getState().toast(e instanceof ApiError ? e.message : 'Could not reach the Chief of Staff.', 'bad'); }
 }
 
 function IncomingCall({ h }: { h: HiringRequestView }) {
@@ -89,7 +90,7 @@ function IncomingCall({ h }: { h: HiringRequestView }) {
     <div className="ring" role="alertdialog" aria-labelledby="ring-t" aria-describedby="ring-d">
       <div className="ring-face"><PortraitCanvas look={look} mood="worried" talking={false} size={96} gag="clipboard" className="ring-portrait" /></div>
       <div className="ring-body">
-        <span className="ring-tag"><Icon n="bell" size={12} /> Incoming call · Agent Resources</span>
+        <span className="ring-tag"><Icon n="bell" size={12} /> Incoming call · Chief of Staff</span>
         <b id="ring-t">{h.ar.name}</b>
         <span id="ring-d">{h.trigger.reason}</span>
       </div>
@@ -108,8 +109,8 @@ function ScoutBanner({ h }: { h: HiringRequestView }) {
   return (
     <button className={`scout${ready ? ' ready' : ''}`} onClick={() => call({ mode: ready ? 'shortlist' : 'ar', reqId: h.id })}>
       <span className="scout-dot" aria-hidden="true" />
-      {ready ? <>AR is back with {h.candidates.length} candidates for {h.brief?.departmentName} · <b>View shortlist</b></>
-        : <>AR is scouting for {h.brief?.departmentName} · <b>{fmtLeft(left)}</b></>}
+      {ready ? <>{h.ar.name} is back with {h.candidates.length} candidates for {h.brief?.departmentName} · <b>View shortlist</b></>
+        : <>{h.ar.name} is scouting for {h.brief?.departmentName} · <b>{fmtLeft(left)}</b></>}
     </button>
   );
 }
@@ -125,7 +126,7 @@ function ArDialogue({ reqId }: { reqId: string }) {
   const close = useCallback(() => call(null), []);
   useEffect(() => { api.hiring(reqId).then(set).catch((e: ApiError) => setError(e.message)); }, [reqId]);
   const now = useNow(h?.state === 'scouting');
-  const look = useMemo(() => (h ? arLook(h) : lookFor('ar', '#2E8F6A', true)), [h?.ar.name]);
+  const look = useMemo(() => (h ? arLook(h) : lookFor('assistant:', '#9B5CFF', true)), [h?.ar.name]);
   if (!h) return null;
 
   const intake = h.state === 'intake' || h.state === 'ringing';
@@ -135,8 +136,8 @@ function ArDialogue({ reqId }: { reqId: string }) {
     : h.state === 'shortlist' ? `Back with ${h.candidates.length} candidates for ${h.brief?.departmentName}. Two are solid. The other two... you'll see.`
     : h.state === 'hired' && hired && h.applied ? `Done. ${hired.character.name} joins ${h.brief?.departmentName}. ${hired.serious ? 'Good call.' : "I've noted my concerns in the file."}`
     : h.state === 'closed' ? 'Call ended. Ring me when you need someone.'
-    : h.trigger.kind === 'manual' ? `${h.ar.name}, Agent Resources. Who are we hiring, boss?`
-    : `Boss, ${h.ar.name} from AR. ${h.trigger.reason} Want me to find someone?`;
+    : h.trigger.kind === 'manual' ? `Who are we hiring, boss? Tell me what the new person should be good at.`
+    : `Boss, ${h.trigger.reason} Want me to find someone?`;
   const lines: Line[] = intake ? [...h.messages, ...(pending ? [{ id: 'pending', from: 'user' as const, text: pending, mood: null, replies: [] }] : [])] : [];
   const defaults = trigDept ? [`Yes, find someone for ${trigDept.name}`, 'What would they need?', 'Not now']
     : depts.slice(0, 3).map((d) => `We need help on ${d.name}`);
@@ -158,7 +159,7 @@ function ArDialogue({ reqId }: { reqId: string }) {
       who={h.ar} look={look} gag="clipboard" lines={lines} ready={intake ? h.modelReady : true} waiting={waiting} error={error}
       greeting={greeting} baseMood={h.state === 'shortlist' ? 'smug' : h.state === 'scouting' ? 'focused' : h.trigger.kind === 'manual' ? 'neutral' : 'worried'}
       defaultReplies={intake ? defaults : []} onSend={onSend} onClose={close} hideInput={!intake}
-      inputHint="Tell AR what the hire should be good at…"
+      inputHint="What should the new hire be good at?"
       below={h.state === 'scouting' && h.scoutingUntil ? <p className="dlg-note">Scouting · back in {fmtLeft(Date.parse(h.scoutingUntil) - now)}</p> : null}
       cards={(last) => {
         const brief = intake ? h.messages.findLast((m) => m.from === 'agent' && m.brief)?.brief ?? null : null;
@@ -171,7 +172,7 @@ function ArDialogue({ reqId }: { reqId: string }) {
               {brief.skills.length > 0 && <span className="hire-skills">{brief.skills.map((s) => <i key={s}>{s}</i>)}</span>}
             </div>
             <div className="dlg-prop-act">
-              <button className="btn primary small" onClick={() => void scout()}>Send AR scouting</button>
+              <button className="btn primary small" onClick={() => void scout()}>Go find candidates</button>
             </div>
           </div>
         );
@@ -254,7 +255,7 @@ function Shortlist({ reqId }: { reqId: string }) {
       <div className="hire" ref={ref} role="dialog" aria-modal="true" aria-labelledby="hire-t">
         <header className="hire-head">
           <div>
-            <span className="dlg-tag">AR shortlist · {brief.departmentName}</span>
+            <span className="dlg-tag">Shortlist · {brief.departmentName}</span>
             <h2 id="hire-t">{brief.focus}</h2>
             <span className="muted">Budget {brief.budgetPerDay} credits a day{brief.skills.length ? ` · wants ${brief.skills.join(', ')}` : ''}</span>
           </div>
@@ -276,7 +277,7 @@ function Shortlist({ reqId }: { reqId: string }) {
                   <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{c.costPerDay} credits/day <small title="1 credit = 1 US cent, at 1M input + 100k output tokens a day">estimate{over ? ', over budget' : ''}</small></dd>
                   <dt>Fit</dt><dd><span className="fit" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.fitScore} aria-label="Fit score"><i style={{ width: `${c.fitScore}%` }} /></span> <b>{c.fitScore}</b></dd>
                 </dl>
-                <p className="cand-note"><span>AR:</span> {c.note}</p>
+                <p className="cand-note"><span>Chief of Staff:</span> {c.note}</p>
                 <div className="cand-act">
                   <button className="btn small" onClick={() => call({ mode: 'interview', reqId: h.id, candId: c.id })}>Interview</button>
                   <button className={`btn small${c.serious ? ' primary' : ''}`} onClick={() => setConfirm(c)}>Hire</button>
@@ -287,7 +288,7 @@ function Shortlist({ reqId }: { reqId: string }) {
         </div>
         {confirm && (
           <div className="hire-confirm" role="alertdialog" aria-labelledby="hc-t">
-            <b id="hc-t">{confirm.serious ? `Hire ${confirm.character.name}?` : 'AR has concerns…'}</b>
+            <b id="hc-t">{confirm.serious ? `Hire ${confirm.character.name}?` : 'Your Chief of Staff has concerns…'}</b>
             {!confirm.serious && <p className="bad">“{confirm.note} Boss, are you sure?”</p>}
             <ul>
               <li>Adds {confirm.character.name} to {brief.departmentName} as a new agent with its own Hermes profile{team != null ? ` (team ${team} → ${team + 1})` : ''}.</li>

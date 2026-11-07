@@ -30,7 +30,7 @@ export function ExecRoomModal() {
         </header>
         {m === 'org' && (
           <ol className="org">
-            <li className="org-row ph"><span className="fkey gold">PH</span><b>Executive office</b><span className="muted">You, the assistant, AR</span></li>
+            <li className="org-row ph"><span className="fkey gold">PH</span><b>Executive office</b><span className="muted">You and your Chief of Staff</span></li>
             {depts.map((d) => {
               const st = deptStatus(d.state);
               const active = quests.filter((q) => q.deptId === d.id && !['completed', 'cancelled'].includes(q.summary.status)).length;

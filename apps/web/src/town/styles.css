@@ -898,3 +898,4 @@ button.org-row:hover, button.org-row:focus-visible { border-color: var(--cyan); 
 .burn-bar { position: relative; height: 8px; background: #2A1F4D; } .burn-bar i { position: absolute; inset: 0 auto 0 0; background: var(--cyan); }
 .burn-bar em { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--gold); } .burn li.over .burn-bar i { background: var(--red); }
 .burn-v { font-family: var(--f-mono); font-size: 11px; }
+.cos-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 8px; }

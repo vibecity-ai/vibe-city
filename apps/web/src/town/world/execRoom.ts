@@ -15,10 +15,10 @@ export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number
   { id: 'trophy', label: 'Trophy shelf', b: [0, 118, 0, 8, 20, 46] },
   { id: 'safe', label: 'Safe', b: [0, 70, 0, 16, 18, 20] },
   { id: 'calendar', label: 'Calendar', b: [-1, 76, 21, 2, 15, 19] },
-  { id: 'ar', label: 'AR’s door', b: [-1, 56, 0, 2, 18, 42] },
+  { id: 'ar', label: 'Hiring office', b: [-1, 56, 0, 2, 18, 42] },
   { id: 'org', label: 'Tower map', b: [92, 138, 6, 88, 2, 38] },
   { id: 'table', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
-  { id: 'assistant', label: 'Assistant', b: [104, 92, 0, 8, 8, 34] },
+  { id: 'assistant', label: 'Chief of Staff', b: [104, 92, 0, 8, 8, 34] },
 ];
 export const ASSISTANT_SPOT: Pt = [108, 96];
 

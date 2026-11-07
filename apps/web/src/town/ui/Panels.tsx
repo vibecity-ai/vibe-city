@@ -72,7 +72,7 @@ export function ExecPanel() {
           <p className="sub">{loaded ? 'Everything below is read from Hermes through the Vibe City backend.' : 'Connecting to the backend…'}</p>
           <div className="actions"><Btn kind="secondary" onClick={() => openPanel('board', { composer: false, boardDept: null })}>Quest board</Btn>
             <Btn kind="secondary" onClick={() => openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" sw={3} />New quest</Btn>
-            <Btn kind="secondary" onClick={() => void callAr()}><Icon n="phone" size={14} />Call AR</Btn></div>
+            <Btn kind="secondary" onClick={() => ui$({ newDept: true })}><Icon n="phone" size={14} />Chief of Staff</Btn></div>
         </section>
         <div>
               <QuestLog />

@@ -12,7 +12,7 @@ test('the assistant drafts a floor limited to what Hermes has, and creates nothi
   }));
   const { app } = questApp({ chatModel: model });
   const view = (await app.inject('/api/assistant')).json();
-  assert.equal(view.character.title, 'Executive assistant');
+  assert.equal(view.character.title, 'Chief of Staff');
   assert.equal(view.modelReady, true);
   const before = (await app.inject('/api/departments')).json().departments.length;
   const r = await app.inject({ method: 'POST', url: '/api/assistant/department-draft', payload: { messages: [{ from: 'user', text: 'We need legal help' }] } });

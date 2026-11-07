@@ -2,7 +2,6 @@
    (keyboard and screen readers), so both paths do the same thing. */
 import { useStore } from './store';
 import { api } from '../api';
-import { callAr } from './ui/Hiring';
 import type { ExecObjectId } from './world/execRoom';
 
 export function execAction(id: ExecObjectId) {
@@ -22,8 +21,10 @@ export function execAction(id: ExecObjectId) {
     }
     case 'ar': {
       const h = s.hiring;
+      // the hiring office: an open shortlist or call first, otherwise the Chief of Staff
       if (h && h.state === 'shortlist') s.ui$({ call: { mode: 'shortlist', reqId: h.id } });
-      else void callAr();
+      else if (h && (h.state === 'scouting' || h.state === 'intake')) s.ui$({ call: { mode: 'ar', reqId: h.id } });
+      else s.ui$({ newDept: true });
       break;
     }
   }

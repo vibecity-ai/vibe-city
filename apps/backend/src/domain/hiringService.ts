@@ -16,7 +16,7 @@ import { ModelUnavailableError } from '../model/chatModel.ts';
 import { dailyCredits, priceNote, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
-import { COLORS, FIRST, LAST, QUIRKS, STYLES, TRAITS, hash, pick } from './characters.ts';
+import { COLORS, FIRST, LAST, QUIRKS, STYLES, TRAITS, chiefOfStaff, hash, pick } from './characters.ts';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
 
 export interface HiringDeps {
@@ -65,7 +65,6 @@ const JOKES = [
   { gag: 'guru', title: 'Productivity guru', pitch: "I don't do tasks, I do frameworks. Here's a 40-slide deck about your to-do list.", style: 'motivational poster energy', quirk: 'rebrands every task as a "journey"', traits: ['preachy', 'slow'], cost: 1500, fit: 11, note: 'Will turn one task into a five-week workshop.' },
 ] as const;
 
-const AR_TRAITS = ['sharp', 'blunt'];
 
 export class HiringService {
   private d: HiringDeps;
@@ -73,15 +72,9 @@ export class HiringService {
   private now: () => Date;
   constructor(d: HiringDeps) { this.d = d; this.scoutMs = d.scoutMs ?? 45_000; this.now = d.now ?? (() => new Date()); }
 
-  /** AR's head: a recurring character, the same for the whole company. */
+  /** Who runs hiring: the Chief of Staff (AR merged into it), the same person who drafts floors. */
   ar(): Character {
-    const seed = hash(`${this.d.companyId()}:ar`);
-    return {
-      departmentId: 'company', agentKey: 'ar', role: 'chief',
-      name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`, title: 'Head of Agent Resources',
-      traits: AR_TRAITS, speechStyle: 'brisk headhunter, dry humour, calls you "boss"', quirk: 'never without the clipboard',
-      color: '#7CF5B4', voice: 250 + (seed % 60),
-    };
+    return chiefOfStaff(this.d.companyId());
   }
 
   // ---- requests ---------------------------------------------------------------------------------------------------
@@ -98,8 +91,8 @@ export class HiringService {
   start(departmentId?: string): HiringRequestView {
     const open = this.openRow();
     if (open) return this.view(open.state === 'ringing' ? this.setState(open.id, 'intake') : open);
-    let reason = 'You called AR.';
-    if (departmentId) { const dept = this.d.departments.get(departmentId); reason = `You called AR about ${dept.name}.`; }
+    let reason = 'You asked the Chief of Staff to hire.';
+    if (departmentId) { const dept = this.d.departments.get(departmentId); reason = `You asked the Chief of Staff to hire for ${dept.name}.`; }
     return this.view(this.insert({ kind: 'manual', departmentId: departmentId ?? null, reason }, 'intake'));
   }
 
@@ -152,7 +145,7 @@ export class HiringService {
       const dept = this.d.departments.get(edited.departmentId);
       brief = HiringBriefSchema.parse({ ...edited, departmentName: dept.name });
     }
-    if (!brief) throw new InvalidInputError('AR has no brief yet: tell AR what you need first');
+    if (!brief) throw new InvalidInputError('No brief yet: tell the Chief of Staff what you need first');
     const candidates = await this.scout(r.id, brief);
     const until = new Date(this.now().getTime() + this.scoutMs).toISOString();
     this.d.db.prepare("UPDATE hiring_request SET state = 'scouting', brief_json = ?, department_id = ?, scouting_until = ?, updated_at = ? WHERE id = ?")
@@ -217,7 +210,7 @@ export class HiringService {
     const r = this.row(id);
     if (r.state !== 'shortlist') throw new ConflictError(`no shortlist to hire from (request is ${r.state})`);
     const { candidate: c } = this.candidateHistory(id, candidateId);
-    if (!c.serious && !acceptConcerns) throw new ConflictError('AR has concerns about this candidate: confirm to hire anyway');
+    if (!c.serious && !acceptConcerns) throw new ConflictError('The Chief of Staff has concerns about this candidate: confirm to hire anyway');
     const brief = HiringBriefSchema.parse(JSON.parse(r.brief_json!));
     const before = this.d.departments.agents(brief.departmentId).length;
     if (before > MAX_TEAMMATES) throw new ConflictError(`${brief.departmentName} already has the maximum of ${MAX_TEAMMATES} teammates`);

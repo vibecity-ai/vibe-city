@@ -9,7 +9,7 @@ import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
 import { ModelUnavailableError } from '../model/chatModel.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
-import { FIRST, LAST, hash, pick } from './characters.ts';
+import { chiefOfStaff } from './characters.ts';
 import { modelTier, parseJsonReply } from './hiringService.ts';
 import { dailyCredits, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 
@@ -31,13 +31,7 @@ export class AssistantService {
   constructor(d: AssistantDeps) { this.d = d; }
 
   character(): Character {
-    const seed = hash(`${this.d.companyId()}:assistant`);
-    return {
-      departmentId: 'company', agentKey: 'assistant', role: 'chief',
-      name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`, title: 'Executive assistant',
-      traits: ['organised', 'upbeat'], speechStyle: 'warm, quick, practical', quirk: 'carries a tablet with the tower blueprint',
-      color: '#9B5CFF', voice: 300 + (seed % 80),
-    };
+    return chiefOfStaff(this.d.companyId());
   }
 
   async draftDepartment(messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> {
