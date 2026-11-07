@@ -315,6 +315,38 @@ export class QuestService {
     return { response, filename: att.filename, size: att.size, contentType: att.content_type };
   }
 
+  /** Files attached to one task of the department's own board (the MCP file tools). Unknown or foreign ids are not found. */
+  async taskFiles(departmentId: string, taskId: string): Promise<{ title: string; files: TaskDetail['attachments'] }> {
+    const ctx = this.ctx(departmentId);
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    try {
+      const d = await this.kanban.getTask(ctx.board, taskId);
+      return { title: d.task.title, files: d.attachments };
+    } catch (e) {
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('task not found');
+      throw e;
+    }
+  }
+
+  /** A task file's text, at most `maxChars`. Binary files are refused (chat can only read text). */
+  async readTaskFile(departmentId: string, taskId: string, filename: string, maxChars: number): Promise<{ text: string; truncated: boolean; size: number }> {
+    const { files } = await this.taskFiles(departmentId, taskId);
+    const att = [...files].reverse().find((a) => a.filename === filename); // a re-attached name: the latest wins
+    if (!att) throw new NotFoundError(`no file "${filename}" on task ${taskId}`);
+    if (att.size > MAX_ATTACHMENT_BYTES) throw new ConflictError('file is too large to read');
+    let res: Response;
+    try {
+      res = await this.kanban.downloadAttachment(this.ctx(departmentId).board, att.id);
+    } catch (e) {
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('file is no longer available');
+      throw e;
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.subarray(0, 8192).includes(0)) throw new ConflictError(`"${filename}" is a binary file and cannot be read as text`);
+    const text = new TextDecoder().decode(bytes);
+    return { text: text.slice(0, maxChars), truncated: text.length > maxChars, size: att.size };
+  }
+
   // ---- creation ----------------------------------------------------------------------
 
   async create(departmentId: string, input: QuestCreate): Promise<QuestCreated> {

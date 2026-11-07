@@ -4,13 +4,21 @@
      list_departments   who you can ask, and what they do
      request_quest      ask another department for work (becomes a quest on its board, or waits for the CEO)
      check_request      the state of a request you made, and the result once the other department is done
+     list_task_files    the files attached to a task on your own board
+     read_task_file     one of those files, as text
+   The dialogue-window chat gets only the two file tools, through a second server entry (MCP_CHAT_SERVER_NAME) that its
+   platform list names, so chat can read past work but still cannot act.
    JSON-RPC methods: initialize, notifications/*, ping, tools/list, tools/call. */
 import type { FastifyInstance } from 'fastify';
 import type { QuestDetail } from '@vibe-city/shared';
 import type { QuestRequestService } from '../domain/questRequests.ts';
+import type { QuestService } from '../domain/questService.ts';
 
 export const MCP_SERVER_NAME = 'vibecity';
 export const MCP_TOOLS = ['list_departments', 'request_quest', 'check_request'] as const;
+export const MCP_CHAT_SERVER_NAME = 'vibecity-chat';
+export const MCP_FILE_TOOLS = ['list_task_files', 'read_task_file'] as const;
+const READ_MAX_CHARS = 40_000;
 const PROTOCOL = '2025-06-18';
 
 const TOOLS = [
@@ -39,6 +47,16 @@ const TOOLS = [
     description: 'Check a request you made with request_quest: whether it was created, is waiting for approval or was declined, the quest status, and the result summaries once it is done.',
     inputSchema: { type: 'object', properties: { request_id: { type: 'string' } }, required: ['request_id'], additionalProperties: false },
   },
+  {
+    name: 'list_task_files',
+    description: 'List the files attached to a task on your department\'s Kanban board (reports, data, notes the agents produced). Use a task id from the board, like t_1a2b3c4d.',
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'], additionalProperties: false },
+  },
+  {
+    name: 'read_task_file',
+    description: `Read a text file attached to a task on your department's board (see list_task_files). Long files are cut at ${READ_MAX_CHARS} characters; binary files cannot be read.`,
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, filename: { type: 'string' } }, required: ['task_id', 'filename'], additionalProperties: false },
+  },
 ];
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
@@ -46,6 +64,7 @@ type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; par
 export function registerMcp(app: FastifyInstance, deps: {
   requests: QuestRequestService;
   questDetail: (departmentId: string, questId: string) => Promise<QuestDetail>;
+  files: Pick<QuestService, 'taskFiles' | 'readTaskFile'>;
 }) {
   const text = (t: string, isError = false) => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
 
@@ -69,6 +88,16 @@ export function registerMcp(app: FastifyInstance, deps: {
       const q = await deps.questDetail(r.toDepartmentId, r.questId);
       const results = q.tasks.filter((t) => t.status === 'done' && t.summary).map((t) => `- ${t.title}: ${t.summary}`).join('\n').slice(0, 3000);
       return text(`Request ${r.id}: quest "${q.title}" on ${r.toName}'s board is ${q.status.replace('_', ' ')} (${q.counts.done}/${q.counts.tasks} tasks done).${results ? `\nResults so far:\n${results}` : ''}`);
+    }
+    if (name === 'list_task_files') {
+      const t = await deps.files.taskFiles(dept, str('task_id'));
+      if (!t.files.length) return text(`Task ${str('task_id')} ("${t.title}") has no files attached.`);
+      return text(`Files on task ${str('task_id')} ("${t.title}"):\n${t.files.map((f) => `- ${f.filename} (${f.size} bytes${f.content_type ? `, ${f.content_type}` : ''})`).join('\n')}`);
+    }
+    if (name === 'read_task_file') {
+      if (!str('task_id') || !str('filename')) return text('task_id and filename are required.', true);
+      const f = await deps.files.readTaskFile(dept, str('task_id'), str('filename'), READ_MAX_CHARS);
+      return text(f.truncated ? `${f.text}\n\n[cut at ${READ_MAX_CHARS} characters of ${f.size} bytes]` : f.text);
     }
     return null;
   }

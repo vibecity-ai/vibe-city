@@ -217,6 +217,13 @@ export class RealHermesRuntime implements HermesRuntime {
     await this.cli(['config', 'set', `mcp_servers.${name}`, JSON.stringify(config), '--force'], profile);
   }
 
+  async setPlatformMcpServers(profile: string, platform: ToolsetPlatform, servers: string[]): Promise<void> {
+    for (const s of servers) if (!PROFILE_RE.test(s)) throw new HermesRejectedError('invalid MCP server name');
+    // `tools enable` refuses MCP names, but its later saves keep them in the list, so writing them once sticks.
+    const on = Object.entries(await this.getToolsets(profile, platform)).filter(([, v]) => v).map(([k]) => k);
+    await this.cli(['config', 'set', `platform_toolsets.${platform}`, JSON.stringify([...new Set([...on, ...servers])].sort()), '--force'], profile);
+  }
+
   async setProfileEnv(profile: string, vars: Record<string, string>): Promise<void> {
     for (const [name, value] of Object.entries(vars)) {
       if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(name) || !value || /[\r\n\0]/.test(value)) throw new HermesRejectedError(`invalid env variable ${name}`);

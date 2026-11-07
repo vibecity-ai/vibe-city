@@ -38,7 +38,7 @@ import { HiringService } from './domain/hiringService.ts';
 import type { ModelPrices } from './model/nearPrices.ts';
 import { AssistantService } from './domain/assistantService.ts';
 import { QuestRequestService } from './domain/questRequests.ts';
-import { MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
+import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
@@ -328,13 +328,19 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const questRequests = new QuestRequestService({
     db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
   });
-  registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q) });
+  registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
   if (extra.mcpUrl && hermes?.setMcpServer) {
     const url = extra.mcpUrl, rt = hermes;
     provisioning.afterProvision = async (deptId, profiles) => {
       // One token per department, shared by its agents (issuing rotates it, so every profile gets the new one).
       const token = questRequests.issueToken(deptId);
-      for (const p of profiles) await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers: { Authorization: `Bearer ${token}` }, tools: { include: [...MCP_TOOLS] } });
+      const headers = { Authorization: `Bearer ${token}` };
+      for (const p of profiles) {
+        await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers, tools: { include: [...MCP_TOOLS] } });
+        await rt.setMcpServer!(p, MCP_CHAT_SERVER_NAME, { url, headers, tools: { include: [...MCP_FILE_TOOLS] } });
+        // Naming the read-only entry makes chat's list an allowlist: chat reads task files but gets no request_quest.
+        await rt.setPlatformMcpServers?.(p, 'api_server', [MCP_CHAT_SERVER_NAME]);
+      }
     };
   }
   // ---- the safe (feature spec 6.1): wallets, treasury and credits, read-only; signing happens in the user's wallet ----

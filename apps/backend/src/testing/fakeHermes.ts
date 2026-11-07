@@ -177,6 +177,10 @@ export class FakeHermes implements HermesRuntime {
   async setMcpServer(profile: string, name: string, config: { url: string; headers: Record<string, string>; tools: { include: string[] } }): Promise<void> {
     this.mcpServers.set(profile, { ...(this.mcpServers.get(profile) ?? {}), [name]: config });
   }
+  platformMcp = new Map<string, Record<string, string[]>>();
+  async setPlatformMcpServers(profile: string, platform: ToolsetPlatform, servers: string[]): Promise<void> {
+    this.platformMcp.set(profile, { ...(this.platformMcp.get(profile) ?? {}), [platform]: [...servers] });
+  }
   /** Each profile's .env (API_SERVER_KEY is what the gateway API server accepts for it). */
   env = new Map<string, Record<string, string>>();
   async setProfileEnv(profile: string, vars: Record<string, string>): Promise<void> {
