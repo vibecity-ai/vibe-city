@@ -17,3 +17,4 @@ export interface HermesTask {
   result: string | null;
   last_failure_error: string | null;
 }
+export * from './templates/index.ts';

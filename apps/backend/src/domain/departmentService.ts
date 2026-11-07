@@ -1,10 +1,11 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment,
+  InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, templateById,
   type DepartmentAgent, type DepartmentCreate, type DepartmentUpdate, type DepartmentView, type Inventory, type InventoryPatch, type ModelChoice,
 } from '@vibe-city/shared';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
+import { generateCharacter } from './characters.ts';
 
 interface Row {
   id: string; company_id: string; name: string; purpose: string; floor_order: number;
@@ -24,6 +25,8 @@ export interface AgentRow {
   department_id: string; agent_key: string; seat: number;
   profile_ref: string | null; origin: 'created' | 'associated' | null; verified_at: string | null;
   model_json: string | null; skills_json: string; created_at: string; fired_at: string | null;
+  /** The seat title from the agent's persona, for departments hired from a template (null otherwise). */
+  seat_title?: string | null;
 }
 
 export const LEAD_KEY = 'chief';
@@ -37,6 +40,7 @@ const RESERVED_PROFILES = new Set(['default']);
 export function agentView(a: AgentRow): DepartmentAgent {
   return {
     key: a.agent_key, lead: a.seat === 0, profileRef: a.profile_ref, model: agentModel(a), skills: agentSkills(a), createdAt: a.created_at,
+    ...(a.seat_title ? { title: a.seat_title } : {}),
   };
 }
 
@@ -133,7 +137,10 @@ export class DepartmentService {
 
   /** The department's agents, lead first. */
   agents(id: string): AgentRow[] {
-    return this.db.prepare('SELECT * FROM department_agent WHERE department_id = ? AND fired_at IS NULL ORDER BY seat').all(id) as unknown as AgentRow[];
+    return this.db.prepare(`SELECT a.*, CASE WHEN d.template_id IS NOT NULL THEN json_extract(c.character_json, '$.title') END AS seat_title
+      FROM department_agent a JOIN department d ON d.id = a.department_id
+      LEFT JOIN agent_character c ON c.department_id = a.department_id AND c.agent_key = a.agent_key
+      WHERE a.department_id = ? AND a.fired_at IS NULL ORDER BY a.seat`).all(id) as unknown as AgentRow[];
   }
 
   lead(id: string): AgentRow {
@@ -225,7 +232,11 @@ export class DepartmentService {
   }
 
   create(input: DepartmentCreate): DepartmentView {
-    const inventory = mergeInventory(InventorySchema.parse({}), input.inventory ?? {});
+    // A template (brief 01) brings the inventory, the purpose and one seat per agent; what the caller gives wins.
+    const t = input.template ? templateById(input.template) : null;
+    if (input.template && (!t || t.hidden)) throw new InvalidInputError(`unknown template: ${input.template}`);
+    const inventory = mergeInventory(t ? t.inventory : InventorySchema.parse({}), input.inventory ?? {});
+    const seats = t ? t.seats : Array.from({ length: input.teammates + 1 }, () => null);
     return this.tx(() => {
       this.assertUniqueName(input.name);
       const id = randomUUID();
@@ -235,11 +246,19 @@ export class DepartmentService {
       this.db.prepare(
         `INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, this.companyId, input.name, nameKey(input.name), input.purpose, next, now, now);
+      ).run(id, this.companyId, input.name, nameKey(input.name), input.purpose || t?.purpose || '', next, now, now);
       this.db.prepare('INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, ?, ?)')
         .run(id, JSON.stringify(inventory), now);
-      for (let seat = 0; seat <= input.teammates; seat++) this.insertAgent(id, seat, { model: null, skills: [] }, now);
-      this.db.prepare('UPDATE department SET last_seat = ? WHERE id = ?').run(input.teammates, id);
+      seats.forEach((s, seat) => {
+        this.insertAgent(id, seat, { model: s?.model ?? null, skills: s?.skills ?? [] }, now);
+        // the seat's job title lives on the agent's persona (the city and the dialogue window read it from there)
+        if (s) {
+          const c = { ...generateCharacter(id, input.name, seatKey(seat)), title: s.title };
+          this.db.prepare('INSERT INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)').run(id, seatKey(seat), JSON.stringify(c), now);
+        }
+      });
+      if (t) this.db.prepare('UPDATE department SET template_id = ? WHERE id = ?').run(t.id, id);
+      this.db.prepare('UPDATE department SET last_seat = ? WHERE id = ?').run(seats.length - 1, id);
       return this.get(id);
     });
   }

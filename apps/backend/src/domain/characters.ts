@@ -64,6 +64,8 @@ export class CharacterService {
       .get(departmentId, agentKey) as { character_json: string } | undefined;
     if (row) {
       const c = CharacterSchema.parse(JSON.parse(row.character_json));
+      // a generated title follows the department's name; a template seat's title ("Risk Officer") is kept
+      if (!/ (lead|specialist)$/.test(c.title)) return c;
       const fresh = generateCharacter(departmentId, deptName, agentKey);
       return { ...c, title: fresh.title };
     }

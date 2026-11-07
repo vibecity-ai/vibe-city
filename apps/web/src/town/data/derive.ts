@@ -69,6 +69,7 @@ export function deriveDept(i: DeriveInput): Dept {
       status: disconnected ? 'disconnected' : t ? workerStatus(t) : 'idle',
       since: t ? hhmm(t.status === 'done' ? t.completedAt : t.startedAt ?? t.createdAt) : hhmm(a.createdAt),
       shirt: SHIRTS[idx % SHIRTS.length]!,
+      ...(a.title ? { title: a.title } : {}),
     };
   });
 
@@ -78,7 +79,7 @@ export function deriveDept(i: DeriveInput): Dept {
   const lead = v.agents.find((a) => a.lead);
   let chief: Chief | null = null;
   if (staffed) {
-    const base = { name: `${v.name} Lead`, profile: lead?.profileRef ?? '', model: i.chiefModel };
+    const base = { name: `${v.name} Lead`, profile: lead?.profileRef ?? '', model: i.chiefModel, ...(lead?.title ? { title: lead.title } : {}) };
     if (disconnected) chief = { ...base, status: 'disconnected', activity: 'Hermes is not reachable', since: hhmm(v.updatedAt) };
     else if (runningChief) {
       const q = runningChief.q;

@@ -8,9 +8,9 @@ export type AgentStatus = 'running' | 'idle' | 'completed' | 'failed' | 'disconn
 export type DeptState = 'active' | 'idle' | 'attention' | 'offline' | 'unconfigured';
 
 /** A teammate's desk. `id` is the agent key (W-01…); `taskId`/`task` are the Hermes task it is on (null/'' when free). */
-export interface Worker { id: string; profile: string | null; taskId: string | null; task: string; status: AgentStatus; since: string; shirt: string }
+export interface Worker { id: string; profile: string | null; taskId: string | null; task: string; status: AgentStatus; since: string; shirt: string; /** Seat title from a template (brief 01). */ title?: string }
 /** The lead agent: new quests are assigned to it. Same kind of agent as a teammate, at the big desk. */
-export interface Chief { name: string; profile: string; model: string | null; status: AgentStatus; activity: string; since: string }
+export interface Chief { name: string; profile: string; model: string | null; status: AgentStatus; activity: string; since: string; /** Seat title from a template (brief 01). */ title?: string }
 
 export interface Dept {
   id: string; name: string; purpose: string; state: DeptState;

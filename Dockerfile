@@ -41,6 +41,8 @@ USER root
 # Hermes bundles Node 26 (/usr/local/bin/node -> /opt/hermes/tools/node-*); reuse it instead of adding a second copy
 # (~150 MB). Fails the build if Hermes stops shipping it or ships another major (the backend needs Node 26).
 RUN node --version | grep -q '^v26\.'
+# gh for the Software Department's agents (brief 01): they open pull requests from the terminal with GH_TOKEN.
+RUN apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/vibe-city
 COPY --from=deps /src/node_modules node_modules

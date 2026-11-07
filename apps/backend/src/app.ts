@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
-  CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, DepartmentUpdateSchema, DepartmentViewSchema,
+  CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
   InventoryPatchSchema, InventorySchema, ChatSessionIdSchema, HERMES_TASK_ID_RE, TaskAnswerSchema, TaskStepsViewSchema,
 } from '@vibe-city/shared';
 import {
@@ -157,7 +157,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
 
   app.post('/api/departments', async (req, reply) => {
-    const dept = departments.create(parse(DepartmentCreateSchema, req.body));
+    const input = parse(DepartmentCreateSchema, req.body);
+    const dept = departments.create(input);
+    // a template that runs on a loop gets one schedule, off until the CEO turns it on (brief 01)
+    const t = input.template ? templateById(input.template) : null;
+    if (t?.loop) schedules.create(dept.id, { name: t.name, cron: '0 9 * * *', timezone: 'UTC', title: `${t.name}: daily run`, objective: `Do today's work for ${t.name} as the department purpose describes, and report what you did.`, instructions: '', enabled: false });
     return reply.code(201).send(parse(DepartmentViewSchema, dept));
   });
 

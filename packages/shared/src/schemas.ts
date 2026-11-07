@@ -116,6 +116,8 @@ export const DepartmentAgentSchema = z.object({
   /** Skills the agent has on top of the department's allowance (from its hire). */
   skills: z.array(z.string()),
   createdAt: z.string(),
+  /** The seat's job title when the department was hired from a template (brief 01), e.g. "Risk Officer". */
+  title: z.string().optional(),
 }).strict();
 export type DepartmentAgent = z.infer<typeof DepartmentAgentSchema>;
 

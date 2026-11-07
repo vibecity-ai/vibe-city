@@ -22,6 +22,7 @@ import { callAr } from './Hiring';
 import { PendingRequests } from './Requests';
 import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, NeedsInput, PersonaLine, TaskSteps } from './AgentView';
 import { SchedulesView } from './Schedules';
+import { HireGrid, type HireTemplate } from './HirePanel';
 
 
 /* ============ top bar ============ */
@@ -125,7 +126,7 @@ export function ExecPanel() {
               </section>
         </div>
       </div>
-      <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ newDept: true })}><Icon n="plus" sw={3} />Add department</button></div>
+      <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add department</button></div>
     </div>
   );
 }
@@ -1076,18 +1077,30 @@ export function CreateDeptModal() {
   const [filter, setFilter] = useState('');
   const [workers, setWorkers] = useState(0);
   const [provisionNow, setProvisionNow] = useState(true);
+  // brief 01: the form opens on the template grid; a picked template pre-fills every step
+  const [picking, setPicking] = useState(true);
+  const [tpl, setTpl] = useState<HireTemplate | null>(null);
   const ref = useRef<HTMLFormElement>(null);
   const open = s.ui.modal === 'create';
   useDialog(ref, open, () => s.ui$({ modal: null }));
   useEffect(() => {
     if (!open) return;
+    setPicking(true); setTpl(null);
     setStep(0); setName(''); setPurpose(''); setDefaults(null); setLoadErr(null); setCatalog(null); setCatalogErr(null); setToolsets([]); setSkills([]); setModel(null); setFilter(''); setWorkers(0); setProvisionNow(true);
   }, [open]);
   if (!open) return null;
   const busy = !!s.busy.create || !!Object.keys(s.busy).find((k) => k.startsWith('provision:') && s.busy[k]);
   const next = s.depts.length + 1;
 
+  const fromTemplate = (t: HireTemplate) => {
+    setToolsets(t.inventory.allowedToolsets.filter(isToolset)); setSkills(t.inventory.allowedSkillIds); setModel(t.inventory.model);
+  };
+  const pick = (t: HireTemplate | null) => {
+    setTpl(t); setPicking(false); setStep(0);
+    if (t) { setName(t.name); setPurpose(t.purpose); setWorkers(t.seats.length - 1); fromTemplate(t); }
+  };
   const applyDefaults = (v: HermesDefaultsView, cat: HermesModelsView | null = catalog) => {
+    if (tpl) { fromTemplate(tpl); return; }
     setToolsets(v.toolsets.filter((t) => t.enabled && t.manageable).map((t) => t.name).filter(isToolset));
     setSkills(v.skills.filter((x) => x.enabled).map((x) => x.name));
     // The default profile's current pair, when Hermes offers it.
@@ -1110,6 +1123,7 @@ export function CreateDeptModal() {
     void createDepartment({
       name: name.trim(), purpose: purpose.trim(),
       inventory: { allowedToolsets: toolsets, allowedSkillIds: skills, model }, teammates: workers,
+      ...(tpl ? { template: tpl.id } : {}),
     }, provisionNow && canProvision);
   };
   const shownSkills = (defaults?.skills ?? []).filter((x) => x.name.includes(filter.trim().toLowerCase()));
@@ -1119,7 +1133,9 @@ export function CreateDeptModal() {
       <form ref={ref} className="modal wide" role="dialog" aria-modal="true" aria-labelledby="cd-t" aria-busy={busy}
         onSubmit={(e) => { e.preventDefault(); if (step < 2) { if (name.trim()) go(step + 1); } else submit(); }}>
         <div className="head-row"><Where n={'F' + next} tone="amber">New floor</Where><button type="button" className="x" onClick={() => s.ui$({ modal: null })} aria-label="Close"><Icon n="x" /></button></div>
-        <h2 id="cd-t" className="display">Create a department</h2>
+        <h2 id="cd-t" className="display">{picking ? 'Hire a department' : tpl ? `Hire the ${tpl.name}` : 'Create a department'}</h2>
+        {picking && <HireGrid onPick={pick} onBlank={() => pick(null)} onAssistant={() => s.ui$({ modal: null, newDept: true })} />}
+        {!picking && <>
         <ol className="wiz-steps" aria-label="Steps">
           {WIZARD_STEPS.map((t, i) => <li key={t} className={i === step ? 'on' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined}><span className="num">{i + 1}</span>{t}</li>)}
         </ol>
@@ -1171,9 +1187,10 @@ export function CreateDeptModal() {
         </>}
 
         {step === 2 && <>
-          <Field label="Teammates (0–10)" hint={workers === 0 ? 'No teammates: the lead does the work itself. You can hire more later.' : `The lead may hand parts of a quest to its teammates. ${LIMIT_COPY.teammates}`}>
+          {tpl ? <p className="sub">The team comes with the template: {tpl.seats.map((x, i) => <span key={x.title}>{i ? ' · ' : ''}<b>{x.title}</b>{i === 0 ? ' (lead)' : ''}</span>)}.</p>
+          : <Field label="Teammates (0–10)" hint={workers === 0 ? 'No teammates: the lead does the work itself. You can hire more later.' : `The lead may hand parts of a quest to its teammates. ${LIMIT_COPY.teammates}`}>
             {(p) => <input {...p} className="input mono" type="number" min={0} max={10} value={workers} onChange={(e) => setWorkers(Math.max(0, Math.min(10, Math.round(Number(e.target.value)) || 0)))} />}
-          </Field>
+          </Field>}
           <KV rows={[
             ['Name', name.trim()],
             ['Toolsets', <span className="mono">{[...toolsets].sort().join(', ') || 'none'}</span>],
@@ -1186,11 +1203,12 @@ export function CreateDeptModal() {
         </>}
 
         <div className="row end">
-          {step === 0 ? <Btn onClick={() => s.ui$({ modal: null })}>Cancel</Btn> : <Btn onClick={() => setStep(step - 1)} disabled={busy}>Back</Btn>}
+          {step === 0 ? <Btn onClick={() => setPicking(true)}>Back</Btn> : <Btn onClick={() => setStep(step - 1)} disabled={busy}>Back</Btn>}
           {step < 2
             ? <button className="btn primary lg" type="submit" disabled={!name.trim() || (step === 1 && loading)}>{step === 1 && !defaults ? 'Continue without defaults' : 'Next'}</button>
             : <button className="btn primary lg" type="submit" aria-busy={busy || undefined} disabled={!name.trim() || busy}>{busy ? (s.busy.create ? 'Creating…' : 'Syncing…') : provisionNow && canProvision ? 'Create and sync' : 'Create department'}</button>}
         </div>
+        </>}
       </form>
     </div>
   );

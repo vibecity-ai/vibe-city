@@ -99,7 +99,7 @@ export function StageOverlay({ city }: { city: City | null }) {
           <button ref={set('ph')} className={`sign ph${ui.panel === 'exec' && ui.view === 'tower' ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} aria-label="Executive office: go inside">
             <span className="line" /><b className="fkey gold">PH</b>Executive office
           </button>
-          <button ref={set('ghost')} className="sign ghost" onClick={() => ui$({ newDept: true })}><span className="line" /><Icon n="plus" size={14} sw={3} />Add department</button>
+          <button ref={set('ghost')} className="sign ghost" onClick={() => ui$({ modal: 'create' })}><span className="line" /><Icon n="plus" size={14} sw={3} />Add department</button>
           {depts.map((d, i) => {
             const st = deptStatus(d.state); const sel = ui.floorId === d.id;
             return (
@@ -115,10 +115,10 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* name tags for people in the open office */}
       {openDept && (
         <div className="tags">
-          {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), k: w.status as StatusKey }))].map((t) => (
+          {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), title: openDept.chief.title, k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), title: w.title, k: w.status as StatusKey }))].map((t) => (
             <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => useStore.getState().openPanel('agent', { agent: t.id }))}
               onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onAuxClick={(e) => { if (e.button === 1) ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }); }}>
-              <Glyph k={t.k} />{t.label}
+              <Glyph k={t.k} />{t.label}{t.title && <small className="tag-title">{t.title}</small>}
             </button>
           ))}
         </div>
@@ -148,7 +148,7 @@ export function StageOverlay({ city }: { city: City | null }) {
             <b className="hq-n" data-t={n + 1}>{n + 1}</b>
             <span className="hq-t"><b>floors tall</b><span>Executive office and {n} departments</span></span>
           </div>
-          <button className="btn primary block" onClick={() => ui$({ newDept: true })}><Icon n="plus" sw={3} />Add department</button>
+          <button className="btn primary block" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add department</button>
         </div>
       )}
       {ui.view === 'floor' && openDept && (
