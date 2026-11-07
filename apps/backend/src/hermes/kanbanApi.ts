@@ -79,6 +79,8 @@ export interface KanbanApi {
    */
   archiveTask(board: string, id: string): Promise<void>;
   addComment(board: string, id: string, author: string, body: string): Promise<void>;
+  /** blocked -> back to its resumable phase (Hermes' unblock; a dashboard move to `ready`). */
+  unblockTask(board: string, id: string): Promise<void>;
   /** Streams an attachment's bytes. The caller must have authorized (board, attachment) first. */
   downloadAttachment(board: string, attachmentId: number): Promise<Response>;
 }

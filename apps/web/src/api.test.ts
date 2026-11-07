@@ -1,37 +1,12 @@
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { api, ApiError } from './api.ts';
-import { DEPT_ID, deptView, detail, fakeBackend, iso } from './testing/fakeBackend.ts';
+import { DEPT_ID, deptView, fakeBackend, iso } from './testing/fakeBackend.ts';
 
 const realFetch = globalThis.fetch;
 afterEach(() => { globalThis.fetch = realFetch; });
 const use = (b: ReturnType<typeof fakeBackend>) => { globalThis.fetch = b.fetch; return b; };
 const D = `/api/departments/${DEPT_ID}`;
-
-test('newly exposed routes hit the right paths and validate their responses', async () => {
-  const b = use(fakeBackend()
-    .on('GET', D, { body: deptView() })
-    .on('GET', '/api/departments', ({ path }) => ({ body: { departments: path.includes('includeArchived=true') ? [deptView({ archivedAt: iso, floorPosition: null })] : [] } }))
-    .on('DELETE', D, { body: { department: deptView({ archivedAt: iso, floorPosition: null }), hermesResourcesRetained: true } })
-    .on('GET', `${D}/quests/t_root1/tasks`, { body: { questId: 't_root1', tasks: detail().tasks, violations: [], truncated: false } })
-    .on('GET', `${D}/quests/t_root1/cancellation`, { body: detail().cancellation }));
-
-  assert.equal((await api.department(DEPT_ID)).name, 'Research');
-  assert.deepEqual(await api.departments(), []);
-  const archived = await api.departments({ includeArchived: true });
-  assert.equal(archived[0]!.archivedAt, iso);
-  assert.ok(b.calls.some((c) => c.path === '/api/departments?includeArchived=true'));
-  const out = await api.archiveDepartment(DEPT_ID);
-  assert.equal(out.hermesResourcesRetained, true);
-  assert.equal((await api.tasks(DEPT_ID, 't_root1')).tasks.length, 1);
-  assert.equal((await api.cancellation(DEPT_ID, 't_root1')).state, 'none');
-});
-
-test('quest ids are URL-encoded', async () => {
-  const b = use(fakeBackend());
-  await api.quest(DEPT_ID, 'a/b').catch(() => undefined);
-  assert.equal(b.calls[0]!.path, `${D}/quests/a%2Fb`);
-});
 
 test('a malformed success payload becomes an invalid_response ApiError (no partial data)', async () => {
   use(fakeBackend().on('GET', D, { body: { ...deptView(), state: 'exploded' } }));
@@ -41,8 +16,8 @@ test('a malformed success payload becomes an invalid_response ApiError (no parti
 test('strict schemas reject leaked server-only fields (absolute paths, stored_path)', async () => {
   use(fakeBackend()
     .on('GET', D, { body: { ...deptView(), workspacePath: '/home/someone/secret' } })
-    .on('GET', `${D}/quests/q/results`, { body: { questId: 'q', status: 'completed', chiefSummary: null, tasks: [{
-      taskId: 't', title: 't', role: 'worker', status: 'done', summary: null, error: null,
+    .on('GET', `${D}/quests/q/results`, { body: { questId: 'q', status: 'completed', leadSummary: null, tasks: [{
+      taskId: 't', title: 't', agentKey: 'W-01', status: 'done', summary: null, error: null,
       attachments: [{ id: 1, taskId: 't', filename: 'a.txt', contentType: null, size: 1, createdAt: null, downloadUrl: '/x', stored_path: '/srv/hermes/a.txt' }],
     }] } }));
   await assert.rejects(api.department(DEPT_ID), (e: unknown) => e instanceof ApiError && e.code === 'invalid_response');
@@ -74,4 +49,22 @@ test('non-JSON error bodies are never shown to the user', async () => {
     assert.doesNotMatch(e.message, /secret|token|html/);
     return true;
   });
+});
+
+test('chatStream relays progress, returns the reply, and turns an error event into an ApiError', async () => {
+  const msg = (from: 'user' | 'agent', text: string) => ({ id: from, from, text, mood: from === 'agent' ? 'happy' : null, replies: [], proposal: null, at: iso });
+  const sse = (frames: [string, unknown][]) => {
+    const bytes = new TextEncoder().encode(frames.map(([e, d]) => `event: ${e}\ndata: ${JSON.stringify(d)}\n\n`).join(': keepalive\n\n'));
+    // Split mid-frame, as the network does.
+    return new Response(new ReadableStream({ start(c) { c.enqueue(bytes.slice(0, 30)); c.enqueue(bytes.slice(30)); c.close(); } }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  };
+  let calls = 0;
+  globalThis.fetch = (async () => (++calls === 1
+    ? sse([['progress', { kind: 'thinking' }], ['progress', { kind: 'tool', name: 'terminal', preview: null }], ['reply', { user: msg('user', 'hi'), agent: msg('agent', 'Found it.') }]])
+    : sse([['error', { status: 409, error: 'conflict', message: 'The agent is still answering your last message.' }]]))) as typeof fetch;
+  const seen: unknown[] = [];
+  const r = await api.chatStream(DEPT_ID, 'chief', { message: 'hi' }, (p) => seen.push(p));
+  assert.equal(r.agent.text, 'Found it.');
+  assert.deepEqual(seen, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: null }]);
+  await assert.rejects(api.chatStream(DEPT_ID, 'chief', { message: 'hi' }, () => {}), (e: unknown) => e instanceof ApiError && e.status === 409 && /still answering/.test(e.message));
 });

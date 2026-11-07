@@ -11,8 +11,8 @@
 # Runs after Hermes' own setup (01/015/02) and before any service. Idempotent:
 #   - the providers.near-ai block is (re)written in the main config and in every existing profile, so profiles
 #     cloned before NEAR was configured can use it too;
-#   - model.provider/model.default are only set while no provider has been chosen (unset or "auto"), so a choice
-#     made later in Hermes or in Vibe City is never overwritten on restart.
+#   - model.provider/model.default are only set (main config and every profile) while no provider has been chosen
+#     (unset or "auto"), so a choice made later in Hermes or in Vibe City is never overwritten on restart.
 
 if [ -z "${NEAR_AI_API_KEY:-}" ]; then
     echo "[vibe-city] NEAR_AI_API_KEY is not set; NEAR AI Cloud is not configured."
@@ -51,19 +51,24 @@ configure_reasoning() {
     fi
 }
 
+configure_model() {
+    case "$(get "$1" model.provider)" in
+        ""|auto|null|None)
+            h "$1" config set model.provider near-ai >/dev/null &&
+            h "$1" config set model.default "$model" >/dev/null &&
+            echo "[vibe-city] Default model set to $model on NEAR AI Cloud${1:+ for profile $1}."
+            ;;
+    esac
+}
+
 configure_provider ""
 configure_reasoning ""
-case "$(get "" model.provider)" in
-    ""|auto|null|None)
-        h "" config set model.provider near-ai >/dev/null &&
-        h "" config set model.default "$model" >/dev/null &&
-        echo "[vibe-city] Default model set to $model on NEAR AI Cloud."
-        ;;
-esac
+configure_model ""
 
 for dir in "$HERMES_HOME"/profiles/*/; do
     [ -d "$dir" ] || continue
     configure_provider "$(basename "$dir")"
     configure_reasoning "$(basename "$dir")"
+    configure_model "$(basename "$dir")"
 done
 exit 0

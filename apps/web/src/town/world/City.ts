@@ -4,11 +4,17 @@
 import { useStore, type Fx, type State } from '../store';
 import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
-import { getSprite, ghostSprite, lookFor, mix, AX, AY, type Look } from './sprites';
+import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
 import {
   mkP, shell, wallLive, roomLights, deskStatic, deskLive, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast, meetingStatic,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
+import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, type ExecObjectId } from './execRoom';
+import { execAction } from '../execActions';
+import { hull } from './interior';
+
+/** The Executive Office uses the department shell with its own (warmer, darker) floor. */
+const EXEC_THEME = { theme: { floor: '#4A2E44', accent: '#FFC75A' }, name: 'Executive office' } as unknown as Dept;
 import { cityFront } from './citybg';
 import { backdrop, lobby, floorFacade, ghostFloor, penthouse, pip, FH, PH_H, HEX, type FaceAgent } from './tower';
 
@@ -19,14 +25,14 @@ const easeIO = (t: number) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2
 const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
 const XS = [36, 84, 120, 156, 192];
 
-export interface Anchor { id: string; kind: 'floor' | 'ph' | 'ghost' | 'agent'; x: number; y: number; visible: number; z: number }
+export interface Anchor { id: string; kind: 'floor' | 'ph' | 'ghost' | 'agent' | 'obj'; x: number; y: number; visible: number; z: number }
 interface FloorAnim { target: number; y: number; vy: number; alpha: number; pull: number; open: number; flash: number; flashCol: string; shimmer: number; born: number }
 interface Actor {
   id: string; look: Look; u: number; v: number; path: Pt[]; seat: Pt; mode: 'seat' | 'walk' | 'stand';
   dir: 'f' | 'b'; flip: boolean; walkT: number; standUntil: number; next: number; status: AgentStatus; alpha: number; bubble: number;
 }
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; col: string; size: number; grav: number; glow: boolean }
-interface Packet { from: Pt; to: Pt; t: number; d: number; dept: string; done?: boolean }
+interface Packet { from: Pt; to: Pt; t: number; d: number; dept: string; done?: boolean; big?: boolean }
 interface Pop { x: number; y: number; t: number; st: AgentStatus }
 interface Ring { x: number; y: number; r: number; max: number; col: string }
 interface Shell { key: string; a: HTMLCanvasElement; m: HTMLCanvasElement }
@@ -45,6 +51,10 @@ export class City {
   private actors = new Map<string, Map<string, Actor>>();
   private elev = new Map<string, number>();
   private shells = new Map<string, Shell>();
+  /** 0..1: how far the Executive Office is opened up (feature spec 3.1). */
+  private execOpen = 0; hoverObj: ExecObjectId | null = null;
+  /** A long press in progress on an agent (opens the chat when it completes). */
+  private press: { id: number; x: number; y: number; start: number; agent: string; fired: boolean; timer: number } | null = null;
   private particles: Particle[] = []; private packets: Packet[] = []; private pops: Pop[] = []; private rings: Ring[] = [];
   private t = 0; private last = 0; private raf = 0; private intro = 0; private fxSeen = 0;
   private hover: string | null = null;
@@ -88,7 +98,19 @@ export class City {
       const zi = Math.min((W * 0.94) / 392, (H * (W < 700 ? 0.7 : 0.78)) / 256);
       const k = zi * this.dpr, kr = Math.round(k), kf = Math.floor(k);
       const z = kr >= 1 && kr <= k * 1.1 ? kr / this.dpr : kf >= 1 && kf >= k * 0.8 ? kf / this.dpr : zi;
+      // dialogue window open: close in on the speaker, framed in the open left part of the screen
+      const talk = s.ui.talk;
+      if (talk && talk.deptId === open) {
+        const a = this.actors.get(open)?.get(talk.agentKey);
+        if (a) { const p = this.interiorPt(open, a.u, a.v, 20); return { x: p[0], y: p[1], z: z * 2, sx: W * (W < 700 ? 0.27 : 0.34), sy: H * (W < 700 ? 0.2 : 0.47) }; }
+      }
       return { x: 192, y: T + 54, z, sx: W / 2, sy: H * (W < 700 ? 0.5 : 0.53) };
+    }
+    if (s.ui.execRoom) {
+      const zi = Math.min((W * 0.94) / 392, (H * (W < 700 ? 0.7 : 0.78)) / 256);
+      const k = zi * this.dpr, kr = Math.round(k), kf = Math.floor(k);
+      const z = kr >= 1 && kr <= k * 1.1 ? kr / this.dpr : kf >= 1 && kf >= k * 0.8 ? kf / this.dpr : zi;
+      return { x: 192, y: this.execT() + 54, z, sx: W / 2, sy: H * (W < 700 ? 0.5 : 0.53) };
     }
     const top = -FH * n - FH - PH_H - 150, bottom = 240;
     const labels = W > 760 ? 250 : 0;
@@ -98,6 +120,8 @@ export class City {
     if (labels) sx = Math.min(Math.max(sx, 330 + 150 * z), W - labels - 150 * z);
     return { x: 190 + this.user.dx, y: (top + bottom) / 2 + this.user.dy, z, sx, sy: H / 2 + (W < 900 ? 10 : 0) };
   }
+  /** Top of the exec room in world space: its floor plane sits on the penthouse's floor. */
+  private execT() { return this.ph.y + PH_H - 56; }
   private toScreen(x: number, y: number): Pt { return [(x - this.cam.x) * this.cam.z + this.camS.x, (y - this.cam.y) * this.cam.z + this.camS.y]; }
   private toWorld(sx: number, sy: number): Pt { return [(sx - this.camS.x) / this.cam.z + this.cam.x, (sy - this.camS.y) / this.cam.z + this.cam.y]; }
 
@@ -133,7 +157,8 @@ export class City {
     for (const id of [...this.floors.keys()]) if (!s.depts.some((d) => d.id === id)) this.floors.delete(id);
     const phTarget = -FH * n - FH - PH_H - (openIdx >= 0 ? 250 * (this.floors.get(open!)?.open ?? 0) : 0);
     if (this.t > 0.15 + (n + 1) * 0.11) { const a = -160 * (this.ph.y - phTarget) - 18 * this.ph.vy; this.ph.vy += a * dt; this.ph.y += this.ph.vy * dt; }
-    this.ghostA = damp(this.ghostA, open ? 0 : 1, 6, dt);
+    this.execOpen = damp(this.execOpen, s.ui.execRoom ? 1 : 0, 4.5, dt);
+    this.ghostA = damp(this.ghostA, open || s.ui.execRoom ? 0 : 1, 6, dt);
     const tg = this.camTarget(s), k = this.drag?.moved ? 30 : 5;
     this.cam.x = damp(this.cam.x, tg.x, k, dt); this.cam.y = damp(this.cam.y, tg.y, k, dt); this.cam.z = damp(this.cam.z, tg.z, k * 0.9, dt);
     if (Math.abs(this.cam.z - tg.z) < 0.004) this.cam.z = tg.z;
@@ -160,6 +185,8 @@ export class City {
           m.set(w.id, a);
         }
         a.seat = seat;
+        const prop = quirkProp(s.personas[d.id + ':' + w.id]?.quirk);
+        if ((a.look.prop ?? null) !== prop) a.look = { ...a.look, prop };
         if (a.status !== w.status) { a.status = w.status; this.onStatus(a); }
         this.stepActor(a, dt);
       }
@@ -240,6 +267,26 @@ export class City {
         const a = this.actors.get(fx.dept)?.get('chief'); if (a) a.bubble = 1.2;
         break;
       }
+      case 'standup': {
+        // A schedule fired: everyone gathers at the Kanban wall for a short stand-up, then goes back to work.
+        const m = this.actors.get(fx.dept); if (!m) break;
+        const f = this.floors.get(fx.dept); if (f) { f.flash = 1; f.flashCol = C.cyan; }
+        let i = 0;
+        for (const a of m.values()) {
+          const spot: Pt = [BOARD_SPOT[0] - 14 + (i % 4) * 10, BOARD_SPOT[1] - 12 - Math.floor(i / 4) * 10]; i++;
+          this.walkTo(a, spot); a.next = this.t + 6; a.bubble = 1.5;
+          setTimeout(() => { if (a.mode !== 'seat') this.walkTo(a, a.seat); }, 5500);
+        }
+        break;
+      }
+      case 'questRequest': {
+        // Work handed from one floor to another: a slower packet up or down the tower, the target chief reacts.
+        const from = this.agentPt(s, fx.from, 'chief'), to = this.agentPt(s, fx.dept, 'chief');
+        this.packets.push({ from, to, t: 0, d: 1.8, dept: fx.dept, big: true });
+        const src = this.actors.get(fx.from)?.get('chief'); if (src) src.bubble = 1.5;
+        setTimeout(() => { const a = this.actors.get(fx.dept)?.get('chief'); if (a) a.bubble = 2.5; const f = this.floors.get(fx.dept); if (f) { f.flash = 1; f.flashCol = C.gold; } }, 1800);
+        break;
+      }
       case 'taskDone': { const p = this.agentPt(s, fx.dept, fx.worker); this.pops.push({ x: p[0], y: p[1], t: 0, st: 'completed' }); this.burst(p[0], p[1], 12, C.mint, 34, 0.9, 40); break; }
       case 'taskFail': {
         const p = this.agentPt(s, fx.dept, fx.worker); this.pops.push({ x: p[0], y: p[1], t: 0, st: 'failed' });
@@ -292,7 +339,7 @@ export class City {
     const wx0 = this.cam.x - this.camS.x / z, wy0 = this.cam.y - this.camS.y / z;
     const fx0 = wx0 * bs, fy0 = wy0 * bs, ix = Math.floor(fx0), iy = Math.floor(fy0);
     const open = s.ui.view === 'floor' ? s.ui.floorId : null;
-    const openA = open ? this.floors.get(open)?.open ?? 0 : Math.max(0, ...[...this.floors.values()].map((f) => f.open));
+    const openA = Math.max(this.execOpen, open ? this.floors.get(open)?.open ?? 0 : Math.max(0, ...[...this.floors.values()].map((f) => f.open)));
     // build any stale office shells before targeting the frame buffers
     for (const d of s.depts) { const fa = this.floors.get(d.id); if (fa && fa.open > 0.01) this.shellFor(d, s); }
 
@@ -316,7 +363,7 @@ export class City {
     for (let i = n - 1; i >= 0; i--) {
       const d = s.depts[i], fa = this.floors.get(d.id); if (!fa || fa.alpha <= 0) continue;
       const above = open && s.depts.findIndex((x) => x.id === open) > i;
-      const dim = open && d.id !== open ? 1 - (above ? 0.88 : 0.72) * openA : 1;
+      const dim = open && d.id !== open ? 1 - (above ? 0.88 : 0.72) * openA : this.execOpen > 0 ? 1 - 0.8 * this.execOpen : 1;
       const power = out ? 0 : d.state === 'offline' ? 0.2 : d.state === 'unconfigured' ? 0.25 : 1;
       px.push(fa.alpha * dim);
       if (fa.open < 0.995) {
@@ -335,13 +382,14 @@ export class City {
     const ghostTop = this.ph.y + PH_H;
     if (this.ghostA > 0.02) ghostFloor(px, this.t, ghostTop, this.ghostA * this.intro, this.hover === 'ghost');
     anchors.push({ id: 'ghost', kind: 'ghost', x: 382, y: ghostTop + 77, visible: this.ghostA * Math.min(1, this.intro * 1.5), z: 0 });
-    const phA = (open ? 1 - 0.9 * openA : 1) * Math.min(1, this.intro * 1.6);
+    const phA = (open ? 1 - 0.9 * openA : 1) * (1 - 0.97 * this.execOpen) * Math.min(1, this.intro * 1.6);
     if (phA > 0.01) penthouse(px, L, this.t, this.ph.y, phA, (s.company?.name ?? 'VIBE CITY'), s.ui.panel === 'exec' && s.ui.view === 'tower', this.bk);
     anchors.push({ id: 'ph', kind: 'ph', x: 382, y: this.ph.y + 72, visible: (1 - openA) * clamp(1 - Math.abs(this.ph.vy) / 160, 0, 1), z: 0 });
     towerPower(false);
     if (openA < 0.99) { px.push(1 - openA); cityFront(px, L, this.t, this.bk); px.pop(); }
     towerPower(true);
     for (const [d, fa, no, power, al] of openFloors) { px.push(al); this.drawInterior(s, d, fa, no, power); px.pop(); }
+    if (this.execOpen > 0.01) this.drawExec(s, out ? 0 : 1, anchors);
     towerPower(false);
     this.drawFx(dt);
     if (open) {
@@ -383,7 +431,7 @@ export class City {
     wallLive(c, d, s.quests.filter((q) => q.deptId === d.id).map((q) => q.summary.status), floorNo, elevOpen, lit);
 
     // cast shadows first, so everything stands in them
-    const nD = Math.min(DESKS.length, Math.max(d.maxWorkers, d.workers.length));
+    const nD = Math.min(DESKS.length, d.workers.length);
     for (let i = 0; i < nD; i++) { const [u, v] = DESKS[i]; cast(c, u, v, 28, 16, 14, 0.26); }
     cast(c, 0, 56, 14, 18, 44, 0.24); cast(c, 190, 126, 48, 14, 14, 0.2); cast(c, 0, 118, 8, 20, 40, 0.2);
 
@@ -425,6 +473,12 @@ export class City {
         px.push(ac.alpha);
         px.shadeEllipse(ground[0] + 2, ground[1], 8, 3.5, 0.45);
         if (sel) px.ring(ground[0], ground[1], 11, 5.5, C.cyan, 1, 1);
+        const pr = this.press;
+        if (pr && !pr.fired && pr.agent === ac.id) {
+          const k = Math.min(1, (performance.now() - pr.start) / LONG_PRESS_MS);
+          px.ring(ground[0], ground[1], 6 + 10 * k, 3 + 5 * k, C.gold, 1, 1);
+          L.add(ground[0], ground[1] - 14, 18 + 26 * k, C.gold, 0.5 * k);
+        }
         const frame = ac.mode === 'walk' ? Math.floor(ac.walkT * 8) % 4 : 0;
         const typing = seated && ac.status === 'running' ? Math.floor(t * 8) % 2 : 0;
         const sp = getSprite(ac.look, { dir: seated ? 'b' : ac.dir, frame, seated, type: typing });
@@ -432,6 +486,7 @@ export class City {
         px.sprite(sp.img, sp.sil, foot[0] - AX, foot[1] - AY, seated ? false : ac.flip);
         px.pop();
         pip(px, ac.status, ground[0], ground[1] - 39);
+        emote(px, ac, t, ground[0] + 6, ground[1] - 66);
         if (ac.bubble > 0) this.thinking(ground[0] + 12, ground[1] - 46, ac.bubble);
         px.pop();
       } });
@@ -449,6 +504,45 @@ export class City {
     }
     px.pop();
     L.scale = prevScale;
+  }
+  /* ---------- the Executive Office (feature spec 3.1) ---------- */
+  private drawExec(s: State, power: number, anchors: Anchor[]) {
+    const { px, L } = this, t = this.t;
+    const a = easeIO(Math.min(1, this.execOpen * 1.12));
+    const T = this.execT(), P = mkP(T), lit = power > 0.3;
+    const c: IC = { px, L, t, P, power };
+    const prevScale = L.scale; L.scale *= a * (lit ? 1 : 0.6);
+    px.push(a);
+    const bc: IC = { px, L: NULL_LIGHTS, t: 0, P: mkP(0), power };
+    const bake = (key: string, fn: (q: IC) => void) => this.bk.draw(px, this.bk.get('exec|' + key + '|' + power, (q) => { bc.px = q; fn(bc); }), 0, T);
+    bake('shell', (q) => { shell(q, EXEC_THEME); execProps(q); });
+    roomLights(c, lit);
+    orgMap(c, s.depts, t, lit);
+    cast(c, 14, 118, 36, 14, 14, 0.24); cast(c, 0, 70, 16, 18, 20, 0.22); cast(c, 30, 13, 18, 18, 12, 0.2);
+    bake('furniture', (q) => execFurniture(q));
+    chiefDeskLive(c, 'running', lit);
+    if (lit) { L.add(...P(20, 122, 18), 26, '#FF5C8A', 0.5); L.add(...P(4, 128, 46), 30, C.gold, 0.6); L.add(...P(0, 64, 46), 28, '#7CF5B4', 0.5); }
+    // the assistant stands by the desk, waiting for you
+    const g = P(ASSISTANT_SPOT[0], ASSISTANT_SPOT[1]);
+    px.shadeEllipse(g[0] + 2, g[1], 8, 3.5, 0.45);
+    const sp = getSprite(lookFor('exec-assistant', '#9B5CFF', true), { dir: 'f', frame: 0, seated: false, type: 0 });
+    px.sprite(sp.img, sp.sil, g[0] - AX, g[1] - AY + (Math.floor(t * 1.5) % 2 ? 0 : -1), false);
+    // hover outline on the object under the pointer (or focused label)
+    const hov = EXEC_OBJECTS.find((o) => o.id === this.hoverObj);
+    if (hov && a > 0.9) {
+      const hl = hull(boxCorners(P, hov.b));
+      for (let i = 0; i < hl.length; i++) px.line(hl[i]!, hl[(i + 1) % hl.length]!, C.gold, 1, 1);
+      const m = hl.reduce((acc, p) => [acc[0] + p[0] / hl.length, acc[1] + p[1] / hl.length] as Pt, [0, 0] as Pt);
+      L.add(m[0], m[1], 40, C.gold, 0.6);
+    }
+    px.pop();
+    L.scale = prevScale;
+    for (const o of EXEC_OBJECTS) {
+      const pts = boxCorners(P, o.b);
+      const top = pts.reduce((m, p) => (p[1] < m[1] ? p : m), pts[0]!);
+      const cx = pts.reduce((sum, p) => sum + p[0], 0) / pts.length;
+      anchors.push({ id: 'obj:' + o.id, kind: 'obj', x: cx, y: top[1] - 4, visible: a > 0.95 ? 1 : 0, z: 0 });
+    }
   }
   private thinking(x: number, y: number, k: number) {
     const px = this.px;
@@ -468,11 +562,13 @@ export class City {
     this.particles = this.particles.filter((p) => p.life > 0);
     for (const k of this.packets) {
       k.t += dt; if (k.t < 0) continue;
-      const e = easeIO(Math.min(1, k.t / k.d)), x = k.from[0] + (k.to[0] - k.from[0]) * e, y = k.from[1] + (k.to[1] - k.from[1]) * e - Math.sin(e * Math.PI) * 34;
-      px.rect(x - 4, y - 3, 8, 6, '#B8862E', 1); px.rect(x - 3, y - 2, 6, 4, C.gold, 1); px.line([x - 3, y - 2], [x, y + 1], '#FFF3D0', 1, 1); px.line([x, y + 1], [x + 3, y - 2], '#FFF3D0', 1, 1);
-      L.add(x, y, 34, C.gold, 0.9, 1);
-      if (Math.random() < 0.7) this.particles.push({ x, y, vx: rnd(-6, 6), vy: rnd(-6, 6), life: 0.5, max: 0.5, col: C.gold, size: 1, grav: 0, glow: true });
-      if (k.t >= k.d && !k.done) { k.done = true; this.rings.push({ x: k.to[0], y: k.to[1], r: 2, max: 18, col: C.gold }); }
+      const e = easeIO(Math.min(1, k.t / k.d)), arc = k.big ? 70 : 34, x = k.from[0] + (k.to[0] - k.from[0]) * e + (k.big ? Math.sin(e * Math.PI) * 60 : 0), y = k.from[1] + (k.to[1] - k.from[1]) * e - Math.sin(e * Math.PI) * arc;
+      const m = k.big ? 2 : 1;
+      px.rect(x - 4 * m, y - 3 * m, 8 * m, 6 * m, '#B8862E', 1); px.rect(x - 3 * m, y - 2 * m, 6 * m, 4 * m, C.gold, 1); px.line([x - 3 * m, y - 2 * m], [x, y + m], '#FFF3D0', 1, 1); px.line([x, y + m], [x + 3 * m, y - 2 * m], '#FFF3D0', 1, 1);
+      L.add(x, y, 34 * m, C.gold, 0.9, 1);
+      const trail = k.big ? 3 : 1;
+      for (let i = 0; i < trail; i++) if (Math.random() < 0.7) this.particles.push({ x, y, vx: rnd(-6, 6), vy: rnd(-6, 6), life: k.big ? 0.9 : 0.5, max: k.big ? 0.9 : 0.5, col: C.gold, size: k.big ? 2 : 1, grav: 0, glow: true });
+      if (k.t >= k.d && !k.done) { k.done = true; this.rings.push({ x: k.to[0], y: k.to[1], r: 2, max: k.big ? 40 : 18, col: C.gold }); }
     }
     this.packets = this.packets.filter((k) => k.t < k.d + 0.01);
     for (const p of this.pops) {
@@ -486,9 +582,14 @@ export class City {
   }
 
   /* ---------- input ---------- */
-  private hit(sx: number, sy: number): { kind: 'floor' | 'ph' | 'ghost' | 'agent'; id: string } | null {
+  private hit(sx: number, sy: number): { kind: 'floor' | 'ph' | 'ghost' | 'agent' | 'obj'; id: string } | null {
     const s = useStore.getState();
     const [x, y] = this.toWorld(sx, sy);
+    if (s.ui.execRoom) {
+      const P = mkP(this.execT());
+      for (const o of EXEC_OBJECTS) if (pointInPoly([x, y], hull(boxCorners(P, o.b)))) return { kind: 'obj', id: o.id };
+      return null;
+    }
     const open = s.ui.view === 'floor' ? s.ui.floorId : null;
     if (open) {
       const m = this.actors.get(open);
@@ -507,30 +608,94 @@ export class City {
         const dx = e.clientX - this.drag.x, dy = e.clientY - this.drag.y;
         if (this.drag.moved || Math.hypot(dx, dy) > 5) {
           this.drag.moved = true; this.drag.x = e.clientX; this.drag.y = e.clientY;
-          if (useStore.getState().ui.view === 'tower') { this.user.active = true; this.user.dx -= dx / this.cam.z; this.user.dy -= dy / this.cam.z; }
+          if (useStore.getState().ui.view === 'tower' && !useStore.getState().ui.execRoom) { this.user.active = true; this.user.dx -= dx / this.cam.z; this.user.dy -= dy / this.cam.z; }
         }
         return;
       }
       const h = this.hit(e.clientX - r.left, e.clientY - r.top);
-      this.hover = h && h.kind !== 'agent' ? (h.kind === 'floor' ? h.id : h.kind) : null;
+      this.hoverObj = h && h.kind === 'obj' ? (h.id as ExecObjectId) : null;
+      this.hover = h && h.kind !== 'agent' && h.kind !== 'obj' ? (h.kind === 'floor' ? h.id : h.kind) : null;
       this.hoverAgent = h && h.kind === 'agent' ? h.id : null;
-      cv.style.cursor = h ? 'pointer' : useStore.getState().ui.view === 'tower' ? 'grab' : 'default';
+      cv.style.cursor = h ? 'pointer' : useStore.getState().ui.view === 'tower' && !useStore.getState().ui.execRoom ? 'grab' : 'default';
     });
     cv.addEventListener('pointerleave', () => { this.hover = null; this.hoverAgent = null; });
+    // Long press on an agent opens the chat: the touch (and trackpad) stand-in for middle click. A gold ring fills
+    // while held; moving more than a few pixels, scrolling or lifting early cancels it.
+    cv.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0) return;
+      const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top);
+      if (h?.kind !== 'agent') { this.press = null; return; }
+      const press = { id: e.pointerId, x: e.clientX, y: e.clientY, start: performance.now(), agent: h.id, fired: false, timer: 0 };
+      press.timer = window.setTimeout(() => {
+        if (this.press !== press) return;
+        press.fired = true;
+        try { navigator.vibrate?.(15); } catch { /* not supported */ }
+        const s = useStore.getState();
+        if (s.ui.floorId) s.ui$({ agent: press.agent, talk: { deptId: s.ui.floorId, agentKey: press.agent } });
+      }, LONG_PRESS_MS);
+      this.press = press;
+    });
+    // Lifting before the timer cancels it. After it fired, the press is kept until the click that follows, so that
+    // click does not also open the profile; a cancelled gesture (scroll) never produces a click, so it is dropped.
+    const endPress = (cancel: boolean) => {
+      if (!this.press) return;
+      window.clearTimeout(this.press.timer);
+      if (cancel || !this.press.fired) { this.press = null; return; }
+      // touch browsers may not send a click after a long press: never let a finished press swallow a later tap
+      const done = this.press; setTimeout(() => { if (this.press === done) this.press = null; }, 400);
+    };
+    cv.addEventListener('pointermove', (e) => { if (this.press && !this.press.fired && Math.hypot(e.clientX - this.press.x, e.clientY - this.press.y) > 8) { window.clearTimeout(this.press.timer); this.press = null; } });
+    cv.addEventListener('pointerup', () => endPress(false));
+    cv.addEventListener('pointercancel', () => endPress(true));
+    // the browser's own long-press menu (and iOS callout) would cover the chat
+    cv.addEventListener('contextmenu', (e) => { if (this.press) e.preventDefault(); });
     // touch scrolls the page (touch-action: pan-y); only a mouse/pen drags the camera
     cv.addEventListener('pointerdown', (e) => { this.drag = e.pointerType === 'touch' ? null : { x: e.clientX, y: e.clientY, moved: false }; });
     window.addEventListener('pointerup', () => setTimeout(() => (this.drag = null), 0));
-    cv.addEventListener('wheel', (e) => { if (useStore.getState().ui.view !== 'tower') return; e.preventDefault(); this.zoomBy(e.deltaY < 0 ? 1.12 : 0.89); }, { passive: false });
+    cv.addEventListener('wheel', (e) => { if (useStore.getState().ui.view !== 'tower' || useStore.getState().ui.execRoom) return; e.preventDefault(); this.zoomBy(e.deltaY < 0 ? 1.12 : 0.89); }, { passive: false });
     cv.addEventListener('click', (e) => {
+      if (this.press?.fired) { this.press = null; return; } // the long press already opened the chat
       if (this.drag?.moved) return;
       const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
+      if (!h && s.ui.execRoom) return;
       if (!h) { if (s.ui.view === 'floor') s.ui$({ agent: null, ...(s.ui.panel === 'agent' && { panel: 'dept' as const }) }); return; }
       if (h.kind === 'floor') { if (s.ui.view === 'floor' && s.ui.floorId === h.id) return; s.openFloor(h.id); this.fit(); }
-      else if (h.kind === 'ph') { s.closeFloor(); }
-      else if (h.kind === 'ghost') s.ui$({ modal: 'create' });
-      else if (h.kind === 'agent') s.ui$({ agent: h.id, panel: 'agent' });
+      else if (h.kind === 'ph') { s.openExec(); this.fit(); }
+      else if (h.kind === 'obj') execAction(h.id as ExecObjectId);
+      else if (h.kind === 'ghost') s.ui$({ newDept: true });
+      else if (h.kind === 'agent') s.openPanel('agent', { agent: h.id });
+    });
+    // middle click on an agent opens the chat; mousedown is suppressed so the browser does not start autoscroll
+    cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
+    cv.addEventListener('auxclick', (e) => {
+      if (e.button !== 1) return;
+      const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
+      if (h?.kind === 'agent') s.ui$({ agent: h.id, talk: { deptId: s.ui.floorId!, agentKey: h.id } });
     });
   }
+}
+
+/** How long to hold an agent (touch, pen or mouse) to open the chat. */
+const LONG_PRESS_MS = 500;
+
+/* Emotes over heads (feature spec 2.5), from what the agent is actually doing: ! failed, ? waiting on configuration,
+   a heart right after finishing, zzz when idling at the desk. Running agents show nothing (their screen does). */
+const EMOTES: Record<string, { rows: string[]; col: string }> = {
+  bang: { rows: ['010', '010', '010', '000', '010'], col: '#FF5C7A' },
+  ask: { rows: ['111', '001', '010', '000', '010'], col: '#FFB547' },
+  heart: { rows: ['01010', '11111', '11111', '01110', '00100'], col: '#FF3EA5' },
+  zzz: { rows: ['1111', '0010', '0100', '1111'], col: '#B9AED6' },
+};
+function emote(px: Pix, a: { status: AgentStatus; mode: string; standUntil: number; id: string }, t: number, x: number, y: number) {
+  const k = a.status === 'failed' ? 'bang' : a.status === 'awaiting' || a.status === 'disconnected' ? 'ask'
+    : a.status === 'completed' && t < a.standUntil ? 'heart' : a.status === 'idle' && a.mode === 'seat' && a.id !== 'chief' ? 'zzz' : null;
+  if (!k) return;
+  const e = EMOTES[k]!, w = e.rows[0]!.length, bob = Math.floor(t * 2) % 2;
+  const pulse = k === 'zzz' ? (Math.floor(t * 1.2) % 3) : 0;
+  const bx = Math.floor(x), by = Math.floor(y) - bob - pulse;
+  px.rect(bx - 2, by - 2, w + 4, 9, '#F4EEFF'); px.rect(bx - 1, by - 1, w + 2, 7, '#140D26');
+  px.rect(bx - 1, by + 7, 2, 1, '#F4EEFF');
+  e.rows.forEach((r, j) => { for (let i = 0; i < r.length; i++) if (r[i] === '1') px.rect(bx + i, by + j, 1, 1, e.col, 1); });
 }
 
 function pointInPoly(p: Pt, pts: Pt[]) {

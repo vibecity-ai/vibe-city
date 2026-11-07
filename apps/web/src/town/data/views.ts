@@ -2,16 +2,32 @@
    allowed, what a form change sends. No React, no I/O: tested in views.test.ts. The wording rules come from the spec:
    configured is never "guaranteed", a requested cancel is never "cancelled". */
 import type {
-  CancellationStatus, CapabilityEntry, DepartmentUpdate, DepartmentView, ProvisioningStatus, TaskNode,
+  CancellationStatus, CapabilityEntry, Character, DepartmentUpdate, DepartmentView, ProvisioningError, ProvisioningStatus, SyncCheck, TaskNode,
 } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
 import type { StatusKey } from '../ui/kit.tsx';
 
+/* ---------- names ---------- */
+
+/** What the user calls an agent: its persona name, else "Lead" / "Teammate 2". Never a seat key or profile id. */
+export function agentLabel(key: string | null, ch?: Character | null): string {
+  if (ch) return ch.name;
+  if (!key) return 'Someone outside the floor';
+  if (key === 'chief') return 'Lead';
+  const n = Number(key.replace(/\D/g, ''));
+  return n ? `Teammate ${n}` : 'Teammate';
+}
+
+export const SYNC_STEP_LABEL: Record<ProvisioningError['step'], string> = {
+  health: 'Checking Hermes', validate: 'Checking the setup', board: 'Creating the board',
+  agents: 'Creating the agent profiles', inventory: 'Applying the loadout', verify: 'Verifying',
+};
+
 /* ---------- department settings ---------- */
 
 export const RESET_WARNING =
-  'Changing the name, purpose, inventory or profiles can return a provisioned department to “Not provisioned”. ' +
-  'Agents then get no new work until you provision again.';
+  'Changing the name, purpose, loadout or profiles takes the department out of sync with Hermes. ' +
+  'Agents then get no new work until you sync again.';
 
 export interface SettingsForm { name: string; purpose: string }
 
@@ -41,14 +57,15 @@ export const settingsErrorField = (message: string) => (/name/i.test(message) ? 
 
 /* ---------- archive ---------- */
 
-export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoardRef' | 'chiefProfileRef' | 'workerProfileRef'>): string[] {
-  const hermes = [d.hermesBoardRef && `board ${d.hermesBoardRef}`, d.chiefProfileRef && `profile ${d.chiefProfileRef}`, d.workerProfileRef && `profile ${d.workerProfileRef}`].filter(Boolean);
+export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoardRef' | 'agents'>): string[] {
+  const profiles = d.agents.filter((a) => a.profileRef).length;
+  const hermes = [d.hermesBoardRef && 'its board', profiles && `its ${profiles} agent profile${profiles === 1 ? '' : 's'}`].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
-    'Vibe City keeps the department record, its inventory and settings. You can still inspect it under Executive Office → Archived.',
+    'Vibe City keeps the department record, its loadout and settings.',
     hermes.length
       ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every quest, result and attachment stay there.`
-      : 'It was never provisioned, so it has no Hermes resources.',
+      : 'It was never synced, so it has no Hermes resources.',
     'This is not Hermes resource deletion, and there is no restore in this version. Running Hermes tasks are not stopped: cancel active quests first.',
   ];
 }
@@ -59,18 +76,18 @@ export const archivedNotice = (name: string, retained: boolean) =>
 /* ---------- inventory ---------- */
 
 export const LIMIT_COPY = {
-  maxConcurrentWorkers: 'Above 0 it is requested, host-limited: Hermes only has a host-wide per-profile cap, so it is not guaranteed per department.',
-  maxTaskRuntimeSeconds: 'Applies to the quest task the chief receives. It does not propagate automatically to the tasks the chief creates for workers.',
-  maxDelegationDepth: 'Fixed at 1 and instructed to the chief. Hermes cannot enforce it.',
+  teammates: 'Every agent is its own Hermes profile, so teammates work in parallel. Each runs up to Hermes\' host-wide per-profile cap at once.',
+  maxTaskRuntimeSeconds: 'Applies to the quest task the lead receives. It does not propagate automatically to the tasks the lead hands to teammates.',
+  maxDelegationDepth: 'Fixed at 1: agents are told to do handed-over tasks themselves. Hermes cannot enforce it.',
 } as const;
 
-/** What to tell the user after an inventory save, based on the provisioning state before and after. */
+/** What to tell the user after an inventory save, based on the sync state before and after. */
 export function inventorySavedNotice(before: ProvisioningStatus['state'] | undefined, after: ProvisioningStatus['state'] | undefined): { text: string; tone: 'good' | 'warn' } {
   if (after === 'unconfigured' && before && before !== 'unconfigured' && before !== 'provisioning') {
-    return { text: 'Inventory saved. The department needs provisioning again before Hermes uses it.', tone: 'warn' };
+    return { text: 'Loadout saved. Sync the department so Hermes uses it.', tone: 'warn' };
   }
-  if (after === 'unconfigured') return { text: 'Inventory saved. It is applied when you provision the department.', tone: 'good' };
-  return { text: 'Inventory saved.', tone: 'good' };
+  if (after === 'unconfigured') return { text: 'Loadout saved. It is applied when you sync the department.', tone: 'good' };
+  return { text: 'Loadout saved.', tone: 'good' };
 }
 
 /** Only an enforced entry with the backend's guarantee flag gets lock styling. */
@@ -88,31 +105,25 @@ export function capValue(v: unknown): string {
   return String(v);
 }
 
-/* ---------- provisioning ---------- */
+/* ---------- sync with Hermes ---------- */
 
-export interface ProvisioningActions {
-  provision: { show: boolean; label: string };
-  /** Retry is offered only where the backend accepts it AND it can help: a retryable error or a disconnect. */
-  retry: boolean;
-  hint: string | null;
-}
-
-export function provisioningActions(p: Pick<ProvisioningStatus, 'state' | 'error'> | null): ProvisioningActions {
-  if (!p) return { provision: { show: false, label: 'Provision' }, retry: false, hint: null };
+/**
+ * Whether the Sync button shows, and what to say. Sync is offered only when the floor is not in sync: never synced,
+ * edited since, failed, unverified, or a Refresh (check) found Hermes different.
+ */
+export function syncView(p: Pick<ProvisioningStatus, 'state' | 'error'> | null, check: Pick<SyncCheck, 'inSync'> | null): { sync: boolean; hint: string | null } {
+  if (!p) return { sync: false, hint: null };
   switch (p.state) {
-    case 'provisioning': return { provision: { show: false, label: 'Provision' }, retry: false, hint: 'Provisioning is running.' };
-    case 'unconfigured': return { provision: { show: true, label: 'Provision' }, retry: false, hint: null };
-    case 'ready': return { provision: { show: true, label: 'Provision again' }, retry: false, hint: 'Already verified. Provisioning again re-applies and re-verifies everything.' };
-    case 'disconnected': return { provision: { show: false, label: 'Provision' }, retry: true, hint: 'Hermes resources could not be verified. Retry once Hermes is reachable.' };
-    case 'error':
-      return p.error?.retryable
-        ? { provision: { show: false, label: 'Provision' }, retry: true, hint: 'This failure can be retried.' }
-        : { provision: { show: true, label: 'Provision again' }, retry: false, hint: 'Retrying alone will not help: change the configuration first, then provision again.' };
+    case 'provisioning': return { sync: true, hint: 'Syncing with Hermes…' };
+    case 'unconfigured': return { sync: true, hint: 'Hermes does not have this floor yet, or it changed since the last sync.' };
+    case 'disconnected': return { sync: true, hint: 'Hermes could not be reached to verify this floor. Sync once it is running.' };
+    case 'error': return { sync: true, hint: p.error?.retryable ? 'The last sync failed. You can try again.' : 'The last sync failed: change the configuration first, then sync.' };
+    case 'ready': return check && !check.inSync ? { sync: true, hint: 'Hermes does not match this floor.' } : { sync: false, hint: check ? 'Checked just now: Hermes matches this floor.' : null };
   }
 }
 
 export const PROVISIONING_STATE_LABEL: Record<ProvisioningStatus['state'], string> = {
-  unconfigured: 'Not provisioned', provisioning: 'Provisioning', ready: 'Ready (verified)', error: 'Provisioning failed', disconnected: 'Not verified (disconnected)',
+  unconfigured: 'Not synced', provisioning: 'Syncing', ready: 'In sync', error: 'Sync failed', disconnected: 'Not verified (Hermes unreachable)',
 };
 
 /* ---------- quest tasks ---------- */
@@ -130,14 +141,10 @@ export function taskStatusView(t: Pick<TaskNode, 'status' | 'failed'>): { k: Sta
   }
 }
 
-export function assigneeWarning(t: Pick<TaskNode, 'role' | 'assignee'>): string | null {
-  if (t.role !== 'other') return null;
-  return `Assigned to ${t.assignee ? `“${t.assignee}”` : 'nobody'}, which is not this department’s chief or worker. Detected, not prevented.`;
+export function assigneeWarning(t: Pick<TaskNode, 'agentKey' | 'assignee'>): string | null {
+  if (t.agentKey !== null) return null;
+  return t.assignee ? 'Assigned to an agent outside this department. Detected, not prevented.' : 'Not assigned to any of this department’s agents yet.';
 }
-
-export const RUN_STATE_LABEL: Record<TaskNode['runs'][number]['state'], string> = {
-  queued: 'Queued', running: 'Running', completed: 'Completed', failed: 'Failed', cancelled: 'Cancelled', unknown: 'Unknown',
-};
 
 /* ---------- cancellation ---------- */
 

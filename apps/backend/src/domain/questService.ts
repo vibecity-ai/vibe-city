@@ -3,11 +3,11 @@ import {
   type QuestDetail, type QuestResults, type QuestSummary, type TaskNode,
 } from '@vibe-city/shared';
 import { HermesNotFoundError, HermesRejectedError } from '../hermes/ports.ts';
-import type { KanbanApi, RawRun, RawTask, TaskDetail } from '../hermes/kanbanApi.ts';
+import type { KanbanApi, RawRun, TaskDetail } from '../hermes/kanbanApi.ts';
 import { describeEvent } from './activity.ts';
+import { delegationRules } from './instructions.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
 import type { DepartmentService } from './departmentService.ts';
-import { hasWorkers } from './inventoryPolicy.ts';
 import { aggregateQuest, type AggNode } from './questAggregation.ts';
 import { runState } from './runTracker.ts';
 import { scrub } from './scrub.ts';
@@ -17,10 +17,19 @@ export const MAX_TREE_DEPTH = 8;
 export const MAX_ATTACHMENT_BYTES = 100 * 1024 * 1024;
 export const CANCEL_MARKER = '[vibe-city] cancel-requested';
 const MARKER_AUTHOR = 'vibe-city';
+/** Comment author of the boss's answers to blocked tasks, as the agent sees them on the board. */
+const ANSWER_AUTHOR = 'the boss (CEO)';
+const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const iso = (t: number | null | undefined) => (t == null ? null : new Date(t * 1000).toISOString());
 const isTerminal = (s: string) => s === 'done' || s === 'archived';
 
-interface Ctx { departmentId: string; board: string; chief: string; worker: string | null; deptName: string; maxRuntime: number | null }
+interface Ctx {
+  departmentId: string; board: string; deptName: string; maxRuntime: number | null;
+  /** The lead's profile: quests are assigned to it. */
+  lead: string;
+  /** Every agent's profile -> agent key (lead included). */
+  agents: Map<string, string>;
+}
 interface Tree {
   rootId: string;
   details: Map<string, TaskDetail>;
@@ -29,8 +38,8 @@ interface Tree {
   truncated: boolean;
 }
 
-/** `worker` is null when the department has no workers: the chief then does the work itself. */
-export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, worker: string | null): string {
+/** `lead` gets the quest; `teammates` are the other agents' profiles (empty: the lead does the work itself). */
+export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, lead: string, teammates: string[]): string {
   return [
     `# Quest: ${q.title}`,
     '',
@@ -39,17 +48,9 @@ export function buildQuestBody(q: { title: string; objective: string; instructio
     ...(q.instructions ? ['', '## Additional instructions', q.instructions] : []),
     '',
     '## How to execute (department workflow)',
-    ...(worker === null
-      ? [
-        'You are the department chief and this department has no workers: do the work yourself.',
-        'Do not create Kanban tasks for any other profile. When the work is done, complete this task with a summary of the result and attach any output files.',
-      ]
-      : [
-        'You are the department chief. Do the work yourself, or, when parts of it can run independently, create one child Kanban task per part,',
-        `assigned to the profile "${worker}", with parents set to this task's id.`,
-        'Each child task must be self-contained: the worker cannot see this quest, so put every instruction and input it needs in the child task.',
-        'Do not assign tasks to any other profile. Complete this task with a summary of what you did and each child task id with what it covers.',
-      ]),
+    'This task is a quest and you own it.',
+    ...delegationRules(lead, teammates),
+    'Complete every task with a summary of what you did (and which child tasks you created) and attach any output files.',
   ].join('\n');
 }
 
@@ -74,21 +75,26 @@ export class QuestService {
   /** Board and profiles always come from the stored, verified department record, never from the request. */
   private ctx(departmentId: string, opts: { requireReady?: boolean } = {}): Ctx {
     const r = this.depts.getRow(departmentId); // 404 for unknown
-    const withWorker = hasWorkers(this.depts.getInventory(departmentId));
-    if (!r.hermes_board_ref || !r.chief_profile_ref || (withWorker && !r.worker_profile_ref) || r.board_sync_state !== 'synced') {
-      throw new ConflictError('department is not provisioned');
-    }
+    const agents = this.depts.agents(departmentId);
+    const lead = agents[0]?.profile_ref;
+    if (!r.hermes_board_ref || !lead || r.board_sync_state !== 'synced') throw new ConflictError('department is not synced with Hermes yet');
+    if (opts.requireReady && agents.some((a) => !a.profile_ref)) throw new ConflictError('department is not synced with Hermes yet');
     if (opts.requireReady) {
       if (r.archived_at) throw new ConflictError('department is archived');
       if (r.provisioning_state !== 'ready') throw new ConflictError(`department is not ready (state: ${r.provisioning_state})`);
     }
     return {
-      departmentId, board: r.hermes_board_ref, chief: r.chief_profile_ref, worker: withWorker ? r.worker_profile_ref : null, deptName: r.name,
+      departmentId, board: r.hermes_board_ref, deptName: r.name, lead,
+      agents: new Map(agents.filter((a) => a.profile_ref).map((a) => [a.profile_ref!, a.agent_key])),
       maxRuntime: this.depts.getInventory(departmentId).limits.maxTaskRuntimeSeconds,
     };
   }
 
-  /** The id must be a Hermes task id on THIS department's board, top-level and assigned to the department chief. */
+  private agentKeyOf(ctx: Ctx, assignee: string | null): string | null {
+    return assignee ? ctx.agents.get(assignee) ?? null : null;
+  }
+
+  /** The id must be a Hermes task id on THIS department's board, top-level and assigned to the department's lead. */
   private async resolveRoot(ctx: Ctx, questId: string): Promise<TaskDetail> {
     if (!HERMES_TASK_ID_RE.test(questId)) throw new NotFoundError('quest not found');
     let d: TaskDetail;
@@ -98,7 +104,7 @@ export class QuestService {
       if (e instanceof HermesNotFoundError) throw new NotFoundError('quest not found');
       throw e;
     }
-    if (d.links.parents.length > 0 || d.task.assignee !== ctx.chief) throw new NotFoundError('quest not found');
+    if (d.links.parents.length > 0 || d.task.assignee !== ctx.lead) throw new NotFoundError('quest not found');
     return d;
   }
 
@@ -130,39 +136,31 @@ export class QuestService {
     return { rootId: root.task.id, details, depth, order, truncated };
   }
 
-  private roleOf(ctx: Ctx, rootId: string, t: RawTask): TaskNode['role'] {
-    if (t.id === rootId) return 'chief';
-    if (ctx.worker !== null && t.assignee === ctx.worker) return 'worker';
-    return t.assignee === ctx.chief ? 'chief' : 'other';
-  }
-
   private nodes(ctx: Ctx, tree: Tree): TaskNode[] {
     return tree.order.map((id) => {
       const d = tree.details.get(id)!;
       const t = d.task;
-      const role = this.roleOf(ctx, tree.rootId, t);
       const failed = t.status === 'blocked' && (!!t.last_failure_error || (t.consecutive_failures ?? 0) > 0);
       const lastRun: RawRun | undefined = d.runs.at(-1);
       return {
-        id, title: t.title, role, assignee: t.assignee, status: t.status,
+        id, title: t.title, agentKey: this.agentKeyOf(ctx, t.assignee), assignee: t.assignee, status: t.status,
         parentIds: d.links.parents, childIds: d.links.children, depth: tree.depth.get(id) ?? 0, failed,
         createdAt: iso(t.created_at), startedAt: iso(t.started_at), completedAt: iso(t.completed_at),
         summary: scrub(t.latest_summary ?? t.result ?? [...d.runs].reverse().find((r) => r.summary)?.summary ?? null),
         error: failed || t.status === 'blocked' ? scrub(t.last_failure_error ?? lastRun?.error ?? null) : null,
+        blockReason: t.status === 'blocked' ? scrub(str([...d.events].reverse().find((e) => e.kind === 'blocked')?.payload?.reason), 2000) : null,
         attachmentCount: d.attachments.length,
         runs: d.runs.map((r) => ({ id: r.id, profile: r.profile, state: runState(r), startedAt: iso(r.started_at), endedAt: iso(r.ended_at) })),
       };
     });
   }
 
-  private violations(ctx: Ctx, nodes: TaskNode[], rootId: string): string[] {
+  private violations(nodes: TaskNode[], rootId: string): string[] {
     const out: string[] = [];
     for (const n of nodes) {
       if (n.id === rootId) continue;
       if (!n.assignee) out.push(`Task "${n.title}" (${n.id}) has no assignee and will not run.`);
-      else if (n.assignee !== ctx.worker && n.assignee !== ctx.chief) {
-        out.push(`Task "${n.title}" (${n.id}) is assigned to "${n.assignee}", which is not ${ctx.worker ? "this department's chief or worker profile" : "this department's chief (the department has no workers)"}.`);
-      }
+      else if (n.agentKey === null) out.push(`Task "${n.title}" (${n.id}) is assigned to "${n.assignee}", which is not one of this department's agents.`);
     }
     return out;
   }
@@ -191,14 +189,14 @@ export class QuestService {
     };
   }
 
-  private summarize(ctx: Ctx, tree: Tree, nodes: TaskNode[], cancel: CancellationStatus): QuestSummary & { _truncated: boolean } {
+  private summarize(tree: Tree, nodes: TaskNode[], cancel: CancellationStatus): QuestSummary & { _truncated: boolean } {
     const agg: AggNode[] = nodes.map((n) => {
       const d = tree.details.get(n.id)!;
       return {
         id: n.id, status: n.status, failed: n.failed,
         everStarted: d.task.started_at != null || d.runs.length > 0,
         activeRun: d.runs.some((r) => r.ended_at === null),
-        authorized: n.id === tree.rootId || n.assignee === ctx.chief || (ctx.worker !== null && n.assignee === ctx.worker),
+        authorized: n.id === tree.rootId || n.agentKey !== null,
         hasChildren: n.childIds.length > 0,
       };
     });
@@ -218,14 +216,14 @@ export class QuestService {
     const ctx = this.ctx(departmentId);
     const tasks = await this.kanban.listBoardTasks(ctx.board, { includeArchived: true });
     const roots = tasks
-      .filter((t) => t.assignee === ctx.chief && (t.link_counts?.parents ?? 0) === 0)
+      .filter((t) => t.assignee === ctx.lead && (t.link_counts?.parents ?? 0) === 0)
       .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
       .slice(0, 50);
     const out: QuestSummary[] = [];
     for (let i = 0; i < roots.length; i += 4) {
       const batch = await Promise.all(roots.slice(i, i + 4).map(async (r) => {
         const tree = await this.loadTree(ctx, await this.kanban.getTask(ctx.board, r.id));
-        const { _truncated: _t, ...s } = this.summarize(ctx, tree, this.nodes(ctx, tree), this.cancellation(tree));
+        const { _truncated: _t, ...s } = this.summarize(tree, this.nodes(ctx, tree), this.cancellation(tree));
         return s;
       }));
       out.push(...batch);
@@ -238,13 +236,27 @@ export class QuestService {
     const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
     const nodes = this.nodes(ctx, tree);
     const cancellation = this.cancellation(tree);
-    const { _truncated, ...summary } = this.summarize(ctx, tree, nodes, cancellation);
+    const { _truncated, ...summary } = this.summarize(tree, nodes, cancellation);
     const warnings: string[] = [];
     if (tree.truncated) warnings.push(`The task tree is larger than ${MAX_TREE_TASKS} tasks or ${MAX_TREE_DEPTH} levels; only part of it is shown.`);
     return {
       ...summary, departmentId, objective: extractObjective(tree.details.get(questId)!.task.body),
-      tasks: nodes, violations: this.violations(ctx, nodes, questId), cancellation, warnings, truncated: _truncated,
+      tasks: nodes, violations: this.violations(nodes, questId), cancellation, warnings, truncated: _truncated,
     };
+  }
+
+  /**
+   * The boss answers a blocked task of this quest: the answer goes on the task as a comment (the agent reads its
+   * comments when it runs again), then the task is unblocked.
+   */
+  async answer(departmentId: string, questId: string, taskId: string, message: string): Promise<void> {
+    const ctx = this.ctx(departmentId);
+    const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
+    const t = tree.details.get(taskId);
+    if (!t) throw new NotFoundError('task not found in this quest');
+    if (t.task.status !== 'blocked') throw new ConflictError('this task is not waiting for input any more');
+    await this.kanban.addComment(ctx.board, taskId, ANSWER_AUTHOR, message);
+    await this.kanban.unblockTask(ctx.board, taskId);
   }
 
   async activity(departmentId: string, questId: string, limit = 200): Promise<ActivityEvent[]> {
@@ -274,12 +286,12 @@ export class QuestService {
     const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
     const nodes = this.nodes(ctx, tree);
     const cancellation = this.cancellation(tree);
-    const summary = this.summarize(ctx, tree, nodes, cancellation);
+    const summary = this.summarize(tree, nodes, cancellation);
     return {
       questId, status: summary.status,
-      chiefSummary: nodes.find((n) => n.id === questId)?.summary ?? null,
+      leadSummary: nodes.find((n) => n.id === questId)?.summary ?? null,
       tasks: nodes.map((n) => ({
-        taskId: n.id, title: n.title, role: n.role, status: n.status, summary: n.summary, error: n.error,
+        taskId: n.id, title: n.title, agentKey: n.agentKey, status: n.status, summary: n.summary, error: n.error,
         attachments: tree.details.get(n.id)!.attachments.map((a) => this.attachmentView(ctx, questId, a)),
       })),
     };
@@ -303,14 +315,46 @@ export class QuestService {
     return { response, filename: att.filename, size: att.size, contentType: att.content_type };
   }
 
+  /** Files attached to one task of the department's own board (the MCP file tools). Unknown or foreign ids are not found. */
+  async taskFiles(departmentId: string, taskId: string): Promise<{ title: string; files: TaskDetail['attachments'] }> {
+    const ctx = this.ctx(departmentId);
+    if (!HERMES_TASK_ID_RE.test(taskId)) throw new NotFoundError('task not found');
+    try {
+      const d = await this.kanban.getTask(ctx.board, taskId);
+      return { title: d.task.title, files: d.attachments };
+    } catch (e) {
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('task not found');
+      throw e;
+    }
+  }
+
+  /** A task file's text, at most `maxChars`. Binary files are refused (chat can only read text). */
+  async readTaskFile(departmentId: string, taskId: string, filename: string, maxChars: number): Promise<{ text: string; truncated: boolean; size: number }> {
+    const { files } = await this.taskFiles(departmentId, taskId);
+    const att = [...files].reverse().find((a) => a.filename === filename); // a re-attached name: the latest wins
+    if (!att) throw new NotFoundError(`no file "${filename}" on task ${taskId}`);
+    if (att.size > MAX_ATTACHMENT_BYTES) throw new ConflictError('file is too large to read');
+    let res: Response;
+    try {
+      res = await this.kanban.downloadAttachment(this.ctx(departmentId).board, att.id);
+    } catch (e) {
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('file is no longer available');
+      throw e;
+    }
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    if (bytes.subarray(0, 8192).includes(0)) throw new ConflictError(`"${filename}" is a binary file and cannot be read as text`);
+    const text = new TextDecoder().decode(bytes);
+    return { text: text.slice(0, maxChars), truncated: text.length > maxChars, size: att.size };
+  }
+
   // ---- creation ----------------------------------------------------------------------
 
   async create(departmentId: string, input: QuestCreate): Promise<QuestCreated> {
     const ctx = this.ctx(departmentId, { requireReady: true });
     const { task, warning } = await this.kanban.createTask(ctx.board, {
       title: input.title,
-      body: buildQuestBody(input, ctx.worker),
-      assignee: ctx.chief,
+      body: buildQuestBody(input, ctx.lead, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
+      assignee: ctx.lead,
       // Same clientRequestId -> Hermes returns the existing task instead of creating a duplicate.
       idempotency_key: `vibe-city:${departmentId}:${input.clientRequestId}`,
       ...(ctx.maxRuntime ? { max_runtime_seconds: ctx.maxRuntime } : {}),
@@ -331,8 +375,8 @@ export class QuestService {
    *  2. archive every unfinished task - running ones first, then deepest first. Archive is atomic: the task becomes
    *     terminal (so it can never be dispatched again) and only then does Hermes terminate its worker;
    *  3. re-read the whole tree and report `confirmed` only when no task is unfinished and no run is still open.
-   * Finished (`done`) tasks are left untouched so their results survive. The loop re-reads the tree because the chief
-   * can create tasks while we cancel; it ends when a pass finds nothing left (max 5 passes).
+   * Finished (`done`) tasks are left untouched so their results survive. The loop re-reads the tree because the
+   * lead can create tasks while we cancel; it ends when a pass finds nothing left (max 5 passes).
    */
   requestCancel(departmentId: string, questId: string): Promise<CancellationStatus> {
     const key = `${departmentId}:${questId}`;

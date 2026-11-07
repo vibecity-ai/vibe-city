@@ -4,27 +4,48 @@ import { AGENT_EXCLUDED_TOOLSETS, type CapabilityEntry, type Inventory, type Mod
 type Draft = Omit<CapabilityEntry, 'guarantee'>;
 /** A guarantee exists only where behavior was tested (status 'enforced'); everything else is explicitly not one. */
 const withGuarantee = (e: Draft): CapabilityEntry => ({ ...e, guarantee: e.status === 'enforced' });
-import type { Role } from './instructions.ts';
 
 /** Always enabled: Hermes' Kanban lifecycle tools (complete/block/comment/create) are how any agent reports. */
 export const REQUIRED_TOOLSETS = ['kanban'] as const;
 /** Hermes pins these skills on ("cannot be disabled from any surface", agent/skill_utils.py ESSENTIAL_SKILLS). */
 export const ESSENTIAL_SKILLS = ['hermes-agent'] as const;
+/** Never enabled, never offered: they delegate to the Claude Code / Codex CLIs, which the container does not have (agents run on NEAR AI only). */
+export const EXCLUDED_SKILLS = ['claude-code', 'codex'] as const;
+export const usableSkill = (s: string) => !(EXCLUDED_SKILLS as readonly string[]).includes(s);
 /** Restrictions whose runtime effect was verified against real Hermes (a disabled toolset was confirmed unavailable to the agent). */
 export const BEHAVIOR_TESTED_TOOLSETS = ['terminal', 'file', 'web', 'browser', 'code_execution'] as const;
 
 /**
  * Effective = the department allowance minus what no agent gets (delegation, cronjob), plus required toolsets.
- * Chief and worker get the same set: the chief does the work itself when there are no workers, and may still work
- * when there are.
+ * Toolsets are department-wide: every agent gets the same set.
  */
-export function effectiveToolsets(_role: Role, inv: Inventory): string[] {
+export function effectiveToolsets(inv: Inventory): string[] {
   const allowed = inv.allowedToolsets.filter((t) => !(AGENT_EXCLUDED_TOOLSETS as readonly string[]).includes(t));
   return [...new Set([...allowed, ...REQUIRED_TOOLSETS])].sort();
 }
 
-/** A worker profile exists only when the department asks for workers. */
-export const hasWorkers = (inv: Inventory) => inv.limits.maxConcurrentWorkers > 0;
+/** Dialogue-window chat only talks: work goes on the board as a quest. Of the agent's toolsets it keeps these, which
+    only recall what the agent already knows. Hermes keeps chat's set (platform 'api_server') apart from the workers' ('cli'). */
+export const CHAT_TOOLSETS = ['memory', 'session_search'] as const;
+export const chatToolsets = (inv: Inventory) => effectiveToolsets(inv).filter((t) => (CHAT_TOOLSETS as readonly string[]).includes(t));
+
+/** What one agent's profile must have: the department inventory plus the agent's own skills, and its own model if it has one. */
+export function agentInventory(inv: Inventory, agent: { model: ModelChoice | null; skills: string[] }): Inventory {
+  return { ...inv, model: agent.model ?? inv.model, allowedSkillIds: [...new Set([...inv.allowedSkillIds, ...agent.skills])] };
+}
+
+/** What Hermes' `default` profile has enabled: what an empty allowance falls back to, so agents can always do the work. */
+export interface HermesBaseline { toolsets: string[]; skills: string[] }
+
+/** An empty toolset or skill allowance means "Hermes defaults" (every agent profile is a clone of `default`), not "nothing". */
+export function withBaseline(inv: Inventory, b: HermesBaseline | null | undefined): Inventory {
+  if (!b) return inv;
+  return {
+    ...inv,
+    allowedToolsets: inv.allowedToolsets.length ? inv.allowedToolsets : b.toolsets as Inventory['allowedToolsets'],
+    allowedSkillIds: inv.allowedSkillIds.length ? inv.allowedSkillIds : b.skills,
+  };
+}
 
 /** Desired state for every toolset Hermes reports: enabled iff in the effective set. */
 export function desiredToolsetMap(universe: string[], effective: string[]): Record<string, boolean> {
@@ -33,11 +54,11 @@ export function desiredToolsetMap(universe: string[], effective: string[]): Reco
 }
 
 export const effectiveSkills = (inv: Inventory, installed: string[]) =>
-  installed.filter((s) => inv.allowedSkillIds.includes(s) || (ESSENTIAL_SKILLS as readonly string[]).includes(s)).sort();
+  installed.filter((s) => (inv.allowedSkillIds.includes(s) && usableSkill(s)) || (ESSENTIAL_SKILLS as readonly string[]).includes(s)).sort();
 
 /** Skills to put in Hermes' disabled list: everything installed that is neither allowed nor essential. */
 export const skillsToDisable = (inv: Inventory, installed: string[]) =>
-  installed.filter((s) => !inv.allowedSkillIds.includes(s) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
+  installed.filter((s) => (!inv.allowedSkillIds.includes(s) || !usableSkill(s)) && !(ESSENTIAL_SKILLS as readonly string[]).includes(s));
 
 /** The model to set on the profile; null when the department keeps the profile's own default. Unchanged pairs are not rewritten. */
 export const modelToApply = (inv: Inventory, current: { id: string | null; provider: string | null }): ModelChoice | null => {
@@ -58,10 +79,17 @@ export function inventoryHash(inv: Inventory): string {
   return createHash('sha256').update(stableStringify(inv)).digest('hex').slice(0, 32);
 }
 
+/** Everything provisioning applies: the inventory and the team (each agent's profile, model and skills go into Hermes). */
+export function desiredHash(inv: Inventory, agents: { key: string; profile: string; model: ModelChoice | null; skills: string[] }[]): string {
+  return createHash('sha256').update(stableStringify({ inv, agents })).digest('hex').slice(0, 32);
+}
+
 /** What was last read back from a Hermes profile. */
 export interface ObservedRole {
   profile: string;
   toolsets: Record<string, boolean>;
+  /** The chat's toolsets (Hermes platform 'api_server'); absent in observations stored before chat was restricted. */
+  chatToolsets?: Record<string, boolean>;
   enabledSkills: string[];
   installedSkills: string[];
   model: string | null;
@@ -72,16 +100,26 @@ export interface ObservedRole {
 export interface ObservedConfig {
   at: string;
   globalConcurrencyCap: number | null;
-  chief: ObservedRole;
-  /** Null when the department has no workers. */
-  worker: ObservedRole | null;
+  /** The defaults an empty allowance resolved to at sync time (absent when the department lists both). */
+  baseline?: HermesBaseline | null;
+  /** Agent key -> what its profile reported. */
+  agents: Record<string, ObservedRole>;
 }
 
-/** Differences between what the inventory demands and what Hermes reports (empty = in sync). */
-export function diffObserved(role: Role, inv: Inventory, o: ObservedRole): string[] {
+/** Reads stored observations; anything from before per-agent profiles counts as never observed. */
+export function parseObserved(json: string | null): ObservedConfig | null {
+  if (!json) return null;
+  const o = JSON.parse(json) as Partial<ObservedConfig>;
+  return o.agents ? (o as ObservedConfig) : null;
+}
+
+/** Differences between what an agent's inventory demands and what Hermes reports (empty = in sync). */
+export function diffObserved(inv: Inventory, o: ObservedRole): string[] {
   const diffs: string[] = [];
-  const want = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(role, inv));
+  const want = desiredToolsetMap(Object.keys(o.toolsets), effectiveToolsets(inv));
   for (const [t, on] of Object.entries(want)) if (o.toolsets[t] !== on) diffs.push(`toolset ${t} is ${o.toolsets[t] ? 'enabled' : 'disabled'}, expected ${on ? 'enabled' : 'disabled'}`);
+  const chat = o.chatToolsets ?? {}, wantChat = desiredToolsetMap(Object.keys(chat), chatToolsets(inv));
+  for (const [t, on] of Object.entries(wantChat)) if (chat[t] !== on) diffs.push(`chat toolset ${t} is ${chat[t] ? 'enabled' : 'disabled'}, expected ${on ? 'enabled' : 'disabled'}`);
   const wantSkills = effectiveSkills(inv, o.installedSkills);
   const have = [...o.enabledSkills].sort();
   if (JSON.stringify(wantSkills) !== JSON.stringify(have)) diffs.push('enabled skills differ from the inventory');
@@ -90,12 +128,12 @@ export function diffObserved(role: Role, inv: Inventory, o: ObservedRole): strin
   return diffs;
 }
 
-/** Honest, per-capability report. `enforced` only where behavior was tested against real Hermes. */
-export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | null): CapabilityEntry[] {
+/** Honest, per-capability report for one agent. `enforced` only where behavior was tested against real Hermes. */
+export function buildAgentReport(inv: Inventory, o: ObservedRole | null): CapabilityEntry[] {
   const entries: Draft[] = [];
-  const effTools = effectiveToolsets(role, inv);
+  const effTools = effectiveToolsets(inv);
   const tested = new Set<string>(BEHAVIOR_TESTED_TOOLSETS);
-  const diffs = o ? diffObserved(role, inv, o) : null;
+  const diffs = o ? diffObserved(inv, o) : null;
   const toolsetOk = o !== null && !diffs!.some((d) => d.startsWith('toolset'));
   const universe = o ? Object.keys(o.toolsets) : [];
   const notEffective = universe.filter((t) => !effTools.includes(t));
@@ -107,7 +145,7 @@ export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | nu
     status: toolsetOk ? 'enforced' : 'unverified',
     detail: toolsetOk
       ? 'terminal, file, web, browser, code_execution: applied, read back, and tested against real Hermes (a disabled toolset is not available to the agent).'
-      : 'Not yet applied or not matching Hermes; provision the department.',
+      : 'Not yet applied or not matching Hermes; sync the department.',
   });
   entries.push({
     capability: 'toolsets.other',
@@ -124,7 +162,7 @@ export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | nu
     effective: o ? effectiveSkills(inv, o.installedSkills) : [],
     status: skillsOk ? 'configured' : 'unverified',
     detail: skillsOk
-      ? 'Skills not in the allowlist are disabled in the profile (read back via Hermes). Hermes always keeps its essential skill(s) enabled (hermes-agent). Allowed ids that are not installed in the profile are ignored.'
+      ? 'Skills not in the allowlist (the department\'s plus the agent\'s own) are disabled in the profile (read back via Hermes). Hermes always keeps its essential skill(s) enabled (hermes-agent). Allowed ids that are not installed in the profile are ignored.'
       : 'Not yet applied or not matching Hermes.',
   });
 
@@ -143,7 +181,7 @@ export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | nu
     effective: o ? { provider: o.provider, id: o.model } : null,
     status: !inv.model ? 'unverified' : modelOk ? 'configured' : 'unverified',
     detail: !inv.model
-      ? 'No model chosen: the profile keeps its own default model (not changed).'
+      ? 'No model chosen for the department or the agent: the profile keeps its own default model (not changed).'
       : 'Set through Hermes\' own model assignment, which checks the model against the provider\'s list, and read back.',
   });
   entries.push({
@@ -160,14 +198,14 @@ export function buildRoleReport(role: Role, inv: Inventory, o: ObservedRole | nu
     requested: { sharedContextRefs: inv.sharedContextRefs },
     effective: instrOk ? 'department block present in SOUL.md' : null,
     status: instrOk ? 'configured' : 'unverified',
-    detail: 'Department purpose, role rules and shared context references are written into a managed block of the profile\'s SOUL.md; the rest of the file is untouched. References only, not file contents.',
+    detail: 'Department purpose, the team (teammate profiles), work rules and shared context references are written into a managed block of the profile\'s SOUL.md; the rest of the file is untouched. References only, not file contents.',
   });
   return entries.map(withGuarantee);
 }
 
-export function buildDepartmentWideReport(inv: Inventory, globalCap: number | null | undefined): CapabilityEntry[] {
+export function buildDepartmentWideReport(inv: Inventory, agentCount: number, globalCap: number | null | undefined): CapabilityEntry[] {
   const entries: Draft[] = [
-    concurrencyEntry(inv.limits.maxConcurrentWorkers, globalCap),
+    concurrencyEntry(agentCount, globalCap),
     {
       capability: 'files.isolation',
       requested: 'department-scoped files',
@@ -180,7 +218,7 @@ export function buildDepartmentWideReport(inv: Inventory, globalCap: number | nu
       requested: inv.limits.maxDelegationDepth,
       effective: null,
       status: 'unsupported',
-      detail: 'Workers keep the kanban toolset (needed to report results) and can therefore create tasks. Depth 1 is instructed in the worker profile but not enforced.',
+      detail: 'Every agent keeps the kanban toolset (needed to report results) and can therefore create tasks. Agents are instructed to do handed-over tasks themselves (depth 1), but this is not enforced.',
     },
     {
       capability: 'limits.maxTaskRuntimeSeconds',
@@ -194,28 +232,17 @@ export function buildDepartmentWideReport(inv: Inventory, globalCap: number | nu
 }
 
 /**
- * Hermes has ONE host-wide `kanban.max_in_progress_per_profile` (no per-profile or per-department map).
- * Because every department has its own worker profile, that cap bounds each department's worker.
- * So a requested limit is only backed by Hermes when it equals the cap; any other value is not enforceable.
+ * Hermes has ONE host-wide `kanban.max_in_progress_per_profile`. Every agent is its own profile, so each agent runs up
+ * to that many tasks at once and the department runs up to agents x cap. There is no per-department setting.
  */
-export function concurrencyEntry(requested: number, globalCap: number | null | undefined): Draft {
-  if (requested === 0) {
-    return {
-      capability: 'limits.maxConcurrentWorkers',
-      requested,
-      effective: 0,
-      status: 'configured',
-      detail: 'No workers: no worker profile is provisioned and the chief is instructed to do the work itself. Nothing in Hermes stops the chief from assigning tasks to other profiles; such tasks are reported as violations.',
-    };
-  }
-  const matches = globalCap != null && globalCap === requested;
+export function concurrencyEntry(agents: number, globalCap: number | null | undefined): Draft {
   return {
-    capability: 'limits.maxConcurrentWorkers',
-    requested,
-    effective: globalCap ?? null,
-    status: matches ? 'configured' : 'unsupported',
-    detail: matches
-      ? `The requested limit equals Hermes' host-wide per-profile cap (kanban.max_in_progress_per_profile=${globalCap}), which bounds this department's worker profile. The cap is global, applies to every department, is read at gateway start, and was only exercised for value 1.`
-      : `Hermes has only a host-wide per-profile cap (kanban.max_in_progress_per_profile, currently ${globalCap ?? 'unset/unlimited'}); there is no per-department setting, so the requested value is recorded but NOT enforced. Changing the cap affects all departments and needs a gateway restart.`,
+    capability: 'limits.concurrency',
+    requested: { agents },
+    effective: { agents, perAgentCap: globalCap ?? null, departmentMax: globalCap != null ? agents * globalCap : null },
+    status: 'configured',
+    detail: globalCap != null
+      ? `Each of the ${agents} agent(s) is its own Hermes profile and runs at most ${globalCap} task(s) at once (kanban.max_in_progress_per_profile, host-wide, read at gateway start), so this department runs at most ${agents * globalCap} at once.`
+      : `Each of the ${agents} agent(s) is its own Hermes profile. Hermes reports no per-profile cap (kanban.max_in_progress_per_profile unset), so an agent's tasks are not limited by Vibe City or Hermes.`,
   };
 }

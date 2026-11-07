@@ -71,6 +71,163 @@ export const MIGRATIONS: readonly string[] = [
   // v5: departments no longer have a workspace path; Hermes gives every task its own folder.
   `ALTER TABLE department DROP COLUMN workspace_path;
    ALTER TABLE department DROP COLUMN workspace_isolation;`,
+  // v6: characters (persona per agent seat) and dialogue-window chat history. Personas never grant capabilities.
+  `CREATE TABLE agent_character (
+     department_id TEXT NOT NULL REFERENCES department(id),
+     agent_key TEXT NOT NULL,
+     character_json TEXT NOT NULL,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (department_id, agent_key)
+   );
+   CREATE TABLE chat_message (
+     id TEXT PRIMARY KEY,
+     department_id TEXT NOT NULL REFERENCES department(id),
+     agent_key TEXT NOT NULL,
+     seq INTEGER NOT NULL,
+     message_json TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );
+   CREATE INDEX chat_message_thread_idx ON chat_message(department_id, agent_key, seq);`,
+  // v7: AR hiring requests and their candidates (feature spec 7.1). A request changes nothing in Hermes until the offer.
+  `CREATE TABLE hiring_request (
+     id TEXT PRIMARY KEY,
+     state TEXT NOT NULL,
+     trigger_json TEXT NOT NULL,
+     department_id TEXT,
+     brief_json TEXT,
+     messages_json TEXT NOT NULL DEFAULT '[]',
+     scouting_until TEXT,
+     hired_candidate_id TEXT,
+     applied_json TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );
+   CREATE TABLE hiring_candidate (
+     id TEXT PRIMARY KEY,
+     request_id TEXT NOT NULL REFERENCES hiring_request(id),
+     idx INTEGER NOT NULL,
+     candidate_json TEXT NOT NULL,
+     interview_json TEXT NOT NULL DEFAULT '[]'
+   );
+   CREATE INDEX hiring_candidate_req_idx ON hiring_candidate(request_id, idx);`,
+  // v8: quests between departments (feature spec 2.4): requests, quest origins, per-department policy, MCP tokens.
+  `CREATE TABLE quest_request (
+     id TEXT PRIMARY KEY,
+     from_department_id TEXT NOT NULL REFERENCES department(id),
+     to_department_id TEXT REFERENCES department(id),
+     to_label TEXT NOT NULL,
+     title TEXT NOT NULL,
+     objective TEXT NOT NULL,
+     reason TEXT NOT NULL,
+     state TEXT NOT NULL,
+     note TEXT,
+     quest_id TEXT,
+     created_at TEXT NOT NULL,
+     decided_at TEXT
+   );
+   CREATE INDEX quest_request_from_idx ON quest_request(from_department_id, created_at);
+   CREATE TABLE quest_origin (
+     quest_id TEXT NOT NULL,
+     department_id TEXT NOT NULL REFERENCES department(id),
+     origin TEXT NOT NULL,
+     from_department_id TEXT,
+     request_id TEXT,
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (department_id, quest_id)
+   );
+   CREATE TABLE quest_policy (
+     department_id TEXT PRIMARY KEY REFERENCES department(id),
+     policy_json TEXT NOT NULL
+   );
+   CREATE TABLE agent_token (
+     department_id TEXT PRIMARY KEY REFERENCES department(id),
+     token_hash TEXT NOT NULL UNIQUE,
+     created_at TEXT NOT NULL
+   );`,
+  // v9: schedules (feature spec 8). One row per fire makes firing idempotent across restarts.
+  `CREATE TABLE schedule (
+     id TEXT PRIMARY KEY,
+     department_id TEXT NOT NULL REFERENCES department(id),
+     name TEXT NOT NULL,
+     cron TEXT NOT NULL,
+     timezone TEXT NOT NULL,
+     title TEXT NOT NULL,
+     objective TEXT NOT NULL,
+     instructions TEXT NOT NULL,
+     enabled INTEGER NOT NULL,
+     next_run_at TEXT,
+     last_run_at TEXT,
+     last_quest_id TEXT,
+     last_error TEXT,
+     created_at TEXT NOT NULL,
+     deleted_at TEXT
+   );
+   CREATE TABLE schedule_fire (
+     schedule_id TEXT NOT NULL REFERENCES schedule(id),
+     fire_at TEXT NOT NULL,
+     quest_id TEXT,
+     error TEXT,
+     PRIMARY KEY (schedule_id, fire_at)
+   );`,
+  // v10: one Hermes profile per agent. The chief becomes the lead (seat 0, key 'chief'); the shared worker profile
+  // becomes W-01; any further worker desks become agents W-02… that get their own profiles on the next provision.
+  // A hire's model and skills now belong to its agent, not the department.
+  `CREATE TABLE department_agent (
+     department_id TEXT NOT NULL REFERENCES department(id),
+     agent_key TEXT NOT NULL,
+     seat INTEGER NOT NULL,
+     profile_ref TEXT,
+     origin TEXT CHECK (origin IN ('created','associated')),
+     verified_at TEXT,
+     model_json TEXT,
+     skills_json TEXT NOT NULL DEFAULT '[]',
+     created_at TEXT NOT NULL,
+     PRIMARY KEY (department_id, agent_key),
+     UNIQUE (department_id, seat)
+   );
+   INSERT INTO department_agent (department_id, agent_key, seat, profile_ref, origin, verified_at, created_at)
+     SELECT id, 'chief', 0, chief_profile_ref, chief_origin, chief_verified_at, created_at FROM department;
+   WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 10)
+   INSERT INTO department_agent (department_id, agent_key, seat, profile_ref, origin, verified_at, created_at)
+     SELECT d.id, 'W-' || printf('%02d', n.i), n.i,
+       CASE WHEN n.i = 1 THEN d.worker_profile_ref END, CASE WHEN n.i = 1 THEN d.worker_origin END,
+       CASE WHEN n.i = 1 THEN d.worker_verified_at END, d.created_at
+     FROM department d
+     JOIN department_inventory inv ON inv.department_id = d.id
+     JOIN n ON n.i <= COALESCE(json_extract(inv.inventory_json, '$.limits.maxConcurrentWorkers'), 0);
+   UPDATE department_inventory SET inventory_json = json_remove(inventory_json, '$.limits.maxConcurrentWorkers');
+   ALTER TABLE department DROP COLUMN chief_profile_ref;
+   ALTER TABLE department DROP COLUMN worker_profile_ref;
+   ALTER TABLE department DROP COLUMN chief_verified_at;
+   ALTER TABLE department DROP COLUMN worker_verified_at;
+   ALTER TABLE department DROP COLUMN chief_origin;
+   ALTER TABLE department DROP COLUMN worker_origin;
+   ALTER TABLE run_reference ADD COLUMN agent_key TEXT;
+   UPDATE run_reference SET agent_key = CASE role WHEN 'chief' THEN 'chief' ELSE 'W-01' END;
+   ALTER TABLE run_reference DROP COLUMN role;`,
+  // v11: the dialogue window talks to the agent's own Hermes profile through the gateway API server. Per profile: the
+  // API_SERVER_KEY Vibe City set in its .env, and the Hermes session that holds the conversation with the CEO.
+  `CREATE TABLE agent_chat (
+     profile TEXT PRIMARY KEY,
+     api_key TEXT NOT NULL,
+     session_id TEXT NOT NULL,
+     created_at TEXT NOT NULL
+   );`,
+  // v12: firing a teammate removes its seat; seats are never handed out again, so a later hire never gets the fired
+  // agent's key (and with it its Hermes profile, persona and chat).
+  `ALTER TABLE department ADD COLUMN last_seat INTEGER NOT NULL DEFAULT 0;
+   UPDATE department SET last_seat = (SELECT COALESCE(MAX(seat), 0) FROM department_agent WHERE department_id = department.id);`,
+  // v13: a fired teammate is archived, not deleted: the row (and its Hermes profile, memory and sessions) stays.
+  `ALTER TABLE department_agent ADD COLUMN fired_at TEXT;`,
+  // v14: the safe (feature spec 6.1). Public account ids and settings only: Vibe City never stores keys.
+  `CREATE TABLE money_settings (id INTEGER PRIMARY KEY CHECK (id = 1), settings_json TEXT NOT NULL);
+   CREATE TABLE near_wallet (account_id TEXT NOT NULL, network TEXT NOT NULL, is_primary INTEGER NOT NULL DEFAULT 0, linked_at TEXT NOT NULL, PRIMARY KEY (account_id, network));`,
+  // v15: an agent has many chats (Hermes sessions); each stored message belongs to one. agent_chat.session_id is the
+  // chat the dialogue window opens on (the last one used).
+  `ALTER TABLE chat_message ADD COLUMN session_id TEXT;
+   UPDATE chat_message SET session_id = (SELECT c.session_id FROM agent_chat c JOIN department_agent a ON a.profile_ref = c.profile
+     WHERE a.department_id = chat_message.department_id AND a.agent_key = chat_message.agent_key);
+   CREATE INDEX chat_message_session_idx ON chat_message(session_id, seq);`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

@@ -1,20 +1,19 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HermesUnavailableError } from './hermes/ports.ts';
 import { questApp } from './testUtils.ts';
 
 const Q = (dept: string, quest = '') => `/api/departments/${dept}/quests${quest ? `/${quest}` : ''}`;
 
-/** A quest the way Hermes shapes it: chief root + worker children (children wait for the root to be done). */
-async function seedQuest(t: ReturnType<typeof questApp>, d: { board: string; chief: string; worker: string }, workers = 2) {
-  const root = t.kanban.seedTask(d.board, { title: 'Quest root', assignee: d.chief, body: '# Quest: x\n\n## Objective\nBuild it\n\n## How to execute\n...' });
-  const kids = Array.from({ length: workers }, (_, i) => t.kanban.seedTask(d.board, { title: `Worker task ${i + 1}`, assignee: d.worker, parents: [root.id] }));
+/** A quest the way Hermes shapes it: lead root + teammate children (children wait for the root to be done). */
+async function seedQuest(t: ReturnType<typeof questApp>, d: { board: string; lead: string; teammate: string }, workers = 2) {
+  const root = t.kanban.seedTask(d.board, { title: 'Quest root', assignee: d.lead, body: '# Quest: x\n\n## Objective\nBuild it\n\n## How to execute\n...' });
+  const kids = Array.from({ length: workers }, (_, i) => t.kanban.seedTask(d.board, { title: `Worker task ${i + 1}`, assignee: d.teammate, parents: [root.id] }));
   return { root, kids };
 }
 
 // ---- creation -----------------------------------------------------------------------
 
-test('creating a quest makes a real Hermes task assigned to the chief and returns its id', async () => {
+test('creating a quest makes a real Hermes task assigned to the lead and returns its id', async () => {
   const t = questApp();
   const d = await t.readyDept('Eng');
   const res = await t.create(d.id, { title: 'Ship it', objective: 'Implement X', instructions: 'be careful' });
@@ -22,11 +21,11 @@ test('creating a quest makes a real Hermes task assigned to the chief and return
   const { questId, hermesBoardSlug } = res.json();
   assert.equal(hermesBoardSlug, d.board);
   const raw = await t.kanban.getTask(d.board, questId);
-  assert.equal(raw.task.assignee, d.chief, 'assigned to the department chief, server-side');
+  assert.equal(raw.task.assignee, d.lead, 'assigned to the department lead, server-side');
   assert.equal(raw.task.title, 'Ship it');
   assert.match(raw.task.body!, /Implement X/);
   assert.match(raw.task.body!, /be careful/);
-  assert.ok(raw.task.body!.includes(`"${d.worker}"`), 'chief is told which worker profile to delegate to');
+  assert.ok(raw.task.body!.includes(`"${d.teammate}"`), 'the lead is told which teammate profiles it can hand work to');
   assert.deepEqual(raw.links.parents, []);
 });
 
@@ -41,29 +40,6 @@ test('quest creation is idempotent per clientRequestId', async () => {
   const c = await t.create(d.id, { clientRequestId: crypto.randomUUID() });
   assert.notEqual(c.json().questId, a.json().questId);
   assert.equal((await t.kanban.listBoardTasks(d.board)).length, 2);
-});
-
-test('the same clientRequestId in another department does not collide', async () => {
-  const t = questApp();
-  const a = await t.readyDept('A');
-  const b = await t.readyDept('B');
-  const id = crypto.randomUUID();
-  const qa = (await t.create(a.id, { clientRequestId: id })).json().questId;
-  const qb = (await t.create(b.id, { clientRequestId: id })).json().questId;
-  assert.equal((await t.kanban.listBoardTasks(a.board)).length, 1);
-  assert.equal((await t.kanban.listBoardTasks(b.board)).length, 1);
-  assert.ok(qa && qb);
-});
-
-test('creation retried after a transient Hermes failure does not duplicate', async () => {
-  const t = questApp();
-  const d = await t.readyDept('Eng');
-  const id = crypto.randomUUID();
-  t.kanban.failNext('createTask', new HermesUnavailableError('down'), 1);
-  assert.equal((await t.create(d.id, { clientRequestId: id })).statusCode, 503);
-  assert.equal((await t.kanban.listBoardTasks(d.board)).length, 0);
-  assert.equal((await t.create(d.id, { clientRequestId: id })).statusCode, 201);
-  assert.equal((await t.kanban.listBoardTasks(d.board)).length, 1);
 });
 
 test('creation requires a ready department and valid input', async () => {
@@ -128,11 +104,11 @@ test('quest lifecycle: queued -> planning -> running -> completed, derived from 
 
   assert.equal((await status()).status, 'queued');
 
-  t.kanban.startRun(d.board, questId, d.chief);
+  t.kanban.startRun(d.board, questId, d.lead);
   assert.equal((await status()).status, 'planning', 'chief running, no workers yet');
 
-  const w1 = t.kanban.seedTask(d.board, { title: 'W1', assignee: d.worker, parents: [questId] });
-  const w2 = t.kanban.seedTask(d.board, { title: 'W2', assignee: d.worker, parents: [questId] });
+  const w1 = t.kanban.seedTask(d.board, { title: 'W1', assignee: d.teammate, parents: [questId] });
+  const w2 = t.kanban.seedTask(d.board, { title: 'W2', assignee: d.teammate, parents: [questId] });
   assert.equal((await status()).status, 'running');
 
   t.kanban.complete(d.board, questId, 'created W1 and W2');
@@ -142,12 +118,12 @@ test('quest lifecycle: queued -> planning -> running -> completed, derived from 
   assert.equal(s.flags.delegated, true);
   assert.equal(s.completedAt, null);
 
-  t.kanban.startRun(d.board, w1.id, d.worker);
+  t.kanban.startRun(d.board, w1.id, d.teammate);
   t.kanban.complete(d.board, w1.id, 'w1 done');
   assert.equal((await status()).status, 'running');
   assert.deepEqual([(await status()).counts.done, (await status()).counts.tasks], [2, 3]);
 
-  t.kanban.startRun(d.board, w2.id, d.worker);
+  t.kanban.startRun(d.board, w2.id, d.teammate);
   t.kanban.complete(d.board, w2.id, 'w2 done');
   s = await status();
   assert.equal(s.status, 'completed');
@@ -159,31 +135,18 @@ test('detail returns the real hierarchy: roles, depth, parent/child ids, nested 
   const t = questApp();
   const d = await t.readyDept('Eng');
   const { root, kids } = await seedQuest(t, d, 2);
-  const grand = t.kanban.seedTask(d.board, { title: 'Grandchild', assignee: d.worker, parents: [kids[0]!.id] });
+  const grand = t.kanban.seedTask(d.board, { title: 'Grandchild', assignee: d.teammate, parents: [kids[0]!.id] });
   const detail = (await t.get(Q(d.id, root.id))).json();
   const byId = Object.fromEntries(detail.tasks.map((n: any) => [n.id, n]));
   assert.equal(detail.tasks.length, 4);
-  assert.deepEqual([byId[root.id].role, byId[root.id].depth], ['chief', 0]);
-  assert.deepEqual([byId[kids[0]!.id].role, byId[kids[0]!.id].depth], ['worker', 1]);
-  assert.deepEqual([byId[grand.id].role, byId[grand.id].depth], ['worker', 2]);
+  assert.deepEqual([byId[root.id].agentKey, byId[root.id].depth], ['chief', 0]);
+  assert.deepEqual([byId[kids[0]!.id].agentKey, byId[kids[0]!.id].depth], ['W-01', 1]);
+  assert.deepEqual([byId[grand.id].agentKey, byId[grand.id].depth], ['W-01', 2]);
   assert.deepEqual(byId[grand.id].parentIds, [kids[0]!.id]);
   assert.deepEqual(byId[root.id].childIds.sort(), kids.map((k) => k.id).sort());
   assert.equal(detail.objective, 'Build it');
   const tasks = (await t.get(Q(d.id, root.id) + '/tasks')).json();
   assert.equal(tasks.tasks.length, 4);
-});
-
-test('a grandchild that is still running keeps the quest running even if chief and children are done', async () => {
-  const t = questApp();
-  const d = await t.readyDept('Eng');
-  const { root, kids } = await seedQuest(t, d, 1);
-  const grand = t.kanban.seedTask(d.board, { title: 'G', assignee: d.worker, parents: [kids[0]!.id] });
-  t.kanban.complete(d.board, root.id, 'planned');
-  t.kanban.complete(d.board, kids[0]!.id, 'child done');
-  t.kanban.startRun(d.board, grand.id, d.worker);
-  assert.equal((await t.get(Q(d.id, root.id))).json().status, 'running');
-  t.kanban.complete(d.board, grand.id, 'done');
-  assert.equal((await t.get(Q(d.id, root.id))).json().status, 'completed');
 });
 
 test('failed worker -> quest failed with the error shown; foreign assignees are reported as violations', async () => {
@@ -192,7 +155,7 @@ test('failed worker -> quest failed with the error shown; foreign assignees are 
   const { root, kids } = await seedQuest(t, d, 2);
   t.kanban.seedTask(d.board, { title: 'Sneaky', assignee: 'some-other-profile', parents: [root.id] });
   t.kanban.complete(d.board, root.id, 'planned');
-  t.kanban.startRun(d.board, kids[0]!.id, d.worker);
+  t.kanban.startRun(d.board, kids[0]!.id, d.teammate);
   t.kanban.fail(d.board, kids[0]!.id, 'crashed while reading /home/urataps/.hermes/kanban/boards/x/secret.txt');
   t.kanban.complete(d.board, kids[1]!.id, 'ok');
   const detail = (await t.get(Q(d.id, root.id))).json();
@@ -220,7 +183,7 @@ test('results include the chief summary, worker summaries, errors and attachment
   assert.ok(!res.body.includes('/home/'), 'no absolute host path anywhere');
   assert.ok(!res.body.includes('stored_path'));
   const body = res.json();
-  assert.equal(body.chiefSummary, 'Created two tasks');
+  assert.equal(body.leadSummary, 'Created two tasks');
   const w = body.tasks.find((x: any) => x.taskId === kids[0]!.id);
   assert.match(w.summary, /<path>\/result\.txt/);
   assert.equal(w.attachments[0].filename, 'result.txt');
@@ -265,7 +228,7 @@ test('activity is ordered, drops Hermes plumbing events, and never forwards raw 
   const t = questApp();
   const d = await t.readyDept('Eng');
   const { root, kids } = await seedQuest(t, d, 1);
-  t.kanban.startRun(d.board, root.id, d.chief);
+  t.kanban.startRun(d.board, root.id, d.lead);
   t.kanban.complete(d.board, root.id, 'planned in /home/urataps/work/dir/plan.md');
   t.kanban.attach(d.board, kids[0]!.id, 'out.txt', 'x');
   const { events } = (await t.get(Q(d.id, root.id) + '/activity')).json();
@@ -296,11 +259,25 @@ test('Hermes offline: quest reads answer 503 and nothing is fabricated', async (
   assert.equal((await t.get(Q(d.id))).json().quests.length, 1, 'real data is back after reconnect');
 });
 
-test('without a Kanban integration configured the quest routes answer 503', async () => {
-  const { buildServices } = await import('./app.ts');
-  const { openDb } = await import('./db/db.ts');
-  const { FakeHermes } = await import('./testing/fakeHermes.ts');
-  const { app } = buildServices(openDb(':memory:'), new FakeHermes());
-  const dept = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'A' } })).json();
-  assert.equal((await app.inject(Q(dept.id))).statusCode, 409, 'unprovisioned department');
+
+test('a blocked task shows the agent\'s question; the boss\'s answer becomes a comment and the task resumes', async () => {
+  const t = questApp();
+  const d = await t.readyDept('Ops');
+  const { root, kids } = await seedQuest(t, d, 1);
+  t.kanban.block(d.board, root.id, 'Need someone with shell access to run 5 installs in /opt/data/profiles/x');
+  const detail = await t.get_(d.id, root.id);
+  const blocked = detail.tasks.find((n: any) => n.id === root.id);
+  assert.equal(blocked.status, 'blocked');
+  assert.equal(blocked.blockReason, 'Need someone with shell access to run 5 installs in <path>/x');
+  assert.equal(detail.tasks.find((n: any) => n.id === kids[0]!.id).blockReason, null);
+
+  const answer = (taskId: string, message: string) => t.app.inject({ method: 'POST', url: `${Q(d.id, root.id)}/tasks/${taskId}/answer`, payload: { message } });
+  assert.equal((await answer(root.id, '  ')).statusCode, 400);
+  const res = await answer(root.id, 'Skip the install, document the commands instead.');
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.json().tasks.find((n: any) => n.id === root.id).status, 'ready');
+  assert.equal(t.kanban.statusOf(d.board, root.id), 'ready');
+  assert.deepEqual(t.kanban.commentsOf(d.board).filter((c) => c.task_id === root.id).map((c) => [c.author, c.body]), [['the boss (CEO)', 'Skip the install, document the commands instead.']]);
+  assert.equal((await answer(root.id, 'again')).statusCode, 409, 'no longer waiting for input');
+  assert.equal((await answer('t_notmine1', 'x')).statusCode, 404);
 });

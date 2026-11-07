@@ -27,6 +27,11 @@ services:
       NEAR_AI_BASE_URL: ${NEAR_AI_BASE_URL:-https://cloud-api.near.ai/v1}
       NEAR_AI_MODEL: ${NEAR_AI_MODEL:-deepseek/deepseek-v4.1-flash}
       NEAR_AI_REASONING_EFFORT: ${NEAR_AI_REASONING_EFFORT:-high}
+      # The safe (spec 6.1): optional NEAR AI Cloud billing (org id + session token) and NEAR RPC overrides.
+      NEAR_AI_ORG_ID: ${NEAR_AI_ORG_ID:-}
+      NEAR_AI_ACCESS_TOKEN: ${NEAR_AI_ACCESS_TOKEN:-}
+      NEAR_RPC_MAINNET: ${NEAR_RPC_MAINNET:-}
+      NEAR_RPC_TESTNET: ${NEAR_RPC_TESTNET:-}
     env_file:
       - path: .env.hermes
         required: false

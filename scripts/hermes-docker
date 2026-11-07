@@ -1,0 +1,5 @@
+#!/bin/sh
+# The `hermes` CLI of the dev container (docker-compose.dev.yml), for a backend running on the host: HERMES_BIN=scripts/hermes-docker.
+# Runs as the hermes user against the container's data, like the backend does inside the production image.
+exec docker exec -i -u hermes -e HOME=/opt/data -e COLUMNS="${COLUMNS:-250}" -e NO_COLOR=1 \
+  "${HERMES_DEV_CONTAINER:-vibe-city-hermes-dev}" hermes "$@"

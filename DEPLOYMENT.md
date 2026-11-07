@@ -24,6 +24,19 @@ docker compose up -d --build
 open http://127.0.0.1:4100
 ```
 
+### Develop (only Hermes in Docker)
+
+No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100.
+
+```
+npm run dev:hermes        # Hermes gateway + dashboard (docker-compose.dev.yml), data in ./.dev/hermes
+npm run dev:backend       # http://127.0.0.1:4100, restarts on save
+npm run dev:web           # http://localhost:4200, hot reload, proxies /api to the backend
+npm run dev:hermes:down   # stop Hermes (data stays in ./.dev/hermes; delete it for a fresh Hermes)
+```
+
+How the host backend reaches the container: HTTP on loopback (host networking; Hermes also reaches the backend's MCP server at 127.0.0.1:4100), the `hermes` CLI through `scripts/hermes-docker` (`HERMES_BIN`, a `docker exec` wrapper). Hermes' data is bind-mounted at `./.dev/hermes` so it survives container rebuilds; the container runs Hermes with uid/gid 1000 so those files stay yours; set `DEV_UID`/`DEV_GID` if yours differ. The backend's dev database is `apps/backend/data/vibe-city.sqlite`, separate from the container's.
+
 The Vibe City API has **no login**. It is published on loopback only. For remote use, tunnel (`ssh -L 4100:127.0.0.1:4100`) or put an authenticating reverse proxy in front, and set `ALLOWED_ORIGINS` to the public origin.
 
 ### Models: NEAR AI Cloud (default)
@@ -45,7 +58,7 @@ On every start, `docker/cont-init.d/03-vibe-city-near` does three things before 
 - While no provider has been chosen yet (`model.provider` unset or `auto`), it makes `near-ai` with `NEAR_AI_MODEL` the default. A provider chosen later is never overwritten.
 - Where `agent.reasoning_effort` is unset (Hermes then uses `medium`), it sets `NEAR_AI_REASONING_EFFORT` (default `high`), in the main config and every profile. DeepSeek V4.x on NEAR rejects `medium` with HTTP 400 ("reasoning_effort must be low, high, xhigh, max …"). Departments created later inherit the setting, because their profiles are cloned from `default`.
 
-The key itself is never written to disk; Hermes reads it from the environment when it calls the model. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
+Hermes' own workers read the key from the environment. The dialogue window is the exception: it talks to each agent's profile through the gateway API server, where Hermes multiplexes profiles and a profile reads credentials **only from its own `.env`**. So the backend writes `NEAR_AI_API_KEY` (and the profile's `API_SERVER_KEY`) into an agent's profile `.env` the first time someone chats with it, and again once after every restart, so a changed key propagates. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
 
 The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
 
@@ -94,6 +107,6 @@ Agents run with Hermes' local terminal backend *inside this container*. That con
 | Repository contents | **bug found and fixed locally**: `.gitignore` had `data/`, which also ignored `apps/web/src/town/data/` (the city's data layer: `live.ts`, `derive.ts`, `types.ts`). The first commit therefore lacks those files and a fresh clone cannot build the web app. The rule is now `/apps/backend/data/`; the files must be committed. |
 | CI on GitHub | **unknown**: `gh` is not authenticated on this machine, so run results were not checked |
 | Hermes image pin | `nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d` (Hermes 0.22.6), verified to be the exact base of the locally tested image (all 39 layers match) |
-| WebSocket reconnect, quest screens, one real chief -> worker quest | **not run**: needs a running Hermes dashboard + gateway and model credentials. Covered by unit tests (`live.test.ts`) only. |
+| WebSocket reconnect, quest screens, one real lead -> teammate quest | **not run**: needs a running Hermes dashboard + gateway and model credentials. Covered by unit tests (`live.test.ts`) only. |
 
 To reproduce the local part: `npm ci && npm run typecheck && npm test && npm run build`, then `WEB_DIST=../web/dist PORT=4199 VIBE_CITY_DB=/tmp/vc.sqlite node --experimental-strip-types src/server.ts` in `apps/backend` and open `http://127.0.0.1:4199/`. Restart the backend after every rebuild (static files are registered at startup).

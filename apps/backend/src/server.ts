@@ -5,6 +5,10 @@ import { buildServices } from './app.ts';
 import { loadConfig } from './config.ts';
 import { RealHermesRuntime } from './hermes/realRuntime.ts';
 import { KanbanClient } from './hermes/kanbanClient.ts';
+import { OpenAiCompatModel } from './model/chatModel.ts';
+import { NearModelPrices } from './model/nearPrices.ts';
+import { HermesAgentChat } from './hermes/agentChat.ts';
+import { NearAiCredits } from './domain/moneyService.ts';
 
 const cfg = loadConfig();
 const dbPath = resolve(cfg.dbPath);
@@ -16,13 +20,21 @@ const hermes = new RealHermesRuntime({
   baseUrl: cfg.hermesUrl, sessionToken: cfg.hermesToken ?? '', hermesBin: cfg.hermesBin, log: (m) => console.warn(m),
 });
 const kanban = new KanbanClient({ baseUrl: cfg.hermesUrl, sessionToken: cfg.hermesToken ?? '' });
-const { app, provisioning } = buildServices(db, hermes, {
+const { app, provisioning, schedules } = buildServices(db, hermes, {
   kanban,
   // Live events: the Hermes WebSocket (and token) stay on the server; browsers only talk to /api/live.
   live: { wsBaseUrl: cfg.hermesUrl.replace(/^http/, 'ws'), sessionToken: cfg.hermesToken ?? '' },
   ...(cfg.allowedOrigins ? { allowedOrigins: cfg.allowedOrigins } : {}),
   ...(cfg.webDist ? { webDist: cfg.webDist } : {}),
+  chatModel: new OpenAiCompatModel(cfg.chat), modelPrices: new NearModelPrices({ baseUrl: cfg.chat.baseUrl }), agentChat: new HermesAgentChat({ baseUrl: cfg.hermesApiUrl }),
+  money: { credits: new NearAiCredits({ baseUrl: cfg.chat.baseUrl, orgId: cfg.near.billingOrgId, token: cfg.near.billingToken }), rpcUrl: cfg.near.rpc },
+  // Profiles served by the multiplexed gateway read credentials only from their own .env, not this container's env.
+  ...(process.env.NEAR_AI_API_KEY ? { agentEnv: { NEAR_AI_API_KEY: process.env.NEAR_AI_API_KEY } } : {}), ...(cfg.mcpUrl ? { mcpUrl: cfg.mcpUrl } : {}),
 });
+if (!cfg.chat.apiKey) console.warn('NEAR_AI_API_KEY is not set: AR interviews and the executive assistant cannot talk.');
+
+// Schedules (feature spec 8): the backend fires due schedules by creating ordinary quests.
+setInterval(() => { void schedules.tick().catch((e) => console.warn('schedule tick failed:', (e as Error).message)); }, 30_000).unref();
 
 await app.listen({ host: cfg.host, port: cfg.port }); // loopback by default
 console.log(`Vibe City backend listening on http://${cfg.host}:${cfg.port}`);

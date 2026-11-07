@@ -2,7 +2,7 @@
 import type { DepartmentView, ProvisioningStatus, QuestDetail, QuestSummary, TaskNode } from '@vibe-city/shared';
 import type { AgentStatus, Chief, Dept, DeptState, Worker } from './types.ts';
 
-/** Desks in the office renderer (world/interior.ts DESKS). Tasks beyond this are counted but not drawn. */
+/** Desks in the office renderer (world/interior.ts DESKS). Teammates beyond this are counted but not drawn. */
 export const MAX_DESKS = 6;
 
 export const SHIRTS = ['#9B5CFF', '#FF7A6B', '#2EB8F0', '#7CF5B4', '#FFB547', '#FF3EA5'];
@@ -25,31 +25,8 @@ export function workerStatus(t: Pick<TaskNode, 'status' | 'failed'>): AgentStatu
   }
 }
 
+/** Which of an agent's tasks the floor shows: what it is doing now, else what failed, else what is next, else the last done. */
 const PRIORITY: Record<AgentStatus, number> = { running: 0, failed: 1, idle: 2, awaiting: 2, completed: 3, disconnected: 4 };
-
-/**
- * Keeps a task on the same desk for as long as it stays in view. New tasks take the lowest free desk;
- * tasks that left view free theirs. Returns task id -> desk index (0-based).
- */
-export function assignSlots(prev: ReadonlyMap<string, number>, tasks: { id: string; status: AgentStatus }[], max = MAX_DESKS): Map<string, number> {
-  const next = new Map<string, number>();
-  const used = new Set<number>();
-  const ranked = [...tasks].sort((a, b) => PRIORITY[a.status] - PRIORITY[b.status]);
-  for (const t of ranked) {
-    const p = prev.get(t.id);
-    if (p !== undefined && p < max && !used.has(p)) { next.set(t.id, p); used.add(p); }
-  }
-  for (const t of ranked) {
-    if (next.has(t.id)) continue;
-    let i = 0;
-    while (i < max && used.has(i)) i++;
-    if (i >= max) break;
-    next.set(t.id, i); used.add(i);
-  }
-  return next;
-}
-
-export const slotLabel = (i: number) => `W-${String(i + 1).padStart(2, '0')}`;
 
 const hhmm = (iso: string | null) => {
   if (!iso) return '—';
@@ -63,43 +40,45 @@ export interface DeriveInput {
   provisioning: ProvisioningStatus | null;
   /** Details of the department's live quests only. */
   liveQuests: QuestDetail[];
-  maxWorkers: number;
   chiefModel: string | null;
-  /** Previous task -> desk map (kept so agents do not hop between desks). */
-  slots: ReadonlyMap<string, number>;
   hermesUp: boolean;
 }
 
-export interface Derived { dept: Dept; slots: Map<string, number> }
+type Seen = { q: QuestDetail; t: TaskNode };
 
-export function deriveDept(i: DeriveInput): Derived {
+/** The task an agent is shown with, among the live quests' tasks assigned to it. */
+function current(tasks: Seen[]): Seen | null {
+  const by = (x: Seen) => x.t.completedAt ?? x.t.startedAt ?? x.t.createdAt ?? '';
+  return [...tasks].sort((a, b) => PRIORITY[workerStatus(a.t)] - PRIORITY[workerStatus(b.t)] || by(b).localeCompare(by(a)))[0] ?? null;
+}
+
+export function deriveDept(i: DeriveInput): Dept {
   const { dept: v, provisioning: prov, liveQuests: quests } = i;
   const ready = v.state === 'ready';
+  // Synced before (the lead has a profile): unsynced edits or a re-sync keep the floor and its agents on screen.
+  const staffed = ready || v.state === 'disconnected' || (!!v.agents.find((a) => a.lead)?.profileRef && (v.state === 'unconfigured' || v.state === 'provisioning'));
   const disconnected = v.state === 'disconnected' || (ready && !i.hermesUp);
+  const tasksOf = (key: string): Seen[] => quests.flatMap((q) => q.tasks.filter((t) => t.agentKey === key && t.status !== 'archived').map((t) => ({ q, t })));
 
-  const workerTasks = quests.flatMap((q) => q.tasks.filter((t) => t.role === 'worker' && t.status !== 'archived').map((t) => ({ q, t })));
-  const cand = workerTasks.map(({ t }) => ({ id: t.id, status: workerStatus(t) }));
-  const slots = ready ? assignSlots(i.slots, cand) : new Map<string, number>();
+  // Every teammate is a real Hermes profile with its own desk, busy or not.
+  const workers: Worker[] = (staffed ? v.agents.filter((a) => !a.lead) : []).slice(0, MAX_DESKS).map((a, idx): Worker => {
+    const c = current(tasksOf(a.key));
+    const t = c?.t;
+    return {
+      id: a.key, profile: a.profileRef, taskId: t?.id ?? null, task: t?.title ?? '',
+      status: disconnected ? 'disconnected' : t ? workerStatus(t) : 'idle',
+      since: t ? hhmm(t.status === 'done' ? t.completedAt : t.startedAt ?? t.createdAt) : hhmm(a.createdAt),
+      shirt: SHIRTS[idx % SHIRTS.length]!,
+    };
+  });
 
-  const workers: Worker[] = workerTasks
-    .filter(({ t }) => slots.has(t.id))
-    .map(({ t }): Worker => {
-      const idx = slots.get(t.id)!;
-      return {
-        id: slotLabel(idx), taskId: t.id, task: t.title,
-        status: disconnected ? 'disconnected' : workerStatus(t),
-        since: hhmm(t.status === 'done' ? t.completedAt : t.startedAt ?? t.createdAt),
-        shirt: SHIRTS[idx % SHIRTS.length]!,
-      };
-    })
-    .sort((a, b) => a.id.localeCompare(b.id));
-
-  const chiefTasks = quests.flatMap((q) => q.tasks.filter((t) => t.role === 'chief').map((t) => ({ q, t })));
+  const chiefTasks = tasksOf('chief');
   const runningChief = chiefTasks.find(({ t }) => t.status === 'running');
   const failedChief = chiefTasks.find(({ t }) => t.failed);
+  const lead = v.agents.find((a) => a.lead);
   let chief: Chief | null = null;
-  if (ready || v.state === 'disconnected') {
-    const base = { name: `${v.name} Chief`, profile: v.chiefProfileRef ?? '', model: i.chiefModel };
+  if (staffed) {
+    const base = { name: `${v.name} Lead`, profile: lead?.profileRef ?? '', model: i.chiefModel };
     if (disconnected) chief = { ...base, status: 'disconnected', activity: 'Hermes is not reachable', since: hhmm(v.updatedAt) };
     else if (runningChief) {
       const q = runningChief.q;
@@ -107,14 +86,14 @@ export function deriveDept(i: DeriveInput): Derived {
     } else if (failedChief) chief = { ...base, status: 'failed', activity: `Failed on “${failedChief.q.title}”`, since: hhmm(failedChief.t.startedAt) };
     else if (quests.some((q) => q.flags.planningComplete && q.status !== 'cancelling')) {
       const q = quests.find((x) => x.flags.planningComplete)!;
-      chief = { ...base, status: 'idle', activity: `Planning finished · “${q.title}”`, since: hhmm(q.tasks.find((t) => t.role === 'chief')?.completedAt ?? null) };
+      chief = { ...base, status: 'idle', activity: `Planning finished · “${q.title}”`, since: hhmm(q.tasks.find((t) => t.depth === 0)?.completedAt ?? null) };
     } else chief = { ...base, status: 'idle', activity: quests.length ? `Queued: “${quests[0]!.title}”` : 'Waiting for a quest', since: hhmm(v.updatedAt) };
   }
 
   let state: DeptState;
   let attention: string | undefined;
   if (v.state === 'unconfigured' || v.state === 'provisioning') state = 'unconfigured';
-  else if (v.state === 'error') { state = 'attention'; attention = prov?.error?.message ?? 'Provisioning failed'; }
+  else if (v.state === 'error') { state = 'attention'; attention = prov?.error?.message ?? 'Sync with Hermes failed'; }
   else if (disconnected) { state = 'offline'; attention = i.hermesUp ? 'Hermes resources could not be verified' : 'Hermes is not reachable'; }
   else if (workers.some((w) => w.status === 'failed') || chief?.status === 'failed') {
     state = 'attention';
@@ -123,9 +102,8 @@ export function deriveDept(i: DeriveInput): Derived {
   } else if (chief?.status === 'running' || workers.some((w) => w.status === 'running')) state = 'active';
   else state = 'idle';
 
-  const dept: Dept = {
-    id: v.id, name: v.name, purpose: v.purpose, state, provisioning: v.state, chief, workers,
-    maxWorkers: i.maxWorkers, theme: themeFor(v.floorOrder), chiefProfileRef: v.chiefProfileRef, workerProfileRef: v.workerProfileRef, attention, view: v,
+  return {
+    id: v.id, name: v.name, purpose: v.purpose, state, provisioning: v.state, chief, workers, teamSize: v.agents.length,
+    theme: themeFor(v.floorOrder), attention, view: v,
   };
-  return { dept, slots };
 }

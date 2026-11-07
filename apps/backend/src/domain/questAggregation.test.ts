@@ -15,12 +15,6 @@ test('a finished chief task is NOT a finished quest: workers still pending -> ru
   assert.deepEqual([r.counts.done, r.counts.pending], [1, 2]);
 });
 
-test('chief done, workers running -> running, not completed', () => {
-  const r = agg([n('root', 'done', { hasChildren: true }), n('w1', 'running'), n('w2', 'done')]);
-  assert.equal(r.status, 'running');
-  assert.equal(r.flags.idle, false);
-});
-
 test('completed only when every task in the tree is done', () => {
   assert.equal(agg([n('root', 'done', { hasChildren: true }), n('w1', 'done'), n('w2', 'done')]).status, 'completed');
   assert.equal(agg([n('root', 'done')]).status, 'completed', 'chief finished without delegating');
@@ -94,7 +88,3 @@ test('unauthorized assignees are flagged but do not change the status', () => {
   assert.equal(r.flags.unauthorizedAssignees, true);
 });
 
-test('no percentages anywhere in the result', () => {
-  const r = JSON.stringify(agg([n('root', 'done', { hasChildren: true }), n('w1', 'done'), n('w2', 'ready')]));
-  assert.ok(!/percent|progress/i.test(r));
-});

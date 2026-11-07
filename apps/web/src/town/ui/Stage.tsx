@@ -1,14 +1,21 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import type { City } from '../world/City';
 import { refreshAll } from '../data/live';
 import { FloorKey, Glyph, Icon, deptStatus, statusColor, type StatusKey } from './kit';
+import { EXEC_OBJECTS } from '../world/execRoom';
+import { execAction } from '../execActions';
+import { loadPersonas } from './AgentView';
+import { agentLabel } from '../data/views';
+import { PortraitCanvas } from './Dialogue';
+import { lookFor, quirkProp } from '../world/sprites';
 
 /* DOM layer over the canvas: floor signs, the floor rail, HQ card, legend, zoom and toasts.
    Positions come from the renderer's anchors every frame and are written straight to style,
    so React never re-renders per frame. */
 export function StageOverlay({ city }: { city: City | null }) {
   const depts = useStore((s) => s.depts);
+  const personas = useStore((s) => s.personas);
   const ui = useStore((s) => s.ui);
   const toasts = useStore((s) => s.toasts);
   const conn = useStore((s) => s.conn);
@@ -18,6 +25,8 @@ export function StageOverlay({ city }: { city: City | null }) {
   const ui$ = useStore((s) => s.ui$);
   const refs = useRef(new Map<string, HTMLElement>());
   const n = depts.length;
+  const [hovered, setHovered] = useState<string | null>(null);
+  const hoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!city) return;
@@ -38,10 +47,21 @@ export function StageOverlay({ city }: { city: City | null }) {
             placed.push({ x, y, w, h });
           }
           el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+        } else if (a.kind === 'obj') {
+          el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -100%)`;
+          el.classList.toggle('hot', city.hoverObj === a.id.slice(4));
         } else el.style.transform = `translate(${x}px, ${y}px)`;
         el.style.opacity = String(show);
         el.style.pointerEvents = show > 0.5 ? 'auto' : 'none';
         el.tabIndex = show > 0.5 ? 0 : -1;
+      }
+      // hover card follows the agent under the pointer
+      const hv = city.hoverAgent;
+      setHovered((prev) => (prev === hv ? prev : hv));
+      const card = hoverRef.current;
+      if (card && hv) {
+        const a = city.anchors.find((x) => x.kind === 'agent' && x.id === hv);
+        if (a) card.style.transform = `translate(${Math.round(a.x + 18)}px, ${Math.round(a.y - 10)}px)`;
       }
       raf = requestAnimationFrame(loop);
     };
@@ -51,17 +71,22 @@ export function StageOverlay({ city }: { city: City | null }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || useStore.getState().ui.modal) return;
+      if (e.key !== 'Escape' || useStore.getState().ui.modal || useStore.getState().ui.talk || useStore.getState().ui.call || useStore.getState().ui.newDept) return;
       const s = useStore.getState();
       const floorOpen = s.ui.view === 'floor' && !!s.ui.floorId;
+      if (s.ui.execModal) { s.ui$({ execModal: null }); return; }
       if (s.ui.panel === 'quest') s.openPanel(s.ui.questFrom === 'dept' && floorOpen ? 'dept' : 'board');
+      else if (s.ui.panel === 'board' && s.ui.boardQuest) s.ui$({ boardQuest: null });
       else if (s.ui.panel === 'board') s.openPanel(floorOpen ? 'dept' : 'exec');
-      else if (s.ui.panel === 'inventory' || s.ui.panel === 'settings' || s.ui.panel === 'agent') s.openPanel('dept');
-      else if (s.ui.view === 'floor') s.closeFloor();
+      else if (s.ui.panel === 'settings' || s.ui.panel === 'agent') s.openPanel('dept');
+      else if (s.ui.view === 'floor' || s.ui.execRoom) s.closeFloor();
     };
     window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
   }, []);
 
+  const openId = ui.view === 'floor' ? ui.floorId : null;
+  const seatKeys = useMemo(() => { const d = depts.find((x) => x.id === openId); return d ? [...(d.chief ? ['chief'] : []), ...d.workers.map((w) => w.id)] : []; }, [depts, openId]);
+  useEffect(() => { if (openId && seatKeys.length) loadPersonas(openId, seatKeys); }, [openId, seatKeys.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (id: string) => (el: HTMLElement | null) => { if (el) refs.current.set(id, el); else refs.current.delete(id); };
   const openDept = ui.view === 'floor' ? depts.find((d) => d.id === ui.floorId) : null;
   const wide = ui.panel === 'dept' || ui.panel === 'exec' || ui.panel === 'agent';
@@ -71,10 +96,10 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* floor signs */}
       {wide && (
         <div className="signs">
-          <button ref={set('ph')} className={`sign ph${ui.panel === 'exec' && ui.view === 'tower' ? ' sel' : ''}`} onClick={() => closeFloor()}>
+          <button ref={set('ph')} className={`sign ph${ui.panel === 'exec' && ui.view === 'tower' ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} aria-label="Executive office: go inside">
             <span className="line" /><b className="fkey gold">PH</b>Executive office
           </button>
-          <button ref={set('ghost')} className="sign ghost" onClick={() => ui$({ modal: 'create' })}><span className="line" /><Icon n="plus" size={14} sw={3} />Add department</button>
+          <button ref={set('ghost')} className="sign ghost" onClick={() => ui$({ newDept: true })}><span className="line" /><Icon n="plus" size={14} sw={3} />Add department</button>
           {depts.map((d, i) => {
             const st = deptStatus(d.state); const sel = ui.floorId === d.id;
             return (
@@ -85,25 +110,45 @@ export function StageOverlay({ city }: { city: City | null }) {
           })}
         </div>
       )}
+      {/* hover card: who this is and what they are doing (feature spec 2.5) */}
+      {openDept && hovered && !ui.talk && <HoverCard ref_={hoverRef} deptId={openDept.id} agentKey={hovered} />}
       {/* name tags for people in the open office */}
       {openDept && (
         <div className="tags">
-          {[...(openDept.chief ? [{ id: 'chief', label: openDept.chief.name, k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: w.id, k: w.status as StatusKey }))].map((t) => (
-            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} onClick={() => ui$({ agent: t.id, panel: 'agent' })}>
+          {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), k: w.status as StatusKey }))].map((t) => (
+            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => useStore.getState().openPanel('agent', { agent: t.id }))}
+              onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onAuxClick={(e) => { if (e.button === 1) ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }); }}>
               <Glyph k={t.k} />{t.label}
             </button>
           ))}
         </div>
       )}
 
+      {/* Executive Office: every object is a control; the labels are its keyboard path */}
+      {ui.execRoom && (
+        <div className="tags objs" aria-label="Executive office">
+          {EXEC_OBJECTS.map((o) => (
+            <button key={o.id} ref={set('obj:' + o.id)} className="tag obj" onClick={() => execAction(o.id)}
+              onMouseEnter={() => { if (city) city.hoverObj = o.id; }} onMouseLeave={() => { if (city) city.hoverObj = null; }}
+              onFocus={() => { if (city) city.hoverObj = o.id; }} onBlur={() => { if (city) city.hoverObj = null; }} aria-label={o.label}><span aria-hidden="true">{o.label}</span></button>
+          ))}
+        </div>
+      )}
+      {ui.execRoom && (
+        <div className="crumb">
+          <button className="btn tertiary" onClick={closeFloor}><Icon n="back" />Tower</button>
+          <span className="crumb-label"><FloorKey n="PH" tone="gold" />Executive office</span>
+          <span className="kbd">Esc</span>
+        </div>
+      )}
       {/* top-left: HQ card or breadcrumb */}
-      {wide && ui.view === 'tower' && (
+      {wide && ui.view === 'tower' && !ui.execRoom && (
         <div className="hq">
           <div className="hq-row">
             <b className="hq-n" data-t={n + 1}>{n + 1}</b>
             <span className="hq-t"><b>floors tall</b><span>Executive office and {n} departments</span></span>
           </div>
-          <button className="btn primary block" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add department</button>
+          <button className="btn primary block" onClick={() => ui$({ newDept: true })}><Icon n="plus" sw={3} />Add department</button>
         </div>
       )}
       {ui.view === 'floor' && openDept && (
@@ -117,8 +162,8 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* floor rail */}
       {wide && (
         <nav className="rail" aria-label="Floors">
-          <div className="rail-disp" aria-live="polite"><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? 'F' + (n - depts.indexOf(openDept)) : 'PH'}</div>
-          <button className={`rail-b ph${ui.view === 'tower' && ui.panel === 'exec' ? ' sel' : ''}`} onClick={closeFloor} title="Executive office" aria-label="PH Executive office">PH</button>
+          <div className="rail-disp" aria-live="polite"><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? 'F' + (n - depts.indexOf(openDept)) : ui.execRoom ? 'PH' : 'TW'}</div>
+          <button className={`rail-b ph${ui.execRoom ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} title="Executive office" aria-label="PH Executive office: go inside">PH</button>
           {depts.map((d, i) => (
             <button key={d.id} className={`rail-b${ui.floorId === d.id ? ' sel' : ''}`} onClick={() => openFloor(d.id)} title={d.name} aria-label={`F${n - i} ${d.name}`}>
               F{n - i}<i style={{ background: statusColor(deptStatus(d.state).k), color: statusColor(deptStatus(d.state).k) }} />
@@ -168,4 +213,53 @@ export function StageOverlay({ city }: { city: City | null }) {
       </div>
     </div>
   );
+}
+
+function HoverCard({ ref_, deptId, agentKey }: { ref_: React.RefObject<HTMLDivElement | null>; deptId: string; agentKey: string }) {
+  const d = useStore((s) => s.depts.find((x) => x.id === deptId));
+  const ch = useStore((s) => s.personas[`${deptId}:${agentKey}`]);
+  const w = agentKey === 'chief' ? null : d?.workers.find((x) => x.id === agentKey) ?? null;
+  const look = useMemo(() => ({ ...lookFor(deptId + ':' + agentKey, w?.shirt ?? '#FFFFFF', agentKey === 'chief'), prop: quirkProp(ch?.quirk) }), [deptId, agentKey, w?.shirt, ch?.quirk]);
+  if (!d) return null;
+  const status = agentKey === 'chief' ? d.chief?.status ?? 'awaiting' : w?.status ?? 'idle';
+  const doing = agentKey === 'chief' ? d.chief?.activity ?? '' : w ? (w.status === 'completed' ? `Done: ${w.task}` : w.task) : '';
+  return (
+    <div className="hovercard" ref={ref_} aria-hidden="true" style={{ ['--who' as string]: ch?.color ?? '#FFC75A' }}>
+      <div className="hc-face"><PortraitCanvas look={look} mood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'} talking={false} size={48} className="hc-portrait" /></div>
+      <div className="hc-body">
+        <b>{agentLabel(agentKey, ch)}</b>
+        <span className="hc-role">{ch?.title ?? (agentKey === 'chief' ? 'Lead' : 'Teammate')}</span>
+        <span className="hc-doing"><Glyph k={status as StatusKey} /> {doing || deptStatus(d.state).label}</span>
+        <span className="hc-hint">Click for profile · middle-click or hold to talk</span>
+      </div>
+    </div>
+  );
+}
+
+/** Name tags: click opens the profile; holding (touch, pen or mouse) for half a second opens the chat instead. */
+const HOLD_MS = 500;
+const holds = new WeakMap<EventTarget, { timer: number; fired: boolean; x: number; y: number }>();
+function holdToTalk(onHold: () => void, onClick: () => void) {
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      const el = e.currentTarget, h = { timer: 0, fired: false, x: e.clientX, y: e.clientY };
+      h.timer = window.setTimeout(() => { h.fired = true; try { navigator.vibrate?.(15); } catch { /* not supported */ } onHold(); }, HOLD_MS);
+      holds.set(el, h);
+    },
+    onPointerMove: (e: React.PointerEvent) => { const h = holds.get(e.currentTarget); if (h && !h.fired && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 8) { window.clearTimeout(h.timer); holds.delete(e.currentTarget); } },
+    onPointerUp: (e: React.PointerEvent) => {
+      const el = e.currentTarget, h = holds.get(el); if (!h) return;
+      if (!h.fired) { window.clearTimeout(h.timer); holds.delete(el); return; }
+      // touch browsers may not send a click after a hold: never let it swallow a later tap
+      setTimeout(() => { if (holds.get(el) === h) holds.delete(el); }, 400);
+    },
+    onPointerCancel: (e: React.PointerEvent) => { const h = holds.get(e.currentTarget); if (h) { window.clearTimeout(h.timer); holds.delete(e.currentTarget); } },
+    onContextMenu: (e: React.MouseEvent) => { if (holds.has(e.currentTarget)) e.preventDefault(); },
+    onClick: (e: React.MouseEvent) => {
+      const h = holds.get(e.currentTarget); holds.delete(e.currentTarget);
+      if (h?.fired) return; // the hold already opened the chat
+      onClick();
+    },
+  };
 }

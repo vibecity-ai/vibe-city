@@ -6,7 +6,7 @@ import type { CancellationStatus, QuestDetail } from '@vibe-city/shared';
 import { DEPT_ID, company, deptView, detail, fakeBackend, health, inventory, iso, provStatus, summary } from '../../testing/fakeBackend.ts';
 import { useStore } from '../store.ts';
 import {
-  archiveDepartment, cancelQuest, patchInventory, refreshAll, saveDepartmentSettings, stopLive,
+  archiveDepartment, cancelQuest, refreshAll, saveDepartmentSettings, stopLive,
 } from './live.ts';
 
 class FakeWS {
@@ -119,7 +119,7 @@ test('a burst of live events triggers one quest refresh, not one per event', asy
   assert.match(FakeWS.all[0]!.url, /^ws:\/\/127\.0\.0\.1:4100\/api\/live\?departmentId=/);
   const lists = () => b.calls.filter((c) => c.path === `${D}/quests`).length;
   const before = lists();
-  for (let i = 0; i < 25; i++) FakeWS.all[0]!.emit({ type: 'hermes.event', departmentId: DEPT_ID, eventId: i, taskId: 't_root1', kind: 'heartbeat', at: iso });
+  for (let i = 0; i < 25; i++) FakeWS.all[0]!.emit({ type: 'hermes.event', departmentId: DEPT_ID, eventId: i, taskId: 't_root1', kind: 'commented', at: iso });
   mock.timers.tick(100);
   await flush();
   assert.equal(lists(), before, 'nothing yet: still inside the quiet period');
@@ -128,6 +128,8 @@ test('a burst of live events triggers one quest refresh, not one per event', asy
   // one list fetch (exactly `${D}/quests`) for the whole burst
   assert.equal(lists() - before, 1);
   assert.equal(useStore.getState().log.length, 25, 'every event still reaches the activity feed');
+  FakeWS.all[0]!.emit({ type: 'hermes.event', departmentId: DEPT_ID, eventId: 99, taskId: 't_root1', kind: 'heartbeat', at: iso });
+  assert.equal(useStore.getState().log.length, 25, 'heartbeats are plumbing: never in the feed');
 });
 
 test('archiving closes the floor, its socket and pending refreshes, and keeps Hermes resources', async () => {
@@ -220,7 +222,7 @@ test('a failed settings save keeps the last good state and returns the field err
   assert.equal(useStore.getState().busy[`settings:${DEPT_ID}`], undefined);
 });
 
-test('a successful settings save refreshes this department and says when it must be provisioned again', async () => {
+test('a successful settings save refreshes this department and says when it must be synced again', async () => {
   const { b, state } = backend();
   await refreshAll();
   b.on('PATCH', D, () => { state.depts = [deptView({ name: 'Research 2', state: 'unconfigured' })]; return { body: state.depts[0] }; });
@@ -229,17 +231,7 @@ test('a successful settings save refreshes this department and says when it must
   const s = useStore.getState();
   assert.equal(s.depts[0]!.name, 'Research 2');
   assert.equal(s.depts[0]!.provisioning, 'unconfigured');
-  assert.match(s.toasts.at(-1)!.text, /provisioned again/);
+  assert.match(s.toasts.at(-1)!.text, /Sync the department again/);
   assert.equal(b.count('GET', '/api/company'), n, 'only the affected department was refetched');
 });
 
-test('saving the inventory of a provisioned department warns that it needs provisioning again', async () => {
-  const { b, state } = backend();
-  await refreshAll();
-  b.on('PATCH', `${D}/inventory`, () => { state.depts = [deptView({ state: 'unconfigured' })]; return { body: { ...inventory(), sharedContextRefs: ['wiki:handbook'] } }; });
-  await patchInventory(DEPT_ID, { sharedContextRefs: ['wiki:handbook'] });
-  assert.deepEqual(b.calls.find((c) => c.method === 'PATCH')!.body, { sharedContextRefs: ['wiki:handbook'] });
-  const t = useStore.getState().toasts.at(-1)!;
-  assert.equal(t.tone, 'warn');
-  assert.match(t.text, /provisioning again/);
-});

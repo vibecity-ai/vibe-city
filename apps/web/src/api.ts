@@ -1,10 +1,21 @@
 import {
-  AgentViewSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
+  AgentViewSchema, DepartmentAgentSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
+  CharacterSchema, ChatHistorySchema, ChatProgressSchema, ChatReplySchema, type Character, type ChatHistory, type ChatProgress, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
-  QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
-  type ActivityEvent, type AgentRole, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
-  type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
-  type ProvisioningStatus, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
+  QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, SyncCheckSchema,
+  type ActivityEvent, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
+  type AgentPatch, type DepartmentAgent, type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
+  type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
+} from '@vibe-city/shared';
+import {
+  InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
+  type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
+  AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply,
+  QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
+  type QuestOrigin, type QuestRequestView,
+  ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
+  MoneySettingsSchema, MoneyViewSchema, type MoneySettings, type MoneyView,
+  TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
 
@@ -67,12 +78,12 @@ async function request<T>(method: string, path: string, schema: z.ZodType<T>, bo
 }
 
 const d = (id: string) => `/api/departments/${encodeURIComponent(id)}`;
+const h = (id: string) => `/api/hiring/requests/${encodeURIComponent(id)}`;
 const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURIComponent(quest)}`;
 
 export const api = {
   company: (): Promise<CompanyView> => request('GET', '/api/company', CompanyViewSchema),
-  departments: async (opts: { includeArchived?: boolean } = {}): Promise<DepartmentView[]> =>
-    (await request('GET', `/api/departments${opts.includeArchived ? '?includeArchived=true' : ''}`, DepartmentListSchema)).departments,
+  departments: async (): Promise<DepartmentView[]> => (await request('GET', '/api/departments', DepartmentListSchema)).departments,
   department: (dept: string): Promise<DepartmentView> => request('GET', d(dept), DepartmentViewSchema),
   createDepartment: (input: Partial<DepartmentCreate> & { name: string }): Promise<DepartmentView> => request('POST', '/api/departments', DepartmentViewSchema, input),
   updateDepartment: (dept: string, input: DepartmentUpdate): Promise<DepartmentView> => request('PATCH', d(dept), DepartmentViewSchema, input),
@@ -80,13 +91,17 @@ export const api = {
   archiveDepartment: (dept: string): Promise<DepartmentArchived> => request('DELETE', d(dept), DepartmentArchivedSchema),
   inventory: (dept: string): Promise<Inventory> => request('GET', `${d(dept)}/inventory`, InventorySchema),
   patchInventory: (dept: string, input: InventoryPatch): Promise<Inventory> => request('PATCH', `${d(dept)}/inventory`, InventorySchema, input),
+  fireAgent: (dept: string, agentKey: string): Promise<DepartmentView> => request('DELETE', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, DepartmentViewSchema),
+  patchAgent: (dept: string, agentKey: string, input: AgentPatch): Promise<DepartmentAgent> => request('PATCH', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, DepartmentAgentSchema, input),
   effectiveInventory: (dept: string): Promise<EffectiveInventory> => request('GET', `${d(dept)}/effective-inventory`, EffectiveInventorySchema),
   provisioning: (dept: string): Promise<ProvisioningStatus> => request('GET', `${d(dept)}/provisioning`, ProvisioningStatusSchema),
   provision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision`, ProvisioningStatusSchema),
-  retryProvision: (dept: string): Promise<ProvisioningStatus> => request('POST', `${d(dept)}/provision/retry`, ProvisioningStatusSchema),
+  checkSync: (dept: string): Promise<SyncCheck> => request('POST', `${d(dept)}/check`, SyncCheckSchema),
   profiles: (dept: string): Promise<ProfilesView> => request('GET', `${d(dept)}/profiles`, ProfilesViewSchema),
-  agent: (dept: string, role: AgentRole): Promise<AgentView> => request('GET', `${d(dept)}/agents/${role}`, AgentViewSchema),
-  reconcile: async (): Promise<ProvisioningStatus[]> => (await request('POST', '/api/runtime/reconcile', ReconcileResultSchema)).departments,
+  agent: (dept: string, agentKey: string): Promise<AgentView> => request('GET', `${d(dept)}/agents/${encodeURIComponent(agentKey)}`, AgentViewSchema),
+  /** What the agent did on one of its tasks (tools used, notes), from its Hermes run sessions. */
+  taskSteps: (dept: string, agentKey: string, taskId: string): Promise<TaskStepsView> =>
+    request('GET', `${d(dept)}/agents/${encodeURIComponent(agentKey)}/tasks/${encodeURIComponent(taskId)}/steps`, TaskStepsViewSchema),
   health: (): Promise<HealthView> => request('GET', '/api/runtime/health', HealthViewSchema),
   hermesDefaults: (): Promise<HermesDefaultsView> => request('GET', '/api/runtime/defaults', HermesDefaultsViewSchema),
   hermesModels: (): Promise<HermesModelsView> => request('GET', '/api/runtime/models', HermesModelsViewSchema),
@@ -98,8 +113,81 @@ export const api = {
   activity: async (dept: string, quest: string): Promise<ActivityEvent[]> => (await request('GET', `${q(dept, quest)}/activity`, QuestActivitySchema)).events,
   results: (dept: string, quest: string): Promise<QuestResults> => request('GET', `${q(dept, quest)}/results`, QuestResultsSchema),
   cancel: (dept: string, quest: string): Promise<CancellationStatus> => request('POST', `${q(dept, quest)}/cancel`, CancellationStatusSchema),
+  /** The boss's answer to a blocked task: posted on it, and the task resumes. Returns the quest as it is now. */
+  answerTask: (dept: string, quest: string, taskId: string, message: string): Promise<QuestDetail> =>
+    request('POST', `${q(dept, quest)}/tasks/${encodeURIComponent(taskId)}/answer`, QuestDetailSchema, { message }),
+  character: (dept: string, agentKey: string): Promise<Character> => request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}`, CharacterSchema),
+  /** One chat with the agent: a Hermes session id, 'new', or omitted for the last one used. */
+  chatHistory: (dept: string, agentKey: string, session?: string): Promise<ChatHistory> =>
+    request('GET', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat${session ? `?session=${encodeURIComponent(session)}` : ''}`, ChatHistorySchema),
+  money: (fresh = false): Promise<MoneyView> => request('GET', `/api/money${fresh ? '?fresh=1' : ''}`, MoneyViewSchema),
+  setMoneySettings: (patch: Partial<MoneySettings>): Promise<MoneySettings> => request('PATCH', '/api/money/settings', MoneySettingsSchema, patch),
+  linkWallet: (accountId: string): Promise<MoneyView> => request('POST', '/api/money/wallets', MoneyViewSchema, { accountId }),
+  unlinkWallet: (accountId: string): Promise<MoneyView> => request('DELETE', `/api/money/wallets/${encodeURIComponent(accountId)}`, MoneyViewSchema),
+  primaryWallet: (accountId: string): Promise<MoneyView> => request('POST', `/api/money/wallets/${encodeURIComponent(accountId)}/primary`, MoneyViewSchema),
+  schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
+  createSchedule: (dept: string, input: Partial<ScheduleCreate> & Pick<ScheduleCreate, 'name' | 'cron' | 'title' | 'objective'>): Promise<Schedule> => request('POST', `${d(dept)}/schedules`, ScheduleSchema, input),
+  patchSchedule: (id: string, patch: SchedulePatch): Promise<Schedule> => request('PATCH', `/api/schedules/${encodeURIComponent(id)}`, ScheduleSchema, patch),
+  deleteSchedule: async (id: string): Promise<void> => {
+    const r = await fetch(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }).catch(() => null);
+    if (!r || !r.ok) throw new ApiError(r?.status ?? 0, 'error', 'Could not delete the schedule.');
+  },
+  runSchedule: (id: string): Promise<Schedule> => request('POST', `/api/schedules/${encodeURIComponent(id)}/run`, ScheduleSchema),
+  questRequests: async (): Promise<QuestRequestView[]> => (await request('GET', '/api/quest-requests', QuestRequestListSchema)).requests,
+  approveRequest: (id: string): Promise<QuestRequestView> => request('POST', `/api/quest-requests/${encodeURIComponent(id)}/approve`, QuestRequestViewSchema),
+  rejectRequest: (id: string): Promise<QuestRequestView> => request('POST', `/api/quest-requests/${encodeURIComponent(id)}/reject`, QuestRequestViewSchema),
+  questOrigins: async (): Promise<QuestOrigin[]> => (await request('GET', '/api/quest-origins', QuestOriginListSchema)).origins,
+  assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
+  departmentDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> => request('POST', '/api/assistant/department-draft', DeptDraftReplySchema, { messages }),
+  hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
+  hiringStart: (departmentId?: string): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, departmentId ? { departmentId } : {}),
+  hiring: (id: string): Promise<HiringRequestView> => request('GET', h(id), HiringRequestViewSchema),
+  hiringAnswer: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/answer`, HiringRequestViewSchema),
+  hiringDecline: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/decline`, HiringRequestViewSchema),
+  hiringChat: (id: string, message: string): Promise<HiringRequestView> => request('POST', `${h(id)}/chat`, HiringRequestViewSchema, { message }),
+  hiringBrief: (id: string, brief?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', `${h(id)}/brief`, HiringRequestViewSchema, brief ? { brief } : {}),
+  interviewHistory: (id: string, cand: string): Promise<ChatMessage[]> => request('GET', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewHistorySchema),
+  interview: (id: string, cand: string, message: string): Promise<InterviewReply> => request('POST', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewReplySchema, { message }),
+  hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
+  chat: (dept: string, agentKey: string, input: ChatSend): Promise<ChatReply> => request('POST', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatReplySchema, input),
+  chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
+    chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),
   cancellation: (dept: string, quest: string): Promise<CancellationStatus> => request('GET', `${q(dept, quest)}/cancellation`, CancellationStatusSchema),
 };
+
+/** One agent turn over Server-Sent Events: `onProgress` while the agent works (tools can take minutes), then the reply. */
+async function chatStream(path: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'text/event-stream' }, body: JSON.stringify(input) });
+  } catch {
+    throw new ApiError(0, 'backend_unreachable', 'The Vibe City backend is not reachable.');
+  }
+  if (!res.ok || !res.body) throw errorFrom(res.status, await res.json().catch(() => undefined));
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value.replace(/\r\n/g, '\n');
+    let i: number;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const frame = buf.slice(0, i); buf = buf.slice(i + 2);
+      const event = /^event: (.*)$/m.exec(frame)?.[1]?.trim();
+      const raw = /^data: (.*)$/m.exec(frame)?.[1];
+      if (!event || raw === undefined) continue;
+      const data: unknown = (() => { try { return JSON.parse(raw); } catch { return undefined; } })();
+      if (event === 'progress') { const p = ChatProgressSchema.safeParse(data); if (p.success) onProgress(p.data); }
+      else if (event === 'error') throw errorFrom(typeof (data as { status?: unknown })?.status === 'number' ? (data as { status: number }).status : 500, data);
+      else if (event === 'reply') {
+        const r = ChatReplySchema.safeParse(data);
+        if (!r.success) throw new ApiError(200, 'invalid_response', 'The backend sent a reply this app does not understand.');
+        return r.data;
+      }
+    }
+  }
+  throw new ApiError(0, 'stream_ended', 'The connection closed before the agent answered. The reply will appear when you reopen the chat.');
+}
 
 /** Live events from the Vibe City backend (never from Hermes directly). Reconnects automatically. */
 export function openLive(departmentId: string, onMessage: (m: LiveMessage) => void, onLink: (up: boolean) => void): () => void {
