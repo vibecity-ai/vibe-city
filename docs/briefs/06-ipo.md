@@ -17,13 +17,12 @@ on NEAR, which the hackathon rules say is enough). The DAO shows up in Trezu aut
 
 ## Who signs
 
-Vibe City never holds the company's main NEAR key. Two options; pick the first unless it fails on mainnet:
-
-1. **OutLayer wallet signs.** The company custody wallet (brief 03) can call contracts: `POST /wallet/v1/call`
-   (`agent-custody/references/wallet-ops.md`). The DAO's council is the user's own account (from `near_wallet`,
-   already linked) plus the OutLayer account. Fund the OutLayer wallet with the NEAR first.
-2. **Browser wallet signs.** Build the two transactions server-side and return them for the already-integrated
-   wallet selector to sign (`apps/web` has `@hot-labs/near-connect`). More UI, no custody.
+Vibe City never holds the company's main NEAR key. **Decided 2026-11-07: the OutLayer wallet signs.** The company
+custody wallet calls contracts through `walletService.call(...)` (brief 03 adds it over `POST /wallet/v1/call`,
+`agent-custody/references/wallet-ops.md`). The DAO's council is the user's own account (from `near_wallet`,
+already linked) plus the OutLayer account. Fund the OutLayer wallet with the NEAR first. Fallback if `call`
+fails on mainnet: the DAO is created manually from the user's wallet and the button becomes a link (see trailer
+note).
 
 ## Backend (`domain/ipoService.ts`, `routes/ipo.ts`)
 
@@ -33,6 +32,9 @@ Vibe City never holds the company's main NEAR key. Two options; pick the first u
   `<Company> City Token`, symbol `VCT`, total supply 1,000,000 with 6 decimals, minted to the DAO; 3) store
   accounts and tx hashes in `ipo.state_json`; 4) `MoneySettings.daoAccountId` is set so the existing treasury
   mirror (`MoneyService`) shows the DAO. Each step is idempotent on retry (check existence before creating).
+- Pre-fill the IPO form from the Token & Treasury department's latest Tokenomics Analyst result: parse a
+  `[token symbol=<s> supply=<n>]` marker (brief 01) if one exists, else fall back to the defaults below. This is a
+  convenience read, not a dependency; the form is editable.
 - The token contract: use the reference `near-examples` FT (`fungible-token` in Rust) compiled once and committed
   as `contracts/city-token.wasm` with its source and build command. Do not write a new token contract.
 
@@ -41,6 +43,11 @@ Vibe City never holds the company's main NEAR key. Two options; pick the first u
 Executive Office: IPO button (disabled with the unlock rule as tooltip while locked), progress steps, then the DAO
 account, token account, tx links to a NEAR explorer, and a Trezu link. Keep the existing treasury card for balances.
 
+Before the IPO button, when IPO is unlocked but the treasury is not yet shielded, show a recommended "Go private
+before you go public" step: a shield-the-treasury action that calls brief 03's `shield()` (the confidential move
+onto `intents.far`). It is the pre-IPO privacy beat, recommended, not a gate: the IPO button works whether or not
+it is done. This replaces the former `shield` CEO quest (removed from brief 05 on 2026-11-07).
+
 ## Files you own
 
 `apps/backend/src/domain/ipoService.ts` + test, `apps/backend/src/routes/ipo.ts`, `contracts/` (new),
@@ -48,7 +55,7 @@ account, token account, tx links to a NEAR explorer, and a Trezu link. Keep the 
 
 ## Do not touch
 
-`walletService.ts` internals (call its `call(...)` method; if it lacks one, ask brief 03's owner to add it),
+`walletService.ts` internals (call its `call(...)` method, which brief 03 owns),
 `moneyService.ts` beyond setting `daoAccountId`.
 
 ## Acceptance

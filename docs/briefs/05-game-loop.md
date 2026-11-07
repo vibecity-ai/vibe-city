@@ -19,15 +19,25 @@ we already have; no new tables beyond what brief 00 added.
 | id | title | done when | unlocks |
 |---|---|---|---|
 | `connect-ai` | Connect NEAR AI Cloud | `settings.nearAiApiKeySet` | hiring |
-| `fund` | Fund the treasury | `wallet.registered && any balance > 0` | tier 1 (Trading Desk) |
+| `connect-github` | Connect GitHub | `settings.githubConnected`; the hint takes a GitHub token (a fine-grained PAT) and stores it; brief 04's provisioning writes it as `GITHUB_TOKEN` into the Software profiles' `.env` | Software Department |
+| `treasury` | Set up the treasury | `wallet.registered && (wallet.binding.status === 'active' \|\| any balance > 0)`; the hint offers both paths from brief 03: create and fund, or connect an existing NEAR wallet and sign the binding | Trading Desk |
 | `hire` | Hire your first department | departments (excluding chief-of-staff) >= 1 | |
 | `policy` | Set the spend policy | the user clicked "I set the policy" (`settings.policyConfirmedAt`); we cannot read it | |
-| `list` | List the company on the Agent Market | `settings.marketAgentHandle` set and token set | |
-| `first-job` | Win your first job | a Chief of Staff result contains `[earned usd=` | tier 2 (Software, Social, Prediction) |
-| `first-swap` | First trade | a Trading Desk quest result contains a tx or order id | Prediction Desk |
-| `profit` | First profitable day | `earnedToday > burnedToday` | tier 3 (Red, Blue) |
-| `shield` | Shield the treasury | `wallet.shielded` | |
-| `ipo` | IPO | runway > 0 for 3 consecutive days (from `ai_usage` days + earnings) and >= 3 departments ready | IPO button |
+| `market` | Set up the Agent Market | `settings.marketVerifiedAt` set (brief 02: the `aat_` token answered 200 on `GET /v1/agents/me/assignments`; there is no "listing live" signal, so the tick reads "token verified"). The hint opens the Chief of Staff card in setup mode, whose four steps (account, listing draft pasted into "New agent" as self-hosted without webhook, token, verify) are the walkthrough | |
+| `first-job` | Win your first job | a Chief of Staff result contains `[earned usd=` | Token & Treasury |
+| `first-swap` | First profitable trade | a Trading Desk result contains `[pnl usd=<n>]` with `n > 0` (a positive realized PnL marker; any trade with a tx or order id but no positive PnL does not count) | Prediction Desk |
+| `first-ship` | First code shipped | a Software Department result or activity line shows a merged pull request or push: a `[pr url=<github url>]` marker from the Coder, or an activity line carrying a `github.com/.../pull/` URL | Red Team, Blue Team |
+| `ipo` | IPO | `earnedCents > 0` (any `[earned usd=]` or `[pnl usd=]` marker) and >= 3 departments `ready` (relaxed 2026-11-07 from "3 profitable days": unreachable before the trailer) | IPO button |
+
+The quests are shown in this order, but `first-swap` and `first-ship` are **parallel**, not sequential: one needs
+the Trading Desk (opened by `treasury`), the other the Software Department (opened by `connect-github`), and either can
+come first. `deriveGame` sets each template's `locked` from its own `unlock` quest (brief 00/01), so the quest
+log's "next" highlight is cosmetic; the real gate is per department.
+
+`profit` ("first profitable day") was the tier-3 gate until 2026-11-07; replaced by `first-ship` because the
+security floors defend the company's own code, so shipping code is the event that should summon them. `shield` was
+a quest until 2026-11-07 too; removed because it gated nothing and the early game is public. The confidential move
+lives on in brief 06 as a recommended pre-IPO action, and `wallet.shielded` / `shield()` in brief 03 are unchanged.
 
 `templates.locked` = tier not yet unlocked. `GET /api/templates` (brief 01) calls `deriveGame` for this.
 
@@ -35,8 +45,9 @@ we already have; no new tables beyond what brief 00 added.
 
 - `approval`: Hermes approval waiting on an agent turn (`pendingApprovals`, from the chat stream state we already
   track; if Kanban tasks don't expose it, only chat approvals count: say so in the UI copy).
-- `owner_confirm`: a quest result or activity line containing `awaiting_owner` (GitHub connector writes the owner
-  marked "confirm first"); `href` = the quest.
+- `owner_confirm`: a quest result or activity line containing `awaiting_owner`, i.e. an action the agent staged
+  for the CEO to approve: a Sputnik proposal from the Token & Treasury DAO Secretary, or an X launch post from the
+  Community Manager (the `x.com/intent/post` link is the confirm action); `href` = the quest.
 - `answer`: quests in `awaiting_input` (already aggregated).
 - `budget`: `usage.byDepartment[].overBudget`; `href` = the department's settings.
 
@@ -50,7 +61,8 @@ we already have; no new tables beyond what brief 00 added.
 ## Backend
 
 `routes/game.ts`: `GET /api/game` assembles the input and returns `deriveGame(...)`. Cache 5 s. No writes except
-`POST /api/game/confirm-policy` which sets `policyConfirmedAt`.
+`POST /api/game/confirm-policy` which sets `settings.policyConfirmedAt` (field declared in brief 00). `GET
+/api/templates` fills `locked` and `unlocks` (brief 00 declared them) from the same derivation.
 
 ## Web
 

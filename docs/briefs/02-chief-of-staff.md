@@ -8,7 +8,19 @@ as quests, submits the results, and the USDC lands in the treasury.
 
 - Listing is done once by the user in the market UI: Building, Your agents, New agent, hosting = self-hosted
   with **no webhook** (poll mode), price in **USDC** (USD needs Stripe Connect), SLA, then "Create token". The
-  `aat_` token is shown once. Confirmed email required. No sandbox; hiring your own draft agent from a second
+  `aat_` token is shown once, with a webhook signing secret next to it. Confirmed email required. There is no API
+  to create the listing, so the Chief of Staff **drafts** it and the user pastes it in (below).
+- The market's own template (`github.com/fadeevab/market-agent-template`, read 2026-11-07) is webhook-only: an
+  `eve` agent on Vercel with its own NEAR AI model (`MARKET_AGENT_TOKEN`, `MARKET_WEBHOOK_SECRET`,
+  `NEARAI_API_KEY`), webhooks signed `HMAC-SHA256(secret, "<timestamp>." + body)` in `x-market-signature`. The
+  listing form offers "Deploy on Vercel", which "fills in the names and connects the webhook for you". A job
+  taken by that deployment is done on Vercel and never reaches Vibe City's departments, so it is not our path;
+  the walkthrough names it only to say why. Vercel's free plan is non-commercial; an earning agent needs Pro.
+- No endpoint reports whether a listing is live. The template's only self call is `GET
+  https://market.near.ai/v1/agents/me/assignments?limit=100&offset=0` with `Authorization: Bearer aat_...`; a
+  200 proves the token is valid and the agent exists. That is the check we use, labelled "token verified", never
+  "listing live". REST also covers the worker side without MCP: `POST /v1/assignments/{id}/submit
+  { deliverableMarkdown }` (250,000-byte cap), `/messages { body }` (4,000 chars), `/decline { reason, detail }`. No sandbox; hiring your own draft agent from a second
   account is the test mode and is allowed.
 - MCP server `https://market.near.ai/mcp`, `Authorization: Bearer aat_...`. Worker tools:
   `marketplace__list_my_assignments`, `marketplace__start_assignment`, `marketplace__read_messages`,
@@ -27,11 +39,30 @@ Office panel renders it instead of a floor.
 
 - `assistantService.character()` returns the Chief of Staff's persona (rename title; keep the seeded name so
   existing installs don't change person). `draftDepartment` stays.
+- `assistantService.draftListing()` -> `ListingDraftSchema` (brief 00): the same direct `model.complete` call
+  `draftDepartment` makes, no Hermes task. Context is the company name and purpose and every non-hidden
+  department's name, purpose and seat titles; the prompt asks for a listing a buyer on market.near.ai would hire:
+  name, one-line tagline, description with what each department delivers, a USDC price per job, an SLA in hours,
+  and the deliverables list. `POST /api/company/listing-draft` returns it (503 `ModelUnavailableError` when no
+  model key, same as the other drafts). Nothing is stored: the user copies it into the market UI, then saves
+  `marketAgentHandle` and `marketAgentToken` through the settings PATCH.
+- **The "Set up the Agent Market" walkthrough** (CEO quest `market`, brief 05) is the Chief of Staff card in
+  setup mode: the Chief of Staff's persona introduces four numbered steps, static copy in `data/views.ts`, each with
+  the control it needs. 1) Create a market.near.ai account and confirm the email (link). 2) Ask for the listing
+  draft (button above) and open "Building, Your agents, New agent" (link): paste the draft, choose hosting
+  **self-hosted, no webhook**, price in USDC, SLA; one line says "Deploy on Vercel" runs a separate agent that
+  bypasses your departments, so do not pick it. 3) Press "Create token" and paste the handle and the `aat_` token
+  here (fields). 4) Vibe City verifies the token. Questions in between go to the existing assistant dialogue.
+- `PATCH /api/company/settings { marketAgentToken }` calls `GET /v1/agents/me/assignments` with the token before
+  storing it: 200 stores the token and sets `marketVerifiedAt`; 401 or 403 answers 422 "market.near.ai refused
+  this token" and stores nothing; a network error stores the token with `marketVerifiedAt: null` and the card
+  says "not verified yet" (the schedule's first successful tick sets it). The base URL comes from env
+  `MARKET_BASE_URL` (default `https://market.near.ai`) so tests point it at a fake.
 - `PATCH /api/company/settings { marketAgentToken }` stores the token in `company_settings` (write-only) and
   provisioning registers an MCP server entry `near-agent-market` = `{ url: 'https://market.near.ai/mcp', headers:
   { Authorization: 'Bearer <token>' } }` on the Chief of Staff's profile only, via the existing
   `setMcpServer` path in `app.ts`'s `afterProvision` hook (extend it; do not duplicate it).
-- One schedule on the Chief of Staff's board, cron `*/2 * * * *`, enabled when the token is set. Its objective
+- One schedule on the Chief of Staff's board, cron `*/2 * * * *`, enabled when the token is verified. Its objective
   is the loop, as a prompt:
   1. `list_my_assignments`; for each new one, `start_assignment`, then `request_quest` (our MCP) to the department
      whose purpose matches (the prompt lists departments by name and purpose, pulled from `list_departments`).
@@ -48,7 +79,9 @@ Office panel renders it instead of a floor.
 
 `apps/backend/src/domain/assistantService.ts`, `apps/backend/src/domain/companyService.ts` (auto-create),
 `packages/shared/src/templates/chief-of-staff.ts`, `apps/backend/src/routes/company.ts`, the `afterProvision` hook
-body in `app.ts`, `apps/web/src/town/ui/ExecOffice*.tsx` (Chief of Staff card: token set?, last tick, jobs won).
+body in `app.ts`, `apps/web/src/town/ui/ExecOffice*.tsx` (Chief of Staff card: "Draft the listing" button showing the draft with a
+copy button per field and a link to the market's New agent page, then handle and token fields; token set?, last
+tick, jobs won).
 
 ## Do not touch
 
@@ -60,6 +93,15 @@ body in `app.ts`, `apps/web/src/town/ui/ExecOffice*.tsx` (Chief of Staff card: t
   token is set; setting the token enables the schedule and registers the MCP entry on exactly that profile
   (assert on FakeHermes).
 - A test that feeds a fake "accepted" result and checks the earned amount is parsed.
+- `draftListing` with the fake model: the prompt names every department and the reply parses with
+  `ListingDraftSchema`; `GET /api/company/settings` never contains the token.
+- Token verification with a fake fetch: 200 sets `marketVerifiedAt` and enables the schedule; 401 answers 422 and
+  leaves settings unchanged; a thrown fetch stores the token unverified and the schedule stays disabled.
+
+## Trailer moment (setup)
+
+The CEO opens the quest, the Chief of Staff drafts the listing, the CEO pastes it into market.near.ai, creates the
+token, pastes it back, and the quest ticks "token verified" while the Chief of Staff's schedule lights up.
 
 ## Trailer moment
 

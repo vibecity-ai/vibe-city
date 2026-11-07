@@ -42,7 +42,12 @@ should do the same for Kanban workers), set `NEAR_AI_API_KEY=vc_ai_<dept>` and `
 origin>/ai/v1` for every profile of the department. **Verify the exact env names Hermes reads for the NEAR AI
 provider** (see `docs/hermes.md`) before relying on them; if the provider is configured under another name in the
 dev image's `config.yaml`, use that. The backend origin comes from a new env `VIBE_CITY_PUBLIC_URL` (default
-`http://host.docker.internal:4100` for the Docker dev setup; document it in DEPLOYMENT.md).
+`http://127.0.0.1:4100`: `docker-compose.dev.yml` runs Hermes with `network_mode: host`, so there is no
+`host.docker.internal`; the full-container compose sets it to the backend service name; document in DEPLOYMENT.md).
+
+For the Software Department only, the same path also writes `GITHUB_TOKEN` from `company_settings.githubToken` (the
+token the user connected for the `connect-github` quest, brief 05) into each Software profile's `.env`, so the
+Coder's `git`/`gh` act as that account. Null when GitHub is not connected; the template is locked until it is.
 
 ### Settings
 

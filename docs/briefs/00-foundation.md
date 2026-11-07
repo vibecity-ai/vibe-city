@@ -9,18 +9,33 @@ touching `schemas.ts`, `db.ts` or `app.ts` again. No behavior; everything return
 
 Add, all `.strict()`:
 
-- `TemplateSchema`: `{ id, name, purpose, tier: 1|2|3, loop: boolean, inventory: InventorySchema, seats:
+- `TemplateSchema`: `{ id, name, purpose, unlock: string | null (the CEO quest id that unlocks this template;
+  null = available as soon as hiring is on), loop: boolean, inventory: InventorySchema, seats:
   Array<{ title, model: ModelChoiceSchema.nullable(), skills: string[], toolsets: string[] }>, skills: string[]
-  (OutLayer/NEAR skill ids), wallet: 'none' | 'sub-key', dailyBudgetCredits: number }`; `TemplateListSchema`.
+  (OutLayer/NEAR skill ids), wallet: 'none' | 'company', dailyBudgetCredits: number }`; `TemplateListSchema` =
+  array of `TemplateSchema.extend({ locked: boolean, unlocks: string | null })` (brief 05 fills them; the stub
+  returns `locked: false, unlocks: null`).
 - `DepartmentCreateSchema`: add optional `template: string`.
 - `InventorySchema.limits`: add `dailyBudgetCredits: z.number().int().min(0).nullable().default(null)`
   (1 credit = 1 US cent of model usage; enforced by brief 04).
 - `CompanySettingsSchema` and `CompanySettingsPatchSchema`: `{ nearAiApiKeySet: boolean (view only),
   nearAiCreditsLoadedCents: number | null, outlayerWalletId: string | null, outlayerAccountId: string | null,
-  marketAgentHandle: string | null }`. The PATCH accepts `nearAiApiKey`, `nearAiCreditsLoadedCents`,
-  `marketAgentToken` (write-only; never in a response).
-- `WalletStateSchema`: `{ registered: boolean, accountId: string | null, handoffUrl: string | null, balances:
-  Array<{ token, amount, source: 'wallet' | 'intents' | 'confidential' }>, shielded: boolean, error: string | null }`.
+  marketAgentHandle: string | null, marketVerifiedAt: string | null (brief 02 sets it when the market accepts
+  the token), githubConnected: boolean (view only; true once a GitHub token is stored), githubLogin: string | null
+  (the connected account's login, for display), policyConfirmedAt: string | null (set by brief 05's confirm-policy
+  route) }`.
+  The PATCH accepts `nearAiApiKey`, `nearAiCreditsLoadedCents`, `marketAgentHandle`, `marketAgentToken`,
+  `githubToken` (write-only; stored hashed-or-encrypted, never in a response)
+  (write-only; never in a response). Secrets (`nearAiApiKey`, `marketAgentToken`, the OutLayer `wk_` and
+  payment key, the `aiKeys` hash map of brief 04) live in the same `settings_json` row under a `secrets` key
+  that the service strips before anything is parsed with the view schema; a test asserts `GET` never contains
+  `wk_`, `aat_` or the NEAR AI key.
+- `WalletStateSchema`: `{ registered: boolean, accountId: string | null, handoffUrl: string | null, binding:
+  { accountId: string | null, status: 'none' | 'pending' | 'active' }, balances: Array<{ token, amount, source:
+  'wallet' | 'intents' | 'confidential' | 'bound' }>, shielded: boolean, error: string | null }`;
+  `WalletBindSchema`: `{ accountId }` (reuse `NEAR_ACCOUNT_RE`); `WalletBindReplySchema`: `{ connectUrl }`.
+- `ListingDraftSchema`: `{ name, tagline, description, priceUsdc: number, slaHours: number, deliverables:
+  string[] }` (the Chief of Staff's Agent Market listing draft, brief 02).
 - `AiUsageSummarySchema`: `{ byDepartment: Array<{ departmentId, todayCents, sevenDayCents, budgetCents | null,
   overBudget: boolean }>, companyTodayCents, companySevenDayAvgCents }`.
 - `CeoQuestSchema`: `{ id, title, done: boolean, hint: string, unlocks: string | null }`; `DecisionSchema`:
@@ -38,7 +53,6 @@ Append one migration adding:
 - `ai_usage (id INTEGER PRIMARY KEY, department_id TEXT NOT NULL, model TEXT NOT NULL, input_tokens INTEGER,
   output_tokens INTEGER, cost_nano_usd INTEGER NOT NULL, request_id TEXT, at TEXT NOT NULL)` + index on
   `(department_id, at)`
-- `department_wallet (department_id TEXT PRIMARY KEY, sub_key_ref TEXT NOT NULL, created_at TEXT NOT NULL)`
 - `ipo (id INTEGER PRIMARY KEY CHECK (id = 1), state_json TEXT NOT NULL)`
 - `department.template_id TEXT NULL` (ALTER TABLE)
 
@@ -51,8 +65,8 @@ schemas and return empty views. Wire them in `app.ts` with one `register(...)` l
 
 ### FakeHermes
 
-Add `setProfileEnv` to `testing/fakeHermes.ts` if missing, recording calls per profile so briefs 03 and 04 can
-assert what was written.
+`setProfileEnv` exists in `testing/fakeHermes.ts`; make sure it records the vars per profile (not only the call)
+so briefs 03 and 04 can assert what was written.
 
 ## Files you own
 
