@@ -26,13 +26,10 @@ we already have; no new tables beyond what brief 00 added.
 | `hire` | Hire your first department | departments (excluding chief-of-staff) >= 1 | |
 | `market` | Set up the Agent Market | `settings.marketVerifiedAt` set (brief 02: the `aat_` token answered 200 on `GET /v1/agents/me/assignments`; there is no "listing live" signal, so the tick reads "token verified"). The hint opens the Chief of Staff card in setup mode, whose four steps (account, listing draft pasted into "New agent" as self-hosted without webhook, token, verify) are the walkthrough | |
 | `first-job` | Win your first job | a Chief of Staff result contains `[earned usd=` | Token & Treasury |
-| `first-swap` | First profitable trade | a Treasury Ops or Trading Desk result contains `[pnl usd=<n>]` with `n > 0` (a positive realized PnL marker; any trade with a tx or order id but no positive PnL does not count) | |
 | `first-ship` | First code shipped | a Software Department result or activity line shows a merged pull request or push: a `[pr url=<github url>]` marker from the Coder, or an activity line carrying a `github.com/.../pull/` URL | Red Team, Blue Team |
 | `ipo` | IPO | `earnedCents > 0` (any `[earned usd=]` or `[pnl usd=]` marker) and >= 3 departments `ready` (relaxed 2026-11-07 from "3 profitable days": unreachable before the trailer) | IPO button |
 
-The quests are shown in this order, but `first-swap` and `first-ship` are **parallel**, not sequential: one needs
-a money floor (Treasury Ops, opened by `treasury`, or the Trading Desk, opened by `connect-hyperliquid`), the other the Software Department (opened by `connect-github`), and either can
-come first. `deriveGame` sets each template's `locked` from its own `unlock` quest (brief 00/01), so the quest
+The `first-swap` quest (first profitable trade) was removed on 2026-11-08; trading PnL still counts toward earnings. `deriveGame` sets each template's `locked` from its own `unlock` quest (brief 00/01), so the quest
 log's "next" highlight is cosmetic; the real gate is per department.
 
 `profit` ("first profitable day") was the tier-3 gate until 2026-11-07; replaced by `first-ship` because the

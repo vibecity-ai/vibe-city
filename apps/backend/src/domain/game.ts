@@ -37,7 +37,7 @@ const PR = /\[pr url=https:\/\/github\.com\/[^\]\s]+\]|https:\/\/github\.com\/[\
 interface QuestDef { id: string; title: string; hint: string; unlocks: string | null; done: (x: Ctx) => boolean }
 interface Ctx { i: GameInput; textOf: (templates: string[]) => string[]; earnedCents: number; ready: number }
 
-/** In display order. first-swap and first-ship are parallel: each needs a different floor. */
+/** In display order. */
 export const CEO_QUESTS: readonly QuestDef[] = [
   { id: 'connect-ai', title: 'Connect NEAR AI Cloud', unlocks: 'Hiring', done: (x) => x.i.settings.nearAiApiKeySet,
     hint: 'Your agents think with NEAR AI Cloud models. Add your NEAR AI API key and the credits you loaded.' },
@@ -58,8 +58,6 @@ export const CEO_QUESTS: readonly QuestDef[] = [
     hint: 'Register the company as an agent on market.near.ai. Its token stays on the server and goes to the Marketplace Agency.' },
   { id: 'first-job', title: 'Win your first job', unlocks: 'Token & Treasury', done: (x) => x.i.marketJobsPaid > 0,
     hint: 'Go live on market.near.ai, hire the Marketplace Agency, and a buyer accepts its first delivery.' },
-  { id: 'first-swap', title: 'First profitable trade', unlocks: null, done: (x) => amounts(x.textOf(['treasury-ops', 'trading-desk']), 'pnl').some((n) => n > 0),
-    hint: 'Treasury Ops or the Trading Desk closes a trade with a realized profit.' },
   { id: 'first-ship', title: 'First code shipped', unlocks: 'Red Team, Blue Team', done: (x) => x.textOf(['software']).some((t) => PR.test(t)),
     hint: 'The Software Department opens a pull request on GitHub.' },
   { id: 'ipo', title: 'IPO', unlocks: 'IPO button', done: (x) => x.earnedCents > 0 && x.ready >= 3,

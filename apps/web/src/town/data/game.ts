@@ -14,7 +14,7 @@ export function questTarget(id: string): QuestTarget | null {
     case 'hire': return { kind: 'hire' };
     case 'connect-hyperliquid': return { kind: 'connector', name: 'hyperliquid' };
     case 'connect-polymarket': return { kind: 'connector', name: 'polymarket' };
-    case 'first-swap': case 'first-ship': return { kind: 'quest-board' };
+    case 'first-ship': return { kind: 'quest-board' };
     case 'ipo': return { kind: 'ipo' };
     case 'connect-ai': return { kind: 'note', text: 'Set NEAR_AI_API_KEY in .env for now; the settings field comes with the metering work.' };
     case 'connect-github': return { kind: 'github' };
@@ -37,7 +37,7 @@ export function decisionTarget(href: string): DecisionTarget {
 /** The quest log's three acts, in order. */
 export const ACTS: readonly { title: string; blurb: string; ids: readonly string[] }[] = [
   { title: 'Set up the company', blurb: 'Connect the tools your agents need and hire the first floor.', ids: ['connect-ai', 'connect-github', 'treasury', 'connect-hyperliquid', 'connect-polymarket', 'hire', 'market'] },
-  { title: 'Earn', blurb: 'Win work, trade and ship code. Each first unlocks new floors.', ids: ['first-job', 'first-swap', 'first-ship'] },
+  { title: 'Earn', blurb: 'Win work and ship code. Each first unlocks new floors.', ids: ['first-job', 'first-ship'] },
   { title: 'Go public', blurb: 'Earn once and run three floors, then ring the bell.', ids: ['ipo'] },
 ];
 
