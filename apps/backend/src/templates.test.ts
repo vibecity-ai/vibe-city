@@ -20,6 +20,7 @@ test('hiring the Software Department creates four agents with their titles and n
   const d = r.json();
   assert.deepEqual(d.agents.map((a: any) => [a.key, a.title]), [['chief', 'Engineering Manager'], ['W-01', 'Coder'], ['W-02', 'QA & Testing'], ['W-03', 'DevOps']]);
   assert.match(d.purpose, /pr url=/, 'the template purpose is copied');
+  assert.equal(d.templateId, 'software', 'the floor knows its template (its station and screens)');
   const inv = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
   assert.deepEqual(inv.allowedToolsets, ['terminal', 'file', 'code_execution', 'web']);
   assert.equal(inv.limits.dailyBudgetCredits, 1000);

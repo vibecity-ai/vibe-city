@@ -6,11 +6,13 @@ import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
 import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
 import {
-  mkP, shell, wallLive, roomLights, deskStatic, deskLive, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast, meetingStatic,
+  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast, meetingStatic,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
 import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, type ExecObjectId } from './execRoom';
-import { execAction } from '../execActions';
+import { execAction, floorAction } from '../execActions';
+import { stationFor, type FloorObjectId } from '../data/floor';
+import { STATION_BOX, clockLive, floorObjects, stationLive, stationStatic } from './floorRoom';
 import { hull } from './interior';
 
 /** The Executive Office uses the department shell with its own (warmer, darker) floor. */
@@ -52,7 +54,7 @@ export class City {
   private elev = new Map<string, number>();
   private shells = new Map<string, Shell>();
   /** 0..1: how far the Executive Office is opened up (feature spec 3.1). */
-  private execOpen = 0; hoverObj: ExecObjectId | null = null;
+  private execOpen = 0; hoverObj: ExecObjectId | FloorObjectId | null = null;
   /** A long press in progress on an agent (opens the chat when it completes). */
   private press: { id: number; x: number; y: number; start: number; agent: string; fired: boolean; timer: number } | null = null;
   private particles: Particle[] = []; private packets: Packet[] = []; private pops: Pop[] = []; private rings: Ring[] = [];
@@ -395,6 +397,15 @@ export class City {
     if (open) {
       const m = this.actors.get(open); const fa = this.floors.get(open);
       if (m && fa) for (const a of m.values()) { const p = this.interiorPt(open, a.u, a.v, 45); anchors.push({ id: a.id, kind: 'agent', x: p[0], y: p[1], visible: fa.open * a.alpha, z: 0 }); }
+      // the floor's controls: labels sit above each object's footprint
+      const od = s.depts.find((x) => x.id === open);
+      if (od && fa) {
+        const P = mkP(fa.y), vis = fa.open > 0.95 ? 1 : 0;
+        for (const o of floorObjects(stationFor(od.view.templateId)?.name ?? null)) {
+          const pts = boxCorners(P, o.b), top = pts.reduce((mm, p) => (p[1] < mm[1] ? p : mm), pts[0]!);
+          anchors.push({ id: 'obj:' + o.id, kind: 'obj', x: pts.reduce((sum, p) => sum + p[0], 0) / pts.length, y: top[1] - 4, visible: vis, z: 0 });
+        }
+      }
     }
     this.anchors = anchors.map((a) => { const [x, y] = this.toScreen(a.x, a.y); return { ...a, x, y, z: this.cam.z }; });
 
@@ -429,6 +440,8 @@ export class City {
     const e0 = this.elev.get(d.id), et = e0 === undefined ? 9 : t - e0;
     const elevOpen = et < 0.4 ? easeOut(et / 0.4) : et < 1.7 ? 1 : et < 2.1 ? 1 - easeOut((et - 1.7) / 0.4) : 0;
     wallLive(c, d, s.quests.filter((q) => q.deptId === d.id).map((q) => q.summary.status), floorNo, elevOpen, lit);
+    clockLive(c, lit, new Date());
+    const station = stationFor(d.view.templateId) ? d.view.templateId! : null;
 
     // cast shadows first, so everything stands in them
     const nD = Math.min(DESKS.length, d.workers.length);
@@ -440,7 +453,7 @@ export class City {
     const prop = (key: string, fn: (q: IC) => void) => this.bk.draw(px, this.bk.get('room|' + key, (q) => { bc.px = q; fn(bc); }), 0, T);
     for (let i = 0; i < nD; i++) {
       const [u, v] = DESKS[i], w = d.workers[i];
-      items.push({ y: P(u, v + 16)[1], draw: () => { prop(`desk${i}|${d.theme.accent}`, (q) => deskStatic(q, i, d.theme.accent)); deskLive(c, i, w?.status, lit); } });
+      items.push({ y: P(u, v + 16)[1], draw: () => { prop(`desk${i}|${d.theme.accent}`, (q) => deskStatic(q, i, d.theme.accent)); deskLive(c, i, w?.status, lit, screenKindFor(d.view.templateId)); } });
       const [su, sv] = seatOf(i);
       const chairCol = i % 3 === 0 ? '#2E2752' : i % 3 === 1 ? '#3A2448' : '#24304E';
       items.push({ y: P(su, sv)[1] - 0.6, draw: () => prop(`seat${i}`, (q) => chairItem(q, su, sv, chairCol, 'seat')) });
@@ -458,8 +471,15 @@ export class City {
     items.push({ y: P(0, 74)[1], draw: () => { prop('rack', (q) => rackStatic(q)); rackLive(c, lit); } });
     items.push({ y: P(COOLER[0] - 2, COOLER[1] + 16)[1], draw: () => prop('cooler', (q) => coolerItem(q)) });
     items.push({ y: P(190, 140)[1], draw: () => { prop('counter', (q) => counterStatic(q)); counterLive(c, lit); } });
-    for (const lp of LOUNGE_PROPS) items.push({ y: P(lp.y[0], lp.y[1])[1], draw: () => { prop(lp.key, lp.draw); loungeLive(c, lit, lp.key); } });
-    cast(c, 204, 12, 14, 16, 6, 0.22); cast(c, 224, 6, 14, 34, 12, 0.25); cast(c, 30, 13, 18, 18, 12, 0.22); cast(c, 64, 8, 2, 28, 34, 0.18);
+    // a template's station replaces the lounge: the tools that kind of team works with, live
+    if (station) {
+      cast(c, STATION_BOX[0] + 2, STATION_BOX[1] + 2, STATION_BOX[3] - 4, STATION_BOX[4] - 4, 16, 0.24);
+      items.push({ y: P(204, 26)[1], draw: () => { prop('station|' + station, (q) => stationStatic(q, station)); stationLive(c, station, lit); } });
+    } else {
+      for (const lp of LOUNGE_PROPS) items.push({ y: P(lp.y[0], lp.y[1])[1], draw: () => { prop(lp.key, lp.draw); loungeLive(c, lit, lp.key); } });
+      cast(c, 204, 12, 14, 16, 6, 0.22); cast(c, 224, 6, 14, 34, 12, 0.25);
+    }
+    cast(c, 30, 13, 18, 18, 12, 0.22); cast(c, 64, 8, 2, 28, 34, 0.18);
     items.push({ y: P(30, 36)[1], draw: () => prop('meet', (q) => meetingStatic(q)) });
     for (const [u, v, big, seed] of [[84, 132, true, 7], [12, 8, true, 11], [232, 112, false, 5], [100, 10, false, 9], [70, 60, false, 13]] as [number, number, boolean, number][]) items.push({ y: P(u + 4, v - 4)[1], draw: () => prop(`plant${u}${v}`, (q) => plant(q, u, v, big, seed)) });
     // people
@@ -493,6 +513,16 @@ export class City {
     }
     if (!d.chief) items.push({ g: 0, y: P(CHIEF_SEAT[0], CHIEF_SEAT[1])[1], draw: () => { const p = P(CHIEF_SEAT[0], CHIEF_SEAT[1] - 6); const g = ghostSprite(); px.sprite(g.img, null, p[0] - AX, p[1] - AY, false, 0.8); pip(px, 'awaiting', p[0], p[1] - 39); } });
     items.sort((p, q) => (p.g ?? 2) - (q.g ?? 2) || p.y - q.y).forEach((it) => it.draw());
+    // hover outline on the control under the pointer (or its focused label), only on the floor you are in
+    if (s.ui.floorId === d.id && a > 0.9) {
+      const hov = floorObjects(station ? stationFor(station)!.name : null).find((o) => o.id === this.hoverObj);
+      if (hov) {
+        const hl = hull(boxCorners(P, hov.b));
+        for (let i = 0; i < hl.length; i++) px.line(hl[i]!, hl[(i + 1) % hl.length]!, C.gold, 1, 1);
+        const m = hl.reduce((acc, p) => [acc[0] + p[0] / hl.length, acc[1] + p[1] / hl.length] as Pt, [0, 0] as Pt);
+        L.add(m[0], m[1], 40, C.gold, 0.6);
+      }
+    }
     // neon floor edge on the cut
     px.line(P(0, 0, -1), P(240, 0, -1), C.cyan, 1, lit ? 1 : 0.3); px.line(P(240, 0, -1), P(240, 140, -1), C.cyan, 1, lit ? 0.8 : 0.2);
     if (lit) { L.add(...P(120, -6, 0), 140, C.cyan, 0.12, 0.5); }
@@ -594,7 +624,13 @@ export class City {
     if (open) {
       const m = this.actors.get(open);
       if (m) { let best: { id: string; d: number } | null = null; for (const a of m.values()) { const p = this.interiorPt(open, a.u, a.v, 0); if (x > p[0] - 9 && x < p[0] + 9 && y > p[1] - 34 && y < p[1] + 2) { const dd = -p[1]; if (!best || dd < best.d) best = { id: a.id, d: dd }; } } if (best) return { kind: 'agent', id: best.id }; }
+      const od = s.depts.find((x) => x.id === open), fa = this.floors.get(open);
+      if (od && fa && fa.open > 0.95) {
+        const P = mkP(fa.y);
+        for (const o of floorObjects(stationFor(od.view.templateId)?.name ?? null)) if (pointInPoly([x, y], hull(boxCorners(P, o.b)))) return { kind: 'obj', id: o.id };
+      }
     }
+
     const inHex = (T: number, h: number) => pointInPoly([x, y], [[0, T], [140, T - 70], [380, T + 50], [380, T + 50 + h], [240, T + 120 + h], [0, T + h]]);
     if (!open) { if (inHex(this.ph.y, PH_H)) return { kind: 'ph', id: 'ph' }; if (inHex(this.ph.y + PH_H, FH)) return { kind: 'ghost', id: 'ghost' }; }
     for (const d of s.depts) { const fa = this.floors.get(d.id); if (!fa || fa.alpha < 0.5) continue; if (pointInPoly([x, y], HEX(fa.y))) return { kind: 'floor', id: d.id }; }
@@ -613,7 +649,7 @@ export class City {
         return;
       }
       const h = this.hit(e.clientX - r.left, e.clientY - r.top);
-      this.hoverObj = h && h.kind === 'obj' ? (h.id as ExecObjectId) : null;
+      this.hoverObj = h && h.kind === 'obj' ? (h.id as ExecObjectId | FloorObjectId) : null;
       this.hover = h && h.kind !== 'agent' && h.kind !== 'obj' ? (h.kind === 'floor' ? h.id : h.kind) : null;
       this.hoverAgent = h && h.kind === 'agent' ? h.id : null;
       cv.style.cursor = h ? 'pointer' : useStore.getState().ui.view === 'tower' && !useStore.getState().ui.execRoom ? 'grab' : 'default';
@@ -661,7 +697,7 @@ export class City {
       if (!h) { if (s.ui.view === 'floor') s.ui$({ agent: null, ...(s.ui.panel === 'agent' && { panel: 'dept' as const }) }); return; }
       if (h.kind === 'floor') { if (s.ui.view === 'floor' && s.ui.floorId === h.id) return; s.openFloor(h.id); this.fit(); }
       else if (h.kind === 'ph') { s.openExec(); this.fit(); }
-      else if (h.kind === 'obj') execAction(h.id as ExecObjectId);
+      else if (h.kind === 'obj') { if (s.ui.execRoom) execAction(h.id as ExecObjectId); else if (s.ui.floorId) floorAction(h.id as FloorObjectId, s.ui.floorId); }
       else if (h.kind === 'ghost') s.ui$({ newDept: true });
       else if (h.kind === 'agent') s.openPanel('agent', { agent: h.id });
     });

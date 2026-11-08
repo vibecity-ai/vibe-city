@@ -16,6 +16,7 @@ interface Row {
   inventory_applied_hash: string | null; inventory_applied_at: string | null;
   observed_config_json: string | null; last_reconciled_at: string | null;
   confirmed_profile_refs_json: string;
+  template_id?: string | null;
 }
 
 export type DepartmentRow = Row;
@@ -58,6 +59,7 @@ export function toView(r: Row, floorPosition: number | null, agents: AgentRow[])
     hermesBoardRef: r.hermes_board_ref,
     boardSyncState: r.board_sync_state,
     archivedAt: r.archived_at,
+    ...(r.template_id ? { templateId: r.template_id } : {}),
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

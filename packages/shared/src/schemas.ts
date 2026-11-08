@@ -144,6 +144,8 @@ export const DepartmentViewSchema = z.object({
   archivedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  /** The template the department was hired from (brief 01); its floor gets that template's station. */
+  templateId: z.string().optional(),
 }).strict();
 export type DepartmentView = z.infer<typeof DepartmentViewSchema>;
 

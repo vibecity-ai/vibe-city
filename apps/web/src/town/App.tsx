@@ -9,6 +9,7 @@ import { NewDeptWindow } from './ui/NewDept';
 import { RequestsPoll } from './ui/Requests';
 import { ExecRoomModal } from './ui/ExecRoom';
 import { QuestLogWindow } from './ui/QuestLog';
+import { FloorSheetWindow } from './ui/FloorSheet';
 import { TopBar, ExecPanel, DeptPanel, SettingsSheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
@@ -72,6 +73,7 @@ export default function App() {
       <RequestsPoll />
       <ExecRoomModal />
       <QuestLogWindow />
+      <FloorSheetWindow />
     </div>
   );
 }

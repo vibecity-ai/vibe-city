@@ -4,7 +4,9 @@ import type { City } from '../world/City';
 import { refreshAll } from '../data/live';
 import { FloorKey, Glyph, Icon, deptStatus, statusColor, type StatusKey } from './kit';
 import { EXEC_OBJECTS } from '../world/execRoom';
-import { execAction } from '../execActions';
+import { execAction, floorAction } from '../execActions';
+import { floorObjects } from '../world/floorRoom';
+import { FLOOR_OBJECT_HELP, stationFor } from '../data/floor';
 import { loadPersonas } from './AgentView';
 import { agentLabel } from '../data/views';
 import { PortraitCanvas } from './Dialogue';
@@ -131,6 +133,16 @@ export function StageOverlay({ city }: { city: City | null }) {
             <button key={o.id} ref={set('obj:' + o.id)} className="tag obj" onClick={() => execAction(o.id)}
               onMouseEnter={() => { if (city) city.hoverObj = o.id; }} onMouseLeave={() => { if (city) city.hoverObj = null; }}
               onFocus={() => { if (city) city.hoverObj = o.id; }} onBlur={() => { if (city) city.hoverObj = null; }} aria-label={o.label}><span aria-hidden="true">{o.label}</span></button>
+          ))}
+        </div>
+      )}
+      {/* A department floor: its controls, same as the Executive Office's */}
+      {openDept && !ui.execRoom && (
+        <div className="tags objs" aria-label={`${openDept.name}: controls`}>
+          {floorObjects(stationFor(openDept.view.templateId)?.name ?? null).map((o) => (
+            <button key={o.id} ref={set('obj:' + o.id)} className="tag obj" onClick={() => floorAction(o.id, openDept.id)} title={FLOOR_OBJECT_HELP[o.id]}
+              onMouseEnter={() => { if (city) city.hoverObj = o.id; }} onMouseLeave={() => { if (city) city.hoverObj = null; }}
+              onFocus={() => { if (city) city.hoverObj = o.id; }} onBlur={() => { if (city) city.hoverObj = null; }} aria-label={`${o.label}: ${FLOOR_OBJECT_HELP[o.id]}`}><span aria-hidden="true">{o.label}</span></button>
           ))}
         </div>
       )}

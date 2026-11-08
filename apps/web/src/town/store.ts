@@ -70,6 +70,8 @@ interface UI {
   scheduleDept: string | null;
   /** The CEO quest log window (brief 05). */
   questLog: boolean;
+  /** A sheet opened from a floor's control: the tools behind the server rack, or the template's station. */
+  floorSheet: 'tools' | 'station' | null;
 }
 
 export interface State {
@@ -134,16 +136,16 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, origins: {}, schedules: [], personas: {},
   hiring$: (h) => set({ hiring: h }),
 
   ui$: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),
-  openFloor: (id) => set((s) => ({ ui: { ...s.ui, view: 'floor', floorId: id, panel: 'dept', deptTab: 'overview', agent: null, composer: false, execRoom: false, execModal: null } })),
+  openFloor: (id) => set((s) => ({ ui: { ...s.ui, view: 'floor', floorId: id, panel: 'dept', deptTab: 'overview', agent: null, composer: false, execRoom: false, execModal: null, floorSheet: null } })),
   openExec: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: true } })),
-  closeFloor: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: false, execModal: null } })),
+  closeFloor: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: false, execModal: null, floorSheet: null } })),
   openPanel: (panel, extra) => set((s) => ({ ui: { ...s.ui, panel, ...extra } })),
   toast: (text, tone = 'good') => {
     const id = ++toastSeq;

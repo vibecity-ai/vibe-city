@@ -945,3 +945,27 @@ button.org-row:hover, button.org-row:focus-visible { border-color: var(--cyan); 
 .ql-floor-u { font-size: 11px; color: var(--ink-mute); } .ql-floors li.open .ql-floor-u { color: var(--mint); }
 .btn.block { width: 100%; justify-content: center; }
 @media (max-width: 860px) { .ql-cols { grid-template-columns: 1fr; } .ql-hero h3 { font-size: 24px; } .ql-chip { display: none; } }
+
+/* ---------- floor controls: tools & access, stations ---------- */
+.fs { width: min(640px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.fs-lead { margin: 0; font-size: 14px; line-height: 1.5; color: var(--ink); }
+.fs-tools { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; border: 2px solid #2E2450; background: #0F0819; }
+.fs-tool { display: grid; grid-template-columns: 10px 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; border-top: 1px solid #221A3C; }
+.fs-tool:first-child { border-top: 0; }
+.fs-dot { width: 8px; height: 8px; background: var(--ink-mute); }
+.fs-tool.ok .fs-dot { background: var(--mint); } .fs-tool.missing .fs-dot { background: var(--red); } .fs-tool.risky .fs-dot { background: var(--amber); }
+.fs-tool-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .fs-tool-t b { font-size: 14px; } .fs-tool-t small { font-size: 12px; color: var(--ink-dim); }
+.fs-tag { font-size: 11px; white-space: nowrap; color: var(--ink-mute); }
+.fs-tool.ok .fs-tag { color: var(--mint); } .fs-tool.missing .fs-tag { color: var(--red); } .fs-tool.risky .fs-tag { color: var(--amber); }
+.fs-tool.missing { background: rgba(255,92,122,.06); }
+.fs-skills { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.fs-skills li { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; color: var(--ink-dim); padding: 6px 10px; border: 1px solid #2E2450; }
+.fs-skills li.missing { border-color: rgba(255,92,122,.5); color: var(--red); }
+.fs-skills code { font-family: var(--f-mono); color: var(--ink); }
+.fs-badges { display: flex; flex-wrap: wrap; gap: 8px; }
+.fs-badge { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; padding: 4px 8px; border: 1px solid #2E2450; color: var(--ink-dim); }
+.fs-badge code { font-family: var(--f-mono); color: var(--ink); }
+.fs-badge.gold { border-color: rgba(255,199,90,.5); color: var(--gold); } .fs-badge.bad { border-color: rgba(255,92,122,.5); color: var(--red); }
+.fs-done { list-style: none; margin: 6px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-size: 13px; }
+.fs-act { display: flex; gap: 10px; flex-wrap: wrap; }
+.purpose-rest { margin-top: 6px; font-size: 13px; color: var(--ink-dim); }

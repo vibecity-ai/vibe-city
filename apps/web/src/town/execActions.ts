@@ -3,6 +3,8 @@
 import { useStore } from './store';
 import { api } from '../api';
 import type { ExecObjectId } from './world/execRoom';
+import type { FloorObjectId } from './data/floor';
+import { callAr } from './ui/Hiring';
 
 export function execAction(id: ExecObjectId) {
   const s = useStore.getState();
@@ -27,5 +29,20 @@ export function execAction(id: ExecObjectId) {
       else s.ui$({ newDept: true });
       break;
     }
+  }
+}
+
+/** What each control on a department floor opens (the canvas click and the DOM label share it). */
+export function floorAction(id: FloorObjectId, deptId: string) {
+  const s = useStore.getState();
+  const d = s.depts.find((x) => x.id === deptId);
+  switch (id) {
+    case 'board': s.openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); break;
+    case 'lead': if (d?.chief) s.openPanel('agent', { agent: 'chief' }); else s.openPanel('dept', { deptTab: 'overview' }); break;
+    case 'meeting': s.openPanel('dept', { deptTab: 'loadout', agent: null }); break;
+    case 'rack': s.ui$({ floorSheet: 'tools' }); break;
+    case 'station': s.ui$({ floorSheet: 'station' }); break;
+    case 'clock': s.ui$({ execModal: 'calendar', scheduleDept: deptId }); break;
+    case 'elevator': void callAr(deptId); break;
   }
 }

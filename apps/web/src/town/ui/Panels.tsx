@@ -163,7 +163,7 @@ export function DeptPanel() {
         <section className="pane-head">
           <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>Department</Where><button className="x" onClick={s.closeFloor} aria-label="Close floor"><Icon n="x" /></button></div>
           <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={st.k} label={st.label} /></div>
-          <p className="sub">{d.purpose}</p>
+          <Purpose text={d.purpose} />
           <div className="actions">
             <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs the floor in sync with Hermes, and Hermes reachable'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New quest</button>
             <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Quests on the board</Btn>
@@ -1222,6 +1222,21 @@ export function CreateDeptModal() {
         </div>
         </>}
       </form>
+    </div>
+  );
+}
+
+/** A floor's purpose is the brief every agent reads, often a paragraph of instructions. The panel shows its first
+    sentence; the rest is one click away. */
+function Purpose({ text }: { text: string }) {
+  const [open, setOpen] = useState(false);
+  const m = /^(.+?[.!?])(\s|$)/s.exec(text.trim());
+  const first = m?.[1] ?? text, rest = text.trim().slice(first.length).trim();
+  if (!rest) return <p className="sub">{text}</p>;
+  return (
+    <div className="purpose">
+      <p className="sub">{first}{!open && <> <button type="button" className="link small" aria-expanded={false} onClick={() => setOpen(true)}>Team brief</button></>}</p>
+      {open && <p className="sub purpose-rest">{rest} <button type="button" className="link small" aria-expanded onClick={() => setOpen(false)}>Hide</button></p>}
     </div>
   );
 }

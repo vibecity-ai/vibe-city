@@ -289,10 +289,15 @@ export function deskStatic(c: IC, i: number, accent: string) {
     px.ellipse(p[0], p[1], 2.5, 2, '#2E7A4E'); px.ellipse(p[0] - 0.5, p[1] - 1, 1.5, 1, '#6FD08A');
   }
 }
-export function deskLive(c: IC, i: number, st: AgentStatus | undefined, lit: boolean) {
+/** What a working agent's monitor shows: the tools of its trade (see data/floor.ts STATIONS). */
+export type ScreenKind = 'code' | 'candles' | 'odds' | 'recon';
+export const screenKindFor = (templateId: string | undefined): ScreenKind =>
+  templateId === 'trading-desk' ? 'candles' : templateId === 'prediction-desk' ? 'odds' : templateId === 'red-team' ? 'recon' : 'code';
+
+export function deskLive(c: IC, i: number, st: AgentStatus | undefined, lit: boolean, kind: ScreenKind = 'code') {
   const { P, px, L, t } = c;
   const [u, v] = DESKS[i % DESKS.length];
-  screen(c, u + 6, v + 12, 18, 16, 10, st, lit);
+  screen(c, u + 6, v + 12, 18, 16, 10, st, lit, kind);
   if (i % 2 === 0 && lit) { px.poly([P(u + 22, v + 11, 23), P(u + 26, v + 11, 23), P(u + 26, v + 14, 23), P(u + 22, v + 14, 23)], '#FFF1C8', 1); L.add(...P(u + 24, v + 10, 14), 34, '#FFB46B', 0.62); }
   if (st === 'running') for (let k = 0; k < 2; k++) { const f = (t * 0.7 + k * 0.5) % 1, p = P(u + 4.5, v + 11.5, 19 + f * 8); px.push(0.4 * (1 - f)); px.dot(Math.floor(p[0] + Math.sin(t * 3 + k) * 1.2), Math.floor(p[1]), '#FFFFFF', 0.3); px.pop(); }
   if (lit && st && st !== 'disconnected') {
@@ -302,7 +307,7 @@ export function deskLive(c: IC, i: number, st: AgentStatus | undefined, lit: boo
   }
 }
 /** Monitor face on the v-plane: status-driven content, emissive. */
-export function screen(c: IC, u: number, v: number, h: number, w: number, hh: number, st: AgentStatus | undefined, lit: boolean) {
+export function screen(c: IC, u: number, v: number, h: number, w: number, hh: number, st: AgentStatus | undefined, lit: boolean, kind: ScreenKind = 'code') {
   const { P, px, t } = c;
   const S = (a: number, b: number): Pt => P(u + a, v, h + hh - b);
   const quad = (a: number, b: number, ww: number, h2: number, col: string, em = 1) => px.poly([S(a, b), S(a + ww, b), S(a + ww, b + h2), S(a, b + h2)], col, em);
@@ -312,7 +317,20 @@ export function screen(c: IC, u: number, v: number, h: number, w: number, hh: nu
     if (st === 'disconnected') px.text('OFF', (a, b) => S(4 + a, 3 + b), 1, '#4A4468', 0);
     return;
   }
-  if (st === 'running') {
+  if (st === 'running' && kind === 'candles') {
+    quad(0, 0, w, hh, '#07121A', 0.9);
+    for (let i = 0; i < 5; i++) {
+      const k = Math.floor(t * 1.2) + i, up = hash(k, 3) > 0.42, body = 1 + hash(k, 5) * 2, mid = 5 + Math.sin(k * 0.8) * 1.5;
+      quad(1.5 + i * 3, mid - body, 1.6, body * 2, up ? C.mint : C.red);
+    }
+  } else if (st === 'running' && kind === 'odds') {
+    quad(0, 0, w, hh, '#120A20', 0.9);
+    for (let r = 0; r < 3; r++) { const p = 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(t * 0.5 + r * 2)); quad(1, 1.5 + r * 2.8, (w - 2) * p, 1.6, r === 1 ? C.violet : C.cyan); }
+  } else if (st === 'running' && kind === 'recon') {
+    quad(0, 0, w, hh, '#0C140F', 0.9);
+    for (let a = 2; a < w; a += 4) quad(a, 0.5, 0.5, hh - 1, '#1E3A28', 0.6);
+    for (let i = 0; i < 2; i++) { const on = Math.sin(t * 4 + i * 2) > 0; quad(3 + hash(i, Math.floor(t * 0.3)) * (w - 6), 2 + hash(i + 3, Math.floor(t * 0.3)) * (hh - 5), 1.5, 1.5, on ? C.red : '#5A1A26'); }
+  } else if (st === 'running') {
     quad(0, 0, w, hh, '#06202C', 0.9);
     const k = Math.floor(t * 4);
     for (let r = 0; r < 4; r++) {
