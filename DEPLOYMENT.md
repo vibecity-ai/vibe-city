@@ -76,6 +76,10 @@ In dev the scripts and `docker/skills` are bind-mounted: a change to a script ne
 
 The Hermes image (Dockerfile stage `hermes`, which `docker-compose.dev.yml` also builds) includes `gh`. The CEO pastes a fine-grained personal access token in the `connect-github` quest (`PATCH /api/company/settings { githubToken }`); the backend stores it in its SQLite, never returns it, and writes it as `GH_TOKEN` into the `.env` of every Software Department profile, at once and after every sync that changes the department. Other departments never get it. `GITHUB_TOKEN` in `.env` is a fallback when nothing was pasted. The token is stored unencrypted on the server, like the other settings secrets.
 
+### The company wallet (OutLayer)
+
+The safe in the Executive Office holds one OutLayer custody wallet; its keys stay in OutLayer's TEE. You create the wallet at <https://app.outlayer.ai/wallet/new>, set its policy there, and paste its agent key (`wk_…`) in the safe; it is checked against OutLayer before it is stored. Binding the wallet to your own NEAR account (`POST /api/wallet/bind`, tested, not shown in the UI) is not offered: on mainnet OutLayer cannot build that transaction yet (its wallet contract is not published there, checked 2026-11-08). The key is stored server-side, never returned, and written as `OUTLAYER_API_KEY` / `OUTLAYER_WALLET_ID` into the profiles of the floors whose template has `wallet: 'company'` (Trading Desk, Prediction Desk, Token & Treasury) only. Mainnet (`https://api.outlayer.ai`); set `OUTLAYER_API_URL=https://testnet-api.outlayer.ai` to rehearse. Spending limits are set in OutLayer and cannot be read back.
+
 ### Pinning Hermes
 
 `HERMES_IMAGE` is pinned by digest to `nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d` (Hermes 0.22.6, the image the container was tested with; it was `latest` on 2026-11-03). The pin is the default in the Dockerfile and `docker-compose.yml`. To move to a newer Hermes, update both together (or set `HERMES_IMAGE`), then rebuild and run the smoke test.

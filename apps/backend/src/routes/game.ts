@@ -6,7 +6,6 @@ import type { AppServices } from '../app.ts';
 import { deriveGame, type GameInput, type ResultLine } from '../domain/game.ts';
 import { readSettings, writeSettings } from './company.ts';
 import { usageSummary } from './ai.ts';
-import { EMPTY_WALLET } from './wallet.ts';
 
 const CACHE_MS = 5_000;
 const RESULT_DAYS = 7;
@@ -42,7 +41,7 @@ async function input(deps: AppServices): Promise<GameInput> {
   const usage = usageSummary(db, depts.map((d) => ({ id: d.id, budgetCents: departments.getInventory(d.id).limits.dailyBudgetCredits })));
   const total = Math.round((db.prepare('SELECT COALESCE(SUM(cost_nano_usd), 0) AS n FROM ai_usage').get() as { n: number }).n / 1e7);
   return {
-    settings: readSettings(db), wallet: EMPTY_WALLET, departments: depts, templateOf, templates: TEMPLATES,
+    settings: readSettings(db), wallet: await deps.wallet.state(), departments: depts, templateOf, templates: TEMPLATES,
     usage, totalMeteredCents: total, questsByDept, results, pendingApprovals: [],
   };
 }

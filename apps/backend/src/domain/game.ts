@@ -41,7 +41,7 @@ export const CEO_QUESTS: readonly QuestDef[] = [
     hint: 'Give the Software Department a GitHub token (a fine-grained personal access token) so its agents can push and open pull requests.' },
   { id: 'treasury', title: 'Set up the treasury', unlocks: 'Trading Desk',
     done: (x) => x.i.wallet.registered && (x.i.wallet.binding.status === 'active' || x.i.wallet.balances.some((b) => Number(b.amount) > 0)),
-    hint: 'Create the company wallet and fund it, or connect a NEAR wallet you already have and sign the binding.' },
+    hint: 'Create a wallet at app.outlayer.ai/wallet/new, paste its agent key in the safe, and fund it.' },
   { id: 'hire', title: 'Hire your first department', unlocks: null,
     done: (x) => x.i.departments.filter((d) => x.i.templateOf[d.id] !== CHIEF_OF_STAFF).length >= 1,
     hint: 'Pick a team from the templates. Each one comes with its agents and their jobs.' },

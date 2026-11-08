@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TEMPLATES, type DepartmentView } from '@vibe-city/shared';
 import { deriveGame, type GameInput } from './domain/game.ts';
-import { EMPTY_WALLET } from './routes/wallet.ts';
+import { EMPTY_WALLET } from './domain/walletService.ts';
 import { memApp } from './testUtils.ts';
 
 const dept = (id: string, state: DepartmentView['state'] = 'ready') => ({ id, name: id, state }) as DepartmentView;

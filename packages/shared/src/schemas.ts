@@ -1042,6 +1042,8 @@ export const WalletStateSchema = z.object({
 export type WalletState = z.infer<typeof WalletStateSchema>;
 export const WalletBindSchema = z.object({ accountId: z.string().regex(NEAR_ACCOUNT_RE, 'not a NEAR account id') }).strict();
 export const WalletBindReplySchema = z.object({ connectUrl: z.string() }).strict();
+/** An OutLayer wallet's agent API key, created by the CEO at app.outlayer.ai/wallet/new. Write-only: never returned. */
+export const WalletKeySchema = z.object({ apiKey: z.string().trim().regex(/^wk_[A-Za-z0-9]{16,128}$/, 'not an OutLayer wallet key (wk_…)') }).strict();
 
 export const ListingDraftSchema = z.object({
   name: z.string(), tagline: z.string(), description: z.string(), priceUsdc: z.number(), slaHours: z.number(), deliverables: z.array(z.string()),
