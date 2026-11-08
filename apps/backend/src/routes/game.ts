@@ -1,10 +1,10 @@
 /* The game loop (docs/briefs/05-game-loop.md): GET /api/game assembles the input from the services and returns
-   deriveGame(...), cached 5 s. The only write is confirm-policy. */
+   deriveGame(...), cached 5 s. Read-only. */
 import type { FastifyInstance } from 'fastify';
 import { GameStateSchema, TEMPLATES, type QuestSummary } from '@vibe-city/shared';
 import type { AppServices } from '../app.ts';
 import { deriveGame, type GameInput, type ResultLine } from '../domain/game.ts';
-import { readSettings, writeSettings } from './company.ts';
+import { readSettings } from './company.ts';
 import { usageSummary } from './ai.ts';
 
 const CACHE_MS = 5_000;
@@ -57,11 +57,6 @@ export async function gameState(deps: AppServices, fresh = false) {
 export function register(app: FastifyInstance, deps: AppServices) {
   app.get('/api/game', async () => {
     const { locked: _locked, ...state } = await gameState(deps);
-    return GameStateSchema.parse(state);
-  });
-  app.post('/api/game/confirm-policy', async () => {
-    writeSettings(deps.db, { policyConfirmedAt: new Date().toISOString() });
-    const { locked: _locked, ...state } = await gameState(deps, true);
     return GameStateSchema.parse(state);
   });
 }

@@ -1017,7 +1017,9 @@ export const CompanySettingsSchema = z.object({
   marketVerifiedAt: z.string().nullable(),
   githubConnected: z.boolean(),
   githubLogin: z.string().nullable(),
-  policyConfirmedAt: z.string().nullable(),
+  /** When OutLayer last reported the owner's policy for that trading connector (the connect-* quests); null = never. */
+  hyperliquidConnectedAt: z.string().nullable(),
+  polymarketConnectedAt: z.string().nullable(),
 }).strict();
 export type CompanySettings = z.infer<typeof CompanySettingsSchema>;
 /** Write-only secrets are accepted here and never returned. */
@@ -1042,6 +1044,12 @@ export const WalletStateSchema = z.object({
 export type WalletState = z.infer<typeof WalletStateSchema>;
 export const WalletBindSchema = z.object({ accountId: z.string().regex(NEAR_ACCOUNT_RE, 'not a NEAR account id') }).strict();
 export const WalletBindReplySchema = z.object({ connectUrl: z.string() }).strict();
+/** OutLayer's trading connectors the company wallet is set up for (a policy the owner stores at app.outlayer.ai/connect/<name>). */
+export const ConnectorNameSchema = z.enum(['hyperliquid', 'polymarket']);
+export type ConnectorName = z.infer<typeof ConnectorNameSchema>;
+/** One `status` call to the connector (it costs a call from the wallet's trial): is the owner's policy there? */
+export const ConnectorCheckReplySchema = z.object({ connected: z.boolean(), message: z.string() }).strict();
+export type ConnectorCheckReply = z.infer<typeof ConnectorCheckReplySchema>;
 /** An OutLayer wallet's agent API key, created by the CEO at app.outlayer.ai/wallet/new. Write-only: never returned. */
 export const WalletKeySchema = z.object({ apiKey: z.string().trim().regex(/^wk_[A-Za-z0-9]{16,128}$/, 'not an OutLayer wallet key (wk_…)') }).strict();
 

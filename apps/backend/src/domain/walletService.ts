@@ -6,7 +6,7 @@
               connect page. The wallet then acts as that account under that account's policy.
    Spending policy is set by the owner in OutLayer; nothing here can read it back. */
 import type { DatabaseSync } from 'node:sqlite';
-import { WalletStateSchema, type WalletState } from '@vibe-city/shared';
+import { WalletStateSchema, type ConnectorName, type WalletState } from '@vibe-city/shared';
 import { readSettings, secret, setSecrets, writeSettings } from '../routes/company.ts';
 import { ConflictError, InvalidInputError, UpstreamError } from './errors.ts';
 import { scrub } from './scrub.ts';
@@ -29,13 +29,13 @@ export class WalletService {
 
   private key() { return secret(this.db, 'outlayerApiKey'); }
 
-  private async call(path: string, opts: { method?: string; body?: Json; key?: string | null } = {}): Promise<Json & { status?: number }> {
+  private async call(path: string, opts: { method?: string; body?: Json; key?: string | null; headers?: Record<string, string> } = {}): Promise<Json & { status?: number }> {
     const key = opts.key === undefined ? this.key() : opts.key;
     let r: Response;
     try {
       r = await this.fetch_(this.api + path, {
         method: opts.method ?? 'GET',
-        headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...(opts.body ? { 'content-type': 'application/json' } : {}) },
+        headers: { ...(key ? { Authorization: `Bearer ${key}` } : {}), ...(opts.body ? { 'content-type': 'application/json' } : {}), ...opts.headers },
         ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
         signal: AbortSignal.timeout(15_000),
       });
@@ -43,7 +43,7 @@ export class WalletService {
     const j = (await r.json().catch(() => ({}))) as Json;
     if (r.ok) return j;
     const msg = scrub(str(j.message) ?? str(j.error) ?? `OutLayer answered ${r.status}`, 300)!;
-    if (r.status === 401 || r.status === 403) throw new InvalidInputError(`OutLayer does not accept this wallet key: ${msg}`);
+    if ((r.status === 401 || r.status === 403) && key) throw new InvalidInputError(`OutLayer does not accept this wallet key: ${msg}`);
     if (r.status === 404) return { status: 404 };
     if (r.status === 409) throw new ConflictError(msg);
     if (r.status < 500) throw new InvalidInputError(msg);
@@ -101,6 +101,35 @@ export class WalletService {
     } catch (e) {
       return { ...base, error: scrub((e as Error).message, 300) };
     }
+  }
+
+  /** The wallet's connector payment key: the one its key already claimed, else the free trial (fifty calls, first week). */
+  private async paymentKey(): Promise<string> {
+    const have = await this.call('/wallet/v1/payment-key');
+    const key = str(have.payment_key) ?? str((await this.call('/trial-key', { method: 'POST' })).payment_key);
+    if (!key) throw new UpstreamError('OutLayer did not return a payment key for the wallet.');
+    return key;
+  }
+
+  /** One `status` call to a trading connector (free, but it counts as one of the trial's calls): is the owner's policy
+      stored for this wallet? That is the caps the agents trade under, set at app.outlayer.ai/connect/<name>. */
+  async connectorPolicy(name: ConnectorName): Promise<{ present: boolean; error: string | null; callsLeft: number | null }> {
+    const walletId = readSettings(this.db).outlayerWalletId;
+    if (!this.key() || !walletId) throw new InvalidInputError('Connect the company wallet in the safe first.');
+    const contract = this.api.includes('testnet') ? 'connectors.outlayer.testnet' : 'connectors.outlayer.near';
+    const pk = await this.paymentKey();
+    const r = await this.call(`/call/${contract}/${name}`, {
+      method: 'POST', key: null, body: { input: { operation: 'status' } },
+      headers: { 'X-Payment-Key': pk, 'X-Wallet-Id': walletId },
+    });
+    // free: what is left of the trial, so the CEO sees what each check costs
+    const sub = await this.call('/subscription/status', { headers: { 'X-Payment-Key': pk } }).catch(() => ({}) as Json);
+    const left = ((sub as Json).trial as Json | undefined)?.calls_left;
+    const callsLeft = typeof left === 'number' ? left : null;
+    const out = (r.output ?? {}) as Json;
+    if ((r as Json).status === 'failed' || out.success === false) return { present: false, callsLeft, error: scrub(str(r.error) ?? str(out.error) ?? 'the connector refused the status call', 300) };
+    const policy = ((out.output ?? {}) as Json).policy as Json | undefined;
+    return { present: policy?.present === true, error: null, callsLeft };
   }
 
   /** What a company-wallet floor's agents get in their profile .env; null until there is a wallet. */

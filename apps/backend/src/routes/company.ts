@@ -27,7 +27,8 @@ export function readSettings(db: DatabaseSync, env: NodeJS.ProcessEnv = process.
     // the Software Department's token: stored through settings (brief 04), or GITHUB_TOKEN in the backend env (brief 01)
     githubConnected: !!(secrets.githubToken || env.GITHUB_TOKEN),
     githubLogin: s.githubLogin ?? null,
-    policyConfirmedAt: s.policyConfirmedAt ?? null,
+    hyperliquidConnectedAt: s.hyperliquidConnectedAt ?? null,
+    polymarketConnectedAt: s.polymarketConnectedAt ?? null,
   });
 }
 

@@ -7,7 +7,7 @@ const fixture: GameState = {
   quests: [
     { id: 'connect-ai', title: 'Connect NEAR AI Cloud', done: true, hint: '', unlocks: 'Hiring' },
     { id: 'connect-github', title: 'Connect GitHub', done: true, hint: '', unlocks: 'Software Department' },
-    { id: 'treasury', title: 'Set up the treasury', done: false, hint: 'Create the company wallet…', unlocks: 'Trading Desk' },
+    { id: 'treasury', title: 'Set up the treasury', done: false, hint: 'Create the company wallet…', unlocks: 'Treasury Ops' },
     { id: 'hire', title: 'Hire your first department', done: false, hint: '', unlocks: null },
   ],
   decisions: [], runway: { creditsRemainingCents: null, dailyBurnCents: 0, days: null, earnedCents: 0, estimated: true }, ipoUnlocked: false,
@@ -18,7 +18,8 @@ test('the quest log highlights the first quest not done, and its button opens th
   assert.equal(next.id, 'treasury');
   assert.deepEqual(questTarget(next.id), { kind: 'safe' });
   assert.deepEqual(questTarget('hire'), { kind: 'hire' });
-  assert.deepEqual(questTarget('policy'), { kind: 'confirm-policy' });
+  assert.deepEqual(questTarget('connect-hyperliquid'), { kind: 'connector', name: 'hyperliquid' });
+  assert.equal(questTarget('policy'), null, 'the self-confirmed policy quest is gone');
   assert.equal(questTarget('connect-ai')?.kind, 'note');
   assert.equal(nextQuest({ ...fixture, quests: fixture.quests.map((q) => ({ ...q, done: true })) }), null);
 });

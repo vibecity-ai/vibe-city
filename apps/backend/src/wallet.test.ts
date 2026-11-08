@@ -11,14 +11,21 @@ const KEY = 'wk_' + 'a'.repeat(64), NEW_KEY = 'wk_' + 'b'.repeat(64), ADDR = 'c'
 /** A fake OutLayer: knows KEY (and NEW_KEY once registered), records calls, binding goes pending -> active on demand. */
 function fakeOutlayer() {
   const calls: string[] = [];
-  const o = { binding: null as null | { asset_account_id: string; binding_status: string }, bindConflict: false, setupUnavailable: false, usdc: '0', calls };
+  const o = { binding: null as null | { asset_account_id: string; binding_status: string }, bindConflict: false, setupUnavailable: false, usdc: '0', policy: { hyperliquid: false, polymarket: false } as Record<string, boolean>, trialClaimed: false, calls };
   const known = new Set([KEY]);
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
   const fetch_ = (async (url: string, init: RequestInit = {}) => {
     const path = url.replace(/^https?:\/\/[^/]+/, ''), method = init.method ?? 'GET';
     calls.push(`${method} ${path}`);
     if (method === 'POST' && path === '/register') { known.add(NEW_KEY); return json(200, { api_key: NEW_KEY, wallet_id: 'w-new', near_account_id: ADDR, handoff_url: 'x' }); }
-    const key = String((init.headers as Record<string, string>)?.Authorization ?? '').replace('Bearer ', '');
+    const h = (init.headers ?? {}) as Record<string, string>;
+    const connector = path.match(/^\/call\/connectors\.outlayer\.near\/(\w+)$/)?.[1];
+    if (connector) {
+      // pays with the trial key, names the wallet; the policy is the owner's row, stored at app.outlayer.ai/connect/<name>
+      if (h['X-Payment-Key'] !== 'pk-trial' || h['X-Wallet-Id'] !== 'w-1') return json(402, { error: 'payment_required' });
+      return json(200, { status: 'completed', output: { success: true, operation: 'status', output: { policy: { present: o.policy[connector] } } } });
+    }
+    const key = String(h.Authorization ?? '').replace('Bearer ', '');
     if (!known.has(key)) return json(401, { error: 'invalid_api_key', message: 'Invalid or revoked API key' });
     if (path === '/wallet/v1/address?chain=near') return json(200, { wallet_id: 'w-1', chain: 'near', address: ADDR });
     if (path === '/wallet/v1/balance?chain=near') return json(200, { balance: '0', token: 'near', account_id: ADDR });
@@ -34,6 +41,9 @@ function fakeOutlayer() {
         ? json(400, { error: 'bad_request', message: 'the wallet contract (code hash X) is not published on this network, so the setup transaction could not succeed' })
         : json(200, { actions: [] });
     }
+    if (path === '/subscription/status') return json(200, { trial: { calls: 50, calls_used: 3, calls_left: 47 } });
+    if (path === '/wallet/v1/payment-key') return o.trialClaimed ? json(200, { payment_key: 'pk-trial' }) : json(404, { error: 'no_payment_key' });
+    if (path === '/trial-key' && method === 'POST') { o.trialClaimed = true; return json(200, { payment_key: 'pk-trial', calls: 50 }); }
     if (path === '/wallet/v1/binding/balance') return json(200, { balance: '5000000000000000000000000', token: 'near' });
     return json(404, {});
   }) as typeof fetch;
@@ -112,4 +122,31 @@ test('when OutLayer cannot build the signing transaction, bind says why instead 
   // the wallet it registered can still be replaced by pasting a key
   assert.equal((await app.inject({ method: 'POST', url: '/api/wallet/key', payload: { apiKey: KEY } })).statusCode, 200);
   assert.equal((await app.inject('/api/wallet')).json().accountId, ADDR);
+});
+
+test('Connect Hyperliquid is done only when OutLayer reports the owner\'s policy; each check is one status call', async (t) => {
+  const saved = process.env.NEAR_AI_API_KEY; process.env.NEAR_AI_API_KEY = 'k'; // hiring itself waits for NEAR AI
+  t.after(() => { if (saved === undefined) delete process.env.NEAR_AI_API_KEY; else process.env.NEAR_AI_API_KEY = saved; });
+  const { app, outlayer } = setup();
+  const check = (name: string) => app.inject({ method: 'POST', url: `/api/wallet/connectors/${name}/check` });
+  assert.equal((await check('hyperliquid')).statusCode, 400, 'no wallet yet');
+  await app.inject({ method: 'POST', url: '/api/wallet/key', payload: { apiKey: KEY } });
+  const locked = async () => (await app.inject('/api/templates')).json().find((t: { id: string }) => t.id === 'trading-desk').locked;
+  assert.equal(await locked(), true);
+
+  const no = (await check('hyperliquid')).json();
+  assert.equal(no.connected, false);
+  assert.match(no.message, new RegExp(`app\\.outlayer\\.ai/connect/hyperliquid.*${ADDR}`), 'says where to go and which account to enter');
+  assert.match(no.message, /built-in default/);
+  assert.match(no.message, /47 left/, 'says what the check cost');
+  assert.equal(outlayer.calls.filter((c) => c === 'POST /trial-key').length, 1, 'the trial key is claimed once');
+
+  outlayer.policy.hyperliquid = true; // the CEO stored the caps on OutLayer's page
+  assert.equal((await check('hyperliquid')).json().connected, true);
+  assert.equal(outlayer.calls.filter((c) => c === 'POST /trial-key').length, 1, 'then read back, not claimed again');
+  assert.equal(await locked(), false, 'the Trading Desk can be hired');
+  const quests = (await app.inject('/api/game')).json().quests;
+  assert.equal(quests.find((q: { id: string }) => q.id === 'connect-hyperliquid').done, true);
+  assert.equal(quests.find((q: { id: string }) => q.id === 'connect-polymarket').done, false, 'each connector on its own');
+  assert.equal((await check('gmail')).statusCode, 400, 'only the trading connectors');
 });

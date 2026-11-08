@@ -11,7 +11,7 @@ test('every template parses and has a lead plus teammates with distinct titles',
     assert.equal(new Set(t.seats.map((s) => s.title)).size, t.seats.length, `${t.id} titles are distinct`);
     assert.equal(t.inventory.limits.dailyBudgetCredits, t.dailyBudgetCredits);
   }
-  assert.deepEqual(TEMPLATES.map((t) => t.id), ['software', 'trading-desk', 'token-treasury', 'prediction-desk', 'red-team', 'blue-team']);
+  assert.deepEqual(TEMPLATES.map((t) => t.id), ['software', 'treasury-ops', 'trading-desk', 'token-treasury', 'prediction-desk', 'red-team', 'blue-team']);
 });
 
 test('hiring the Software Department creates four agents with their titles and no schedule', async () => {
@@ -47,7 +47,7 @@ test('hiring the Trading Desk creates four agents and one disabled schedule; the
   assert.ok(plain.agents.every((a: any) => !('title' in a)));
   assert.equal((await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'X', template: 'nope' } })).statusCode, 400);
   const list = (await app.inject('/api/templates')).json();
-  assert.equal(list.length, 6);
+  assert.equal(list.length, 7);
   // without NEAR AI connected, hiring is off: every card points at that quest first
   const saved = process.env.NEAR_AI_API_KEY;
   delete process.env.NEAR_AI_API_KEY;
@@ -58,7 +58,7 @@ test('hiring the Trading Desk creates four agents and one disabled schedule; the
     process.env.NEAR_AI_API_KEY = 'test-key';
     const { app: on } = memApp();
     const tl = (await on.inject('/api/templates')).json();
-    assert.equal(tl.find((t: any) => t.id === 'trading-desk').unlocks, 'treasury');
+    assert.equal(tl.find((t: any) => t.id === 'trading-desk').unlocks, 'connect-hyperliquid');
     assert.equal(tl.find((t: any) => t.id === 'trading-desk').locked, true);
   } finally { if (saved === undefined) delete process.env.NEAR_AI_API_KEY; else process.env.NEAR_AI_API_KEY = saved; }
 });

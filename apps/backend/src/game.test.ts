@@ -7,7 +7,7 @@ import { memApp } from './testUtils.ts';
 
 const dept = (id: string, state: DepartmentView['state'] = 'ready') => ({ id, name: id, state }) as DepartmentView;
 const base = (): GameInput => ({
-  settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, marketAgentHandle: null, marketVerifiedAt: null, githubConnected: false, githubLogin: null, policyConfirmedAt: null },
+  settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, marketAgentHandle: null, marketVerifiedAt: null, githubConnected: false, githubLogin: null, hyperliquidConnectedAt: null, polymarketConnectedAt: null },
   wallet: EMPTY_WALLET, departments: [], templateOf: {}, templates: TEMPLATES,
   usage: { byDepartment: [], companyTodayCents: 0, companySevenDayAvgCents: 0 }, totalMeteredCents: 0,
   questsByDept: {}, results: [], pendingApprovals: [],
@@ -20,7 +20,8 @@ const cases: Array<[string, (i: GameInput) => void]> = [
   ['connect-github', (i) => { i.settings.githubConnected = true; }],
   ['treasury', (i) => { i.wallet = { ...EMPTY_WALLET, registered: true, binding: { accountId: 'boss.near', status: 'active' } }; }],
   ['hire', (i) => { i.departments = [dept('d1')]; }],
-  ['policy', (i) => { i.settings.policyConfirmedAt = '2026-11-08T10:00:00Z'; }],
+  ['connect-hyperliquid', (i) => { i.settings.hyperliquidConnectedAt = '2026-11-08T10:00:00Z'; }],
+  ['connect-polymarket', (i) => { i.settings.polymarketConnectedAt = '2026-11-08T10:00:00Z'; }],
   ['market', (i) => { i.settings.marketVerifiedAt = '2026-11-08T10:00:00Z'; }],
   ['first-job', (i) => { i.templateOf = { cos: 'chief-of-staff' }; i.results = [{ departmentId: 'cos', questId: 'q', text: 'Delivered. [earned usd=12.50]' }]; }],
   ['first-swap', (i) => { i.templateOf = { td: 'trading-desk' }; i.results = [{ departmentId: 'td', questId: 'q', text: 'Closed ETH long [pnl usd=3.2]' }]; }],
@@ -56,6 +57,25 @@ test('templates lock until NEAR AI is connected and their own quest is done', ()
   assert.equal(l['red-team'], true);
 });
 
+test('a funded treasury opens Treasury Ops; perps and prediction markets wait for their connector policy', () => {
+  const i = base();
+  i.settings.nearAiApiKeySet = true;
+  assert.equal(deriveGame(i).locked['treasury-ops'], true);
+  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'usdc', amount: '5000000', source: 'intents' }] };
+  let l = deriveGame(i).locked;
+  assert.equal(l['treasury-ops'], false);
+  assert.equal(l['trading-desk'], true);
+  assert.equal(l['prediction-desk'], true);
+  i.settings.hyperliquidConnectedAt = '2026-11-08T10:00:00Z';
+  l = deriveGame(i).locked;
+  assert.equal(l['trading-desk'], false);
+  assert.equal(l['prediction-desk'], true);
+  // a Treasury Ops swap that closes in profit is the first profitable trade
+  i.templateOf = { ops: 'treasury-ops' };
+  i.results = [{ departmentId: 'ops', questId: 'q', text: 'Swapped NEAR to USDC and back [pnl usd=0.40]' }];
+  assert.equal(done(i, 'first-swap'), true);
+});
+
 test('runway: null without credits, computed from credits loaded, metered spend and the 7-day average', () => {
   const i = base();
   assert.equal(deriveGame(i).runway.creditsRemainingCents, null);
@@ -78,13 +98,13 @@ test('decisions: over budget, awaiting input and staged owner actions', () => {
   assert.match(d[0]!.title, /Proposal 12 drafted/);
 });
 
-test('GET /api/game answers a game state; confirm-policy ticks the policy quest; templates come back locked', async () => {
+test('GET /api/game answers a game state; the trading floors wait for their connector quests', async () => {
   const { app } = memApp();
   const g = (await app.inject('/api/game')).json();
-  assert.equal(g.quests.length, 10);
-  assert.equal(g.quests.find((q: any) => q.id === 'policy').done, false);
-  const after = (await app.inject({ method: 'POST', url: '/api/game/confirm-policy' })).json();
-  assert.equal(after.quests.find((q: any) => q.id === 'policy').done, true);
+  assert.equal(g.quests.length, 11);
+  assert.ok(!g.quests.some((q: any) => q.id === 'policy'), 'no self-confirmed policy quest');
+  assert.equal(g.quests.find((q: any) => q.id === 'connect-hyperliquid').unlocks, 'Trading Desk');
+  assert.equal(g.quests.find((q: any) => q.id === 'connect-polymarket').unlocks, 'Prediction Desk');
   const tl = (await app.inject('/api/templates')).json();
   assert.equal(tl.find((t: any) => t.id === 'red-team').locked, true);
 });

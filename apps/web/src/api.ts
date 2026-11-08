@@ -16,7 +16,7 @@ import {
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
   TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
-import { AiUsageSummarySchema, CompanySettingsSchema, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
+import { AiUsageSummarySchema, CompanySettingsSchema, ConnectorCheckReplySchema, type ConnectorCheckReply, type ConnectorName, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
 import type { z } from 'zod';
 
 export interface FieldIssue { path: string; message: string }
@@ -123,7 +123,7 @@ export const api = {
   templates: (): Promise<TemplateList> => request('GET', '/api/templates', TemplateListSchema),
   game: (): Promise<GameState> => request('GET', '/api/game', GameStateSchema),
   aiUsage: (): Promise<AiUsageSummary> => request('GET', '/api/ai/usage', AiUsageSummarySchema),
-  confirmPolicy: (): Promise<GameState> => request('POST', '/api/game/confirm-policy', GameStateSchema),
+  checkConnector: (name: ConnectorName): Promise<ConnectorCheckReply> => request('POST', `/api/wallet/connectors/${name}/check`, ConnectorCheckReplySchema),
   wallet: (): Promise<WalletState> => request('GET', '/api/wallet', WalletStateSchema),
   walletKey: (apiKey: string): Promise<WalletState> => request('POST', '/api/wallet/key', WalletStateSchema, { apiKey }),
   setCompanySettings: (patch: CompanySettingsPatch): Promise<CompanySettings> => request('PATCH', '/api/company/settings', CompanySettingsSchema, patch),

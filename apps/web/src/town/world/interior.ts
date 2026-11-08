@@ -292,7 +292,7 @@ export function deskStatic(c: IC, i: number, accent: string) {
 /** What a working agent's monitor shows: the tools of its trade (see data/floor.ts STATIONS). */
 export type ScreenKind = 'code' | 'candles' | 'odds' | 'recon';
 export const screenKindFor = (templateId: string | undefined): ScreenKind =>
-  templateId === 'trading-desk' ? 'candles' : templateId === 'prediction-desk' ? 'odds' : templateId === 'red-team' ? 'recon' : 'code';
+  templateId === 'trading-desk' || templateId === 'treasury-ops' ? 'candles' : templateId === 'prediction-desk' ? 'odds' : templateId === 'red-team' ? 'recon' : 'code';
 
 export function deskLive(c: IC, i: number, st: AgentStatus | undefined, lit: boolean, kind: ScreenKind = 'code') {
   const { P, px, L, t } = c;
