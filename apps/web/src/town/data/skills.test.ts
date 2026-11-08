@@ -1,6 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
 import { TEMPLATES } from '@vibe-city/shared';
+import { STATIONS } from './floor.ts';
 import { schoolOf, rarityOf, skillLabel, skillMeta, skillState, toggleAllowance, templateSkills } from './skills.ts';
 
 test('skills get a school, a rarity and a label', () => {
@@ -19,9 +21,25 @@ test('skills get a school, a rarity and a label', () => {
   assert.match(skillMeta('some-unknown-skill').blurb, /installed in Hermes/, 'unknown skills are not described by guesswork');
 });
 
-test('every skill a template names is a signature skill', () => {
-  for (const t of TEMPLATES) for (const s of [...t.inventory.allowedSkillIds, ...t.seats.flatMap((x) => x.skills)]) assert.equal(rarityOf(s), 'signature', `${t.id}: ${s}`);
-  assert.ok(templateSkills().includes('agent-custody'));
+test('signature is the few skills a floor is built around, not everything a template names', () => {
+  for (const st of Object.values(STATIONS)) for (const k of st.skills) assert.equal(rarityOf(k), 'signature', k);
+  const named = templateSkills();
+  assert.ok(named.includes('agent-custody'));
+  assert.ok(named.filter((n) => rarityOf(n) === 'signature').length <= 8, 'signature stays rare');
+  assert.equal(schoolOf('gh-fix-ci'), 'code');
+  assert.equal(schoolOf('near-smart-contracts'), 'code');
+  assert.equal(schoolOf('near-contract-audit'), 'security');
+  assert.equal(schoolOf('near-intents'), 'wallet');
+  assert.equal(schoolOf('coingecko'), 'markets');
+  assert.equal(schoolOf('backtest-expert'), 'markets');
+});
+
+test('every skill the repo installs in Hermes has a line on its card', () => {
+  const root = new URL('../../../../../docker/skills/', import.meta.url);
+  const vendored = readdirSync(root).filter((d) => existsSync(new URL(`${d}/SKILL.md`, root)));
+  const optional = readFileSync(new URL('HERMES_OPTIONAL', root), 'utf8').split('\n').filter((l) => l.trim() && !l.startsWith('#')).map((l) => l.trim().split('/').pop()!);
+  assert.ok(vendored.length > 10);
+  for (const n of [...vendored, ...optional, ...templateSkills()]) assert.doesNotMatch(skillMeta(n).blurb, /installed in Hermes/, `${n} needs a line in KNOWN (data/skills.ts)`);
 });
 
 test('a skill state compares the saved loadout with what Hermes reports', () => {
