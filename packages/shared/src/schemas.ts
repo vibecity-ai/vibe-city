@@ -1036,7 +1036,13 @@ export const WalletStateSchema = z.object({
   accountId: z.string().nullable(),
   handoffUrl: z.string().nullable(),
   binding: z.object({ accountId: z.string().nullable(), status: z.enum(['none', 'pending', 'active']) }).strict(),
-  balances: z.array(z.object({ token: z.string(), amount: z.string(), source: z.enum(['wallet', 'intents', 'confidential', 'bound']) }).strict()),
+  /** Non-zero holdings. token is the symbol; amount is raw (divide by 10^decimals); chain is where an Intents token
+      comes from (eth, sol, near…); usd is amount times the 1Click price, null when there is none; logo is CoinGecko's
+      image URL, null when unknown. */
+  balances: z.array(z.object({
+    token: z.string(), amount: z.string(), decimals: z.number().int().min(0), source: z.enum(['wallet', 'intents', 'confidential', 'bound']),
+    chain: z.string().nullable(), usd: z.number().nullable(), logo: z.string().url().nullable(),
+  }).strict()),
   shielded: z.boolean(),
   error: z.string().nullable(),
 }).strict();

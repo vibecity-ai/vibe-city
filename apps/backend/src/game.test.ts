@@ -61,7 +61,7 @@ test('a funded treasury opens Treasury Ops; perps and prediction markets wait fo
   const i = base();
   i.settings.nearAiApiKeySet = true;
   assert.equal(deriveGame(i).locked['treasury-ops'], true);
-  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'usdc', amount: '5000000', source: 'intents' }] };
+  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'USDC', amount: '5000000', decimals: 6, source: 'intents', chain: 'near', usd: 5, logo: null }] };
   let l = deriveGame(i).locked;
   assert.equal(l['treasury-ops'], false);
   assert.equal(l['trading-desk'], true);
