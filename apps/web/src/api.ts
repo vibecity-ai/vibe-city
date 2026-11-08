@@ -14,10 +14,9 @@ import {
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
-  MoneySettingsSchema, MoneyViewSchema, type MoneySettings, type MoneyView,
   TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
-import { AiUsageSummarySchema, CompanySettingsSchema, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList } from '@vibe-city/shared';
+import { AiUsageSummarySchema, CompanySettingsSchema, ConnectorCheckReplySchema, type ConnectorCheckReply, type ConnectorName, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
 import type { z } from 'zod';
 
 export interface FieldIssue { path: string; message: string }
@@ -124,13 +123,10 @@ export const api = {
   templates: (): Promise<TemplateList> => request('GET', '/api/templates', TemplateListSchema),
   game: (): Promise<GameState> => request('GET', '/api/game', GameStateSchema),
   aiUsage: (): Promise<AiUsageSummary> => request('GET', '/api/ai/usage', AiUsageSummarySchema),
-  confirmPolicy: (): Promise<GameState> => request('POST', '/api/game/confirm-policy', GameStateSchema),
+  checkConnector: (name: ConnectorName): Promise<ConnectorCheckReply> => request('POST', `/api/wallet/connectors/${name}/check`, ConnectorCheckReplySchema),
+  wallet: (): Promise<WalletState> => request('GET', '/api/wallet', WalletStateSchema),
+  walletKey: (apiKey: string): Promise<WalletState> => request('POST', '/api/wallet/key', WalletStateSchema, { apiKey }),
   setCompanySettings: (patch: CompanySettingsPatch): Promise<CompanySettings> => request('PATCH', '/api/company/settings', CompanySettingsSchema, patch),
-  money: (fresh = false): Promise<MoneyView> => request('GET', `/api/money${fresh ? '?fresh=1' : ''}`, MoneyViewSchema),
-  setMoneySettings: (patch: Partial<MoneySettings>): Promise<MoneySettings> => request('PATCH', '/api/money/settings', MoneySettingsSchema, patch),
-  linkWallet: (accountId: string): Promise<MoneyView> => request('POST', '/api/money/wallets', MoneyViewSchema, { accountId }),
-  unlinkWallet: (accountId: string): Promise<MoneyView> => request('DELETE', `/api/money/wallets/${encodeURIComponent(accountId)}`, MoneyViewSchema),
-  primaryWallet: (accountId: string): Promise<MoneyView> => request('POST', `/api/money/wallets/${encodeURIComponent(accountId)}/primary`, MoneyViewSchema),
   schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
   createSchedule: (dept: string, input: Partial<ScheduleCreate> & Pick<ScheduleCreate, 'name' | 'cron' | 'title' | 'objective'>): Promise<Schedule> => request('POST', `${d(dept)}/schedules`, ScheduleSchema, input),
   patchSchedule: (id: string, patch: SchedulePatch): Promise<Schedule> => request('PATCH', `/api/schedules/${encodeURIComponent(id)}`, ScheduleSchema, patch),

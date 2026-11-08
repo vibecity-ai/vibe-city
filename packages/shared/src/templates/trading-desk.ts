@@ -8,7 +8,7 @@ const seats = [
 ];
 
 export const tradingDesk = template({
-  id: 'trading-desk', name: 'Trading Desk', unlock: 'treasury', loop: true, wallet: 'company', dailyBudgetCredits: 500,
+  id: 'trading-desk', name: 'Trading Desk', unlock: 'connect-hyperliquid', loop: true, wallet: 'company', dailyBudgetCredits: 500,
   toolsets: ['web', 'terminal'], skills: ['agent-custody', 'hyperliquid-connector', 'hyperliquid', 'coingecko', 'defillama'], seats,
   purpose: purpose('Trades perpetual futures for the company with the shared company wallet, inside its OutLayer policy.', seats, [
     'Head of Trading splits each objective into research, execution and review, and ends its result with [pnl usd=<realized profit or loss>].',

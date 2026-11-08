@@ -39,20 +39,23 @@ export const CEO_QUESTS: readonly QuestDef[] = [
     hint: 'Your agents think with NEAR AI Cloud models. Add your NEAR AI API key and the credits you loaded.' },
   { id: 'connect-github', title: 'Connect GitHub', unlocks: 'Software Department', done: (x) => x.i.settings.githubConnected,
     hint: 'Give the Software Department a GitHub token (a fine-grained personal access token) so its agents can push and open pull requests.' },
-  { id: 'treasury', title: 'Set up the treasury', unlocks: 'Trading Desk',
+  { id: 'treasury', title: 'Set up the treasury', unlocks: 'Treasury Ops',
     done: (x) => x.i.wallet.registered && (x.i.wallet.binding.status === 'active' || x.i.wallet.balances.some((b) => Number(b.amount) > 0)),
-    hint: 'Create the company wallet and fund it, or connect a NEAR wallet you already have and sign the binding.' },
+    hint: 'Create a wallet at app.outlayer.ai/wallet/new, paste its agent key in the safe, and fund it.' },
+  // Done only when OutLayer's connector reports the owner's policy (one status call per check): the caps the agents trade under.
+  { id: 'connect-hyperliquid', title: 'Connect Hyperliquid', unlocks: 'Trading Desk', done: (x) => !!x.i.settings.hyperliquidConnectedAt,
+    hint: 'At app.outlayer.ai/connect/hyperliquid, store the trading caps (max order, daily volume, leverage) for the company wallet, then check here.' },
+  { id: 'connect-polymarket', title: 'Connect Polymarket', unlocks: 'Prediction Desk', done: (x) => !!x.i.settings.polymarketConnectedAt,
+    hint: 'At app.outlayer.ai/connect/polymarket, store the caps (max order, daily volume) for the company wallet, then check here.' },
   { id: 'hire', title: 'Hire your first department', unlocks: null,
     done: (x) => x.i.departments.filter((d) => x.i.templateOf[d.id] !== CHIEF_OF_STAFF).length >= 1,
     hint: 'Pick a team from the templates. Each one comes with its agents and their jobs.' },
-  { id: 'policy', title: 'Set the spend policy', unlocks: null, done: (x) => !!x.i.settings.policyConfirmedAt,
-    hint: 'Set the wallet\'s limits and allowed actions in OutLayer, then confirm here. Vibe City cannot read the policy back.' },
   { id: 'market', title: 'Set up the Agent Market', unlocks: null, done: (x) => !!x.i.settings.marketVerifiedAt,
     hint: 'List the company on market.near.ai with the Chief of Staff, then paste the agent token here so it can take jobs.' },
   { id: 'first-job', title: 'Win your first job', unlocks: 'Token & Treasury', done: (x) => amounts(x.textOf([CHIEF_OF_STAFF]), 'earned').length > 0,
     hint: 'When a buyer accepts a job the Chief of Staff handled, the payout is recorded here.' },
-  { id: 'first-swap', title: 'First profitable trade', unlocks: 'Prediction Desk', done: (x) => amounts(x.textOf(['trading-desk']), 'pnl').some((n) => n > 0),
-    hint: 'The Trading Desk closes a trade with a realized profit.' },
+  { id: 'first-swap', title: 'First profitable trade', unlocks: null, done: (x) => amounts(x.textOf(['treasury-ops', 'trading-desk']), 'pnl').some((n) => n > 0),
+    hint: 'Treasury Ops or the Trading Desk closes a trade with a realized profit.' },
   { id: 'first-ship', title: 'First code shipped', unlocks: 'Red Team, Blue Team', done: (x) => x.textOf(['software']).some((t) => PR.test(t)),
     hint: 'The Software Department opens a pull request on GitHub.' },
   { id: 'ipo', title: 'IPO', unlocks: 'IPO button', done: (x) => x.earnedCents > 0 && x.ready >= 3,
@@ -63,7 +66,7 @@ export function deriveGame(i: GameInput): GameState & { locked: Record<string, b
   const tplByDept = i.templateOf;
   const textOf = (templates: string[]) => i.results.filter((r) => templates.includes(tplByDept[r.departmentId] ?? '')).map((r) => r.text);
   const earned = amounts(textOf([CHIEF_OF_STAFF]), 'earned').reduce((a, n) => a + n, 0);
-  const pnl = amounts(textOf(['trading-desk', 'prediction-desk']), 'pnl').reduce((a, n) => a + n, 0);
+  const pnl = amounts(textOf(['treasury-ops', 'trading-desk', 'prediction-desk']), 'pnl').reduce((a, n) => a + n, 0);
   const earnedCents = earned + pnl;
   const ready = i.departments.filter((d) => d.state === 'ready' && tplByDept[d.id] !== CHIEF_OF_STAFF).length;
   const x: Ctx = { i, textOf, earnedCents: Math.max(0, earnedCents), ready };

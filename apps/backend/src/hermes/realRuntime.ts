@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process';
+import { reasoningEffortFor } from './reasoningEffort.ts';
 import { promisify } from 'node:util';
 import type { ModelChoice } from '@vibe-city/shared';
 import { HermesHttp } from './http.ts';
@@ -187,6 +188,8 @@ export class RealHermesRuntime implements HermesRuntime {
       { body: { scope: 'main', provider: choice.provider, model: choice.id, confirm_expensive_model: true } },
     );
     if (!r.ok || !r.model || !r.provider) throw new HermesRejectedError(`Hermes did not set the model: ${r.confirm_message ?? r.detail ?? 'unknown reason'}`);
+    // the effort this model accepts (Qwen 3.x rejects the 'high' every other profile runs with)
+    await this.cli(['config', 'set', 'agent.reasoning_effort', reasoningEffortFor(r.model)], profile);
     return { provider: r.provider, id: r.model };
   }
 

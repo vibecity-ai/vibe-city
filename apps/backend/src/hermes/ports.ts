@@ -92,6 +92,7 @@ export interface HermesRuntime {
   /** The profile's main model and its provider, as written in its config (null when unset). */
   getModel(profile: string): Promise<{ id: string | null; provider: string | null }>;
   /** Sets the profile's main model and provider together; returns the pair Hermes normalized and wrote. */
+  /** Also sets the profile's reasoning effort to one the model accepts (hermes/reasoningEffort.ts). */
   setModel(profile: string, choice: ModelChoice): Promise<ModelChoice>;
   /** Hermes' model picker data: authenticated providers and their model ids, plus what `default` uses. */
   listModels(): Promise<ModelCatalog>;

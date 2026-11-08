@@ -70,7 +70,7 @@ export function stationStatic(c: IC, templateId: string) {
       box(c, 209, 18, 12, 10, 4, 1, '#3A3458', { edge: false }); // keyboard
       break;
     }
-    case 'trading-desk': case 'prediction-desk': {
+    case 'trading-desk': case 'prediction-desk': case 'treasury-ops': {
       standingScreen(c, 202, 26, 34, 10, 20, '#1A1530');
       box(c, 206, 12, 0, 22, 10, 11, '#3A2448', { top: '#5A3A6A' }); // the desk under it
       break;
@@ -126,7 +126,7 @@ export function stationLive(c: IC, templateId: string, lit: boolean) {
       if (lit) L.add(...c.P(216, 26, 18), 34, C.mint, 0.35);
       break;
     }
-    case 'trading-desk': {
+    case 'trading-desk': case 'treasury-ops': {
       const S = face(c, 202, 26, 10, 34, 20);
       quadOn(c, S, 0, 0, 34, 20, '#07121A', 0.9 * on);
       px.text('ETH', (a, b) => S(2 + a, 2 + b), 1, C.gold, on);

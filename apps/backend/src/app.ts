@@ -16,7 +16,7 @@ import { Readable } from 'node:stream';
 import websocket from '@fastify/websocket';
 import {
   CancellationStatusSchema, DepartmentArchivedSchema, DepartmentListSchema, LiveMessageSchema, QuestActivitySchema, QuestCreateSchema,
-  QuestCreatedSchema, QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema,
+  QuestCreatedSchema, QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema, TEMPLATES,
 } from '@vibe-city/shared';
 import { z } from 'zod';
 import type { KanbanApi } from './hermes/kanbanApi.ts';
@@ -28,7 +28,7 @@ import { SqliteCursorStore } from './live/cursorStore.ts';
 import { ProvisioningService } from './domain/provisioningService.ts';
 import { CompanyService } from './domain/companyService.ts';
 import { DepartmentService } from './domain/departmentService.ts';
-import { ConflictError, InvalidInputError, NotFoundError } from './domain/errors.ts';
+import { ConflictError, InvalidInputError, NotFoundError, UpstreamError } from './domain/errors.ts';
 import { AGENT_KEY_RE, AgentPatchSchema, DepartmentAgentSchema, CharacterSchema, ChatHistorySchema, ChatReplySchema, ChatSendSchema } from '@vibe-city/shared';
 import { CharacterService } from './domain/characters.ts';
 import { ChatService } from './domain/chatService.ts';
@@ -43,6 +43,7 @@ import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
 import { githubToken, register as registerCompany } from './routes/company.ts';
+import { WalletService } from './domain/walletService.ts';
 import { register as registerWallet } from './routes/wallet.ts';
 import { register as registerAi } from './routes/ai.ts';
 import { register as registerGame } from './routes/game.ts';
@@ -68,12 +69,16 @@ export interface AppServices {
   db: DatabaseSync;
   departments: DepartmentService;
   money: MoneyService;
-  /** Writes the GitHub token as GH_TOKEN into every Software Department profile (best effort; the next sync retries). */
-  pushGithubToken: () => Promise<void>;
+  /** The OutLayer company wallet (brief 03). */
+  wallet: WalletService;
+  /** Rewrites every department's secrets env (GH_TOKEN, OutLayer key) into its profiles (best effort; the next sync retries). */
+  pushDepartmentEnv: () => Promise<void>;
 }
 
 export interface ServicesExtra {
   kanban?: KanbanApi;
+  /** OutLayer's HTTP API (tests pass a fake). */
+  outlayerFetch?: typeof fetch;
   /** The safe (spec 6.1): credits source and, for tests and the demo, a fake NEAR reader. */
   money?: Pick<MoneyDeps, 'credits' | 'reader' | 'rpcUrl'>;
   /** Hermes event stream settings. Omit to disable live events (the WebSocket route then answers 503). */
@@ -132,6 +137,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     if (err instanceof HermesAuthError) return { status: 502, body: { error: 'hermes_auth', message: err.message } };
     if (err instanceof HermesRejectedError) return { status: 502, body: { error: 'hermes_rejected', message: err.message } };
     if (err instanceof ConflictError) return { status: 409, body: { error: 'conflict', message: err.message } };
+    if (err instanceof UpstreamError) return { status: 502, body: { error: 'upstream', message: err.message } };
     if (err instanceof ModelUnavailableError) return { status: 503, body: { error: 'model_unavailable', message: err.message } };
     if (err instanceof ModelFailedError) return { status: 502, body: { error: 'model_failed', message: err.message } };
     const fe = err as { statusCode?: number; message?: string };
@@ -344,20 +350,24 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
   });
   registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
-  // The Software Department's agents run git/gh with GH_TOKEN in their profile .env (written after every sync that
-  // changed something, and whenever the CEO pastes a new token).
-  const writeGithubToken = async (deptId: string, profiles: string[]) => {
-    const token = githubToken(db);
-    if (!token || !hermes?.setProfileEnv || departments.getRow(deptId).template_id !== 'software') return;
-    for (const p of profiles) await hermes.setProfileEnv(p, { GH_TOKEN: token });
+  // Secrets a floor's agents get in their profile .env, by template: the Software Department runs git/gh with GH_TOKEN,
+  // company-wallet floors use the OutLayer wallet key. Written after every sync that changed something and whenever
+  // the CEO pastes a token or a wallet key; other floors never receive them.
+  const wallet = new WalletService(db, extra.outlayerFetch);
+  const writeDepartmentEnv = async (deptId: string, profiles: string[]) => {
+    const t = TEMPLATES.find((x) => x.id === departments.getRow(deptId).template_id);
+    const gh = t?.id === 'software' ? githubToken(db) : null;
+    const env = { ...(gh ? { GH_TOKEN: gh } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
+    if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
+    for (const p of profiles) await hermes.setProfileEnv(p, env);
   };
-  const pushGithubToken = async () => {
+  const pushDepartmentEnv = async () => {
     for (const d of departments.list()) {
       const profiles = departments.agents(d.id).map((a) => a.profile_ref).filter((p): p is string => !!p);
-      try { await writeGithubToken(d.id, profiles); } catch (e) { console.warn(`GH_TOKEN not written for ${d.id}: ${(e as Error).message}`); }
+      try { await writeDepartmentEnv(d.id, profiles); } catch (e) { console.warn(`secrets env not written for ${d.id}: ${(e as Error).message}`); }
     }
   };
-  provisioning.afterProvision = writeGithubToken;
+  provisioning.afterProvision = writeDepartmentEnv;
   if (extra.mcpUrl && hermes?.setMcpServer) {
     const url = extra.mcpUrl, rt = hermes;
     provisioning.afterProvision = async (deptId, profiles) => {
@@ -370,7 +380,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
         // Naming the read-only entry makes chat's list an allowlist: chat reads task files but gets no request_quest.
         await rt.setPlatformMcpServers?.(p, 'api_server', [MCP_CHAT_SERVER_NAME]);
       }
-      await writeGithubToken(deptId, profiles);
+      await writeDepartmentEnv(deptId, profiles);
     };
   }
   // ---- the safe (feature spec 6.1): wallets, treasury and credits, read-only; signing happens in the user's wallet ----
@@ -528,7 +538,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     });
   }
 
-  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money, pushGithubToken };
+  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv };
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
   registerAi(app, services); registerGame(app, services); registerIpo(app, services);

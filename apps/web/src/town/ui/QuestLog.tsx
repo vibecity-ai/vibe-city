@@ -49,22 +49,48 @@ function GithubTokenForm() {
   );
 }
 
+/** The caps OutLayer's connector needs before it opens orders (a stored policy is fail-closed without them). */
+const CONNECTOR_CAPS = { hyperliquid: 'max order, max daily volume and max leverage', polymarket: 'max order and max daily volume' } as const;
+
+/** Store the connector policy on OutLayer for the company wallet, then check: one status call, from the wallet's trial. */
+function ConnectorQuest({ name }: { name: 'hyperliquid' | 'polymarket' }) {
+  const [account, setAccount] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const s = useStore.getState();
+  useEffect(() => { api.wallet().then((w) => setAccount(w.accountId)).catch(() => undefined); }, []);
+  const check = () => {
+    setBusy(true); setNote(null);
+    api.checkConnector(name)
+      .then((r) => { setNote(r.message); return r.connected ? api.game().then((game) => { useStore.setState({ game }); s.toast(r.message); }) : undefined; })
+      .catch((e) => setNote(e instanceof ApiError ? e.message : 'That did not work.')).finally(() => setBusy(false));
+  };
+  if (!account) return <span className="ql-note">Connect the company wallet in the safe first.</span>;
+  return (
+    <div className="ql-gh">
+      <p className="ql-note">
+        On <a href={`https://app.outlayer.ai/connect/${name}`} target="_blank" rel="noreferrer">OutLayer's {name} page</a>, set
+        the {CONNECTOR_CAPS[name]}, and enter the company wallet's account:
+      </p>
+      <code className="ql-acct">{account}</code>
+      <div className="ql-gh-row">
+        <button className="btn secondary small" type="button" onClick={() => void navigator.clipboard?.writeText(account)}>Copy account</button>
+        <button className="btn primary small" type="button" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check'}</button>
+      </div>
+      {note && <p className="ql-note" role="status">{note}</p>}
+    </div>
+  );
+}
+
 /** The button (or note) that takes the CEO where the quest is done; the mapping lives in data/game.ts. */
 function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
-  const [busy, setBusy] = useState(false);
   const s = useStore.getState();
   const go = (fn: () => void) => () => { onGo?.(); fn(); };
   const t = questTarget(q.id);
   switch (t?.kind) {
     case 'safe': return <button className="btn primary small" onClick={go(() => { s.openExec(); s.ui$({ execModal: 'safe' }); })}>Open the safe</button>;
     case 'hire': return <button className="btn primary small" onClick={go(() => s.ui$({ modal: 'create' }))}>Hire a department</button>;
-    case 'confirm-policy': return (
-      <button className="btn primary small" disabled={busy} onClick={() => {
-        setBusy(true);
-        api.confirmPolicy().then((game) => { useStore.setState({ game }); s.toast('Policy confirmed.'); })
-          .catch((e) => s.toast(e instanceof ApiError ? e.message : 'That did not work.', 'bad')).finally(() => setBusy(false));
-      }}>I set the policy</button>
-    );
+    case 'connector': return <ConnectorQuest name={t.name} />;
     case 'quest-board': return <button className="btn secondary small" onClick={go(() => s.openPanel('board', { composer: false, boardDept: null }))}>Open the Ops board</button>;
     case 'ipo': return <button className="btn primary small" disabled title="The IPO button arrives with the IPO work">Go public</button>;
     case 'github': return <GithubTokenForm />;

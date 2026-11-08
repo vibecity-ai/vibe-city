@@ -59,6 +59,7 @@ export interface Station {
 export const STATIONS: Record<string, Station> = {
   software: { name: 'CI wall', blurb: 'Where the team ships: branches, pull requests and test runs.', toolsets: ['terminal', 'file', 'code_execution', 'web'], skills: [], marker: '[pr url=…]', wallet: false },
   'trading-desk': { name: 'Market wall', blurb: 'Prices, funding and open positions. Every trade stays inside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'hyperliquid-connector'], marker: '[pnl usd=…]', wallet: true },
+  'treasury-ops': { name: 'Swap board', blurb: 'Wallet and Intents balances, and every swap in flight. Nothing moves outside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'near-intents'], marker: '[pnl usd=…]', wallet: true },
   'token-treasury': { name: 'Vault', blurb: 'The treasury, the DAO and the token. Nothing moves without your OK.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'near-cli-rs'], marker: '[token symbol=… supply=…]', wallet: true },
   'prediction-desk': { name: 'Odds board', blurb: 'Markets the desk follows, its estimates and open positions.', toolsets: ['web'], skills: ['agent-custody', 'polymarket-connector'], marker: '[pnl usd=…]', wallet: true },
   'red-team': { name: 'Recon table', blurb: 'Our own code and infrastructure, mapped for weak spots. Findings go to the Blue Team only.', toolsets: ['terminal', 'web', 'browser'], skills: [], marker: null, wallet: false },

@@ -13,6 +13,8 @@ export function template(t: Omit<Template, 'inventory' | 'hidden'> & { toolsets:
   const all = [...new Set([...toolsets, ...t.seats.flatMap((s) => s.toolsets as Toolset[])])];
   return {
     ...rest,
+    // OutLayer's skills say $API_KEY; tell the agents where the company wallet's key is (written by the backend)
+    purpose: t.wallet === 'company' ? `${t.purpose} The company wallet's OutLayer key is OUTLAYER_API_KEY in your environment (OUTLAYER_WALLET_ID is its id): use it as $API_KEY with agent-custody and the connectors.` : t.purpose,
     hidden: t.hidden ?? false,
     inventory: InventorySchema.parse({ allowedToolsets: all, allowedSkillIds: [...new Set([...t.skills, ...t.seats.flatMap((s) => s.skills)])], limits: { dailyBudgetCredits: t.dailyBudgetCredits } }),
   };

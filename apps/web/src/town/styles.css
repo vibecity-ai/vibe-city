@@ -829,38 +829,26 @@ button.org-row:hover, button.org-row:focus-visible { border-color: var(--cyan); 
 .dlg-full-text:focus-visible { outline: 2px solid var(--who, #FFC75A); outline-offset: -2px; }
 @media (max-width: 760px) { .dlg-full-text { max-height: 24vh; font-size: 14px; } }
 /* the safe (feature spec 6.1) */
-.exec-modal:has(.money) { width: min(1180px, 100%); }
+.exec-modal:has(.money) { width: min(860px, 100%); }
 .money { display: flex; flex-direction: column; gap: 12px; }
 .money-bar { display: flex; align-items: center; gap: 10px; }
 .money-bar .btn { margin-left: auto; }
-.net { font: 400 16px var(--f-px); text-transform: uppercase; padding: 0 8px; color: #120A1E; background: var(--cyan); }
-.net.testnet { background: var(--amber, #FFB547); }
-.money-cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; align-items: start; }
+.money .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.money .row .input { flex: 1; min-width: 0; min-height: 36px; }
+.money .steps { margin: 0; padding-left: 18px; }
+.money a:not(.btn) { color: var(--cyan); }
 .pot { display: flex; flex-direction: column; gap: 8px; padding: 12px; background: #120A1E; border: 2px solid #2E2450; min-width: 0; }
 .pot-h { margin: 0; display: flex; align-items: center; gap: 8px; font: 400 22px var(--f-px); text-transform: uppercase; color: var(--gold); }
-.pot-h .link { margin-left: auto; }
-.pot-sub { margin: 8px 0 0; font: 400 18px var(--f-px); text-transform: uppercase; color: var(--ink-dim); }
 .pot-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .wallet { padding: 8px; border: 1px solid #2E2450; display: flex; flex-direction: column; gap: 4px; }
 .wallet b { font-size: 13px; overflow-wrap: anywhere; }
-.tag-mini { margin-left: 6px; font: 400 13px var(--f-px); text-transform: uppercase; padding: 0 5px; background: #2E2450; color: var(--ink-dim); }
-.tag-mini.on { background: rgba(124,245,180,.2); color: #7CF5B4; }
-.amt { font: 400 26px/1 var(--f-px); color: #fff; } .amt.big { font-size: 38px; } .amt small { font-size: 16px; color: var(--ink-mute); }
-.props li { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; border-bottom: 1px dashed #2E2450; }
-.props li > div { display: flex; flex-direction: column; gap: 2px; min-width: 0; } .props b { font-size: 13px; }
-.xfer { padding: 10px; border: 2px dashed var(--gold); display: flex; flex-direction: column; gap: 8px; }
-.xfer form { display: flex; flex-direction: column; gap: 8px; } .xfer .field { display: flex; flex-direction: column; gap: 4px; }
-.xfer-sum { margin: 0 0 8px; font-size: 14px; line-height: 1.5; }
+.amt { font: 400 26px/1 var(--f-px); color: #fff; } .amt small { font-size: 16px; color: var(--ink-mute); }
 .safe-dial { display: grid; place-items: center; gap: 14px; padding: 40px 0; color: var(--ink-dim); font: 400 22px var(--f-px); text-transform: uppercase; }
 .dial { position: relative; width: 120px; height: 120px; border-radius: 50%; background: radial-gradient(circle, #4A4A5E 0 30%, #2C2C3A 31% 60%, #1C1C28 61%); box-shadow: 0 0 0 6px #3A3A4C, 0 0 0 10px #15151F, 0 0 30px rgba(255,199,90,.25); animation: dialSpin .85s steps(10) both; }
 .dial i { position: absolute; left: 50%; top: 8px; width: 4px; height: 16px; margin-left: -2px; background: var(--gold); }
 .dial b { position: absolute; inset: 44px; border-radius: 50%; background: #B8B0D0; }
 @keyframes dialSpin { 0% { transform: rotate(0); } 40% { transform: rotate(250deg); } 70% { transform: rotate(140deg); } 100% { transform: rotate(320deg); } }
 @media (prefers-reduced-motion: reduce) { .dial { animation: none; } }
-@media (max-width: 980px) { .money-cols { grid-template-columns: 1fr; } }
-/* NEAR Wallet Selector modal above the game's dialogs */
-.nws-modal-wrapper { z-index: 100 !important; }
-.pot .row { flex-wrap: wrap; }
 
 /* ---------- hire a department from a template (brief 01) ---------- */
 .hire-pick { display: flex; flex-direction: column; gap: 12px; }
@@ -916,6 +904,7 @@ button.org-row:hover, button.org-row:focus-visible { border-color: var(--cyan); 
 .ql-gh ul { margin: 6px 0; padding-left: 18px; }
 .ql-gh-row { display: flex; gap: 8px; align-items: center; }
 .ql-gh-row .input { min-height: 36px; min-width: 0; flex: 1; }
+.ql-acct { font: 12px var(--f-mono); overflow-wrap: anywhere; color: var(--ink); }
 .ql { width: min(1040px, 100%); display: flex; flex-direction: column; gap: 14px; }
 .ql-progress { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--ink-dim); }
 .ql-progress .ql-pips i { width: 26px; height: 8px; }

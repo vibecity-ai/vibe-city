@@ -27,7 +27,8 @@ export function readSettings(db: DatabaseSync, env: NodeJS.ProcessEnv = process.
     // the Software Department's token: stored through settings (brief 04), or GITHUB_TOKEN in the backend env (brief 01)
     githubConnected: !!(secrets.githubToken || env.GITHUB_TOKEN),
     githubLogin: s.githubLogin ?? null,
-    policyConfirmedAt: s.policyConfirmedAt ?? null,
+    hyperliquidConnectedAt: s.hyperliquidConnectedAt ?? null,
+    polymarketConnectedAt: s.polymarketConnectedAt ?? null,
   });
 }
 
@@ -38,10 +39,18 @@ export function writeSettings(db: DatabaseSync, patch: Partial<Stored>): void {
     .run(JSON.stringify(next));
 }
 
+/** A write-only secret (GitHub token, OutLayer wallet key). Server-side only: never in a response. */
+export function secret(db: DatabaseSync, name: string): string | null {
+  const v = stored(db).secrets?.[name];
+  return typeof v === 'string' && v ? v : null;
+}
+export function setSecrets(db: DatabaseSync, patch: Record<string, string>): void {
+  writeSettings(db, { secrets: { ...stored(db).secrets, ...patch } });
+}
+
 /** The token the Software Department's agents use as GH_TOKEN: the one pasted in the UI, else GITHUB_TOKEN from the env. */
 export function githubToken(db: DatabaseSync, env: NodeJS.ProcessEnv = process.env): string | null {
-  const t = stored(db).secrets?.githubToken;
-  return typeof t === 'string' && t ? t : env.GITHUB_TOKEN || null;
+  return secret(db, 'githubToken') ?? (env.GITHUB_TOKEN || null);
 }
 
 export function register(app: FastifyInstance, deps: AppServices) {
@@ -54,9 +63,8 @@ export function register(app: FastifyInstance, deps: AppServices) {
     if (patch.githubToken) {
       // a token is one line without spaces; it ends up as GH_TOKEN in the agents' .env
       if (/\s/.test(patch.githubToken)) throw new InvalidInputError('That does not look like a GitHub token.');
-      const s = stored(deps.db);
-      writeSettings(deps.db, { secrets: { ...s.secrets, githubToken: patch.githubToken } });
-      await deps.pushGithubToken();
+      setSecrets(deps.db, { githubToken: patch.githubToken });
+      await deps.pushDepartmentEnv();
       await gameState(deps, true); // the connect-github quest reads githubConnected through the 5 s game cache
     }
     return readSettings(deps.db);
