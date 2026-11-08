@@ -1,0 +1,41 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Pre-installs skills into the main Hermes home (the default profile, which new department profiles are cloned from)
+# and every existing profile, in the "vibe-city" category:
+#   - the vendored skills in /etc/vibe-city/skills (docker/skills, sources in docker/skills/SOURCES);
+#   - Hermes' own optional skills named in /etc/vibe-city/skills/HERMES_OPTIONAL (copied from the image).
+# A department's template still decides which ones its agents have enabled.
+#
+# Runs after 03-vibe-city-near, before any service. No network. Idempotent: a skill already in a profile (in any
+# category, or edited there) is left alone, so a restart never overwrites it. Updating a skill therefore reaches only
+# profiles that lack it; delete the profile's copy to take the new one.
+
+src=/etc/vibe-city/skills
+optional=/opt/hermes/optional-skills
+[ -d "$src" ] || exit 0
+
+HERMES_HOME="${HERMES_HOME:-/opt/data}"
+
+# The skill folders to install, one per line.
+sources() {
+    for skill in "$src"/*/; do echo "${skill%/}"; done
+    [ -f "$src/HERMES_OPTIONAL" ] && grep -v '^[[:space:]]*\(#\|$\)' "$src/HERMES_OPTIONAL" | while read -r p; do
+        if [ -f "$optional/$p/SKILL.md" ]; then echo "$optional/$p"; else echo "[vibe-city] Optional skill $p is not in this Hermes image; skipped." >&2; fi
+    done
+}
+
+# $1 = skills dir of a profile
+install_all() {
+    sources | while read -r skill; do
+        name="$(basename "$skill")"
+        { [ -d "$1/$name" ] || ls -d "$1"/*/"$name" >/dev/null 2>&1; } && continue
+        mkdir -p "$1/vibe-city" && cp -r "$skill" "$1/vibe-city/$name" && chown -R hermes:hermes "$1/vibe-city" &&
+        echo "[vibe-city] Skill $name installed in ${1#"$HERMES_HOME"/}."
+    done
+}
+
+install_all "$HERMES_HOME/skills"
+for dir in "$HERMES_HOME"/profiles/*/; do
+    [ -d "$dir" ] && install_all "${dir}skills"
+done
+exit 0

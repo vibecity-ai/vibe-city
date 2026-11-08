@@ -56,6 +56,10 @@ COPY --from=web /src/apps/web/dist apps/web/dist
 COPY --chmod=0755 docker/s6-rc.d/vibe-city/run /etc/s6-overlay/s6-rc.d/vibe-city/run
 # NEAR AI Cloud as the default provider when NEAR_AI_API_KEY is set (runs after Hermes' own cont-init scripts).
 COPY --chmod=0755 docker/cont-init.d/03-vibe-city-near /etc/cont-init.d/03-vibe-city-near
+# Vendored skills (docker/skills) and the CoinGecko MCP, added to every profile on start.
+COPY --chmod=0755 docker/cont-init.d/04-vibe-city-skills /etc/cont-init.d/04-vibe-city-skills
+COPY --chmod=0755 docker/cont-init.d/05-vibe-city-mcp /etc/cont-init.d/05-vibe-city-mcp
+COPY docker/skills /etc/vibe-city/skills
 RUN echo longrun > /etc/s6-overlay/s6-rc.d/vibe-city/type \
  && mkdir -p /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d \
  && touch /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d/base /etc/s6-overlay/s6-rc.d/user/contents.d/vibe-city

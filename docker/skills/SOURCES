@@ -1,0 +1,48 @@
+Skills pre-installed into every Hermes profile by docker/cont-init.d/04-vibe-city-skills (copied when missing).
+Vendored so the container needs no network at start and agents get a reviewed, pinned copy. To update: re-copy
+from the source and change the commit here. Which department enables which skill: packages/shared/src/templates/.
+Hermes' own optional skills are listed in HERMES_OPTIONAL and copied from the image, not vendored.
+
+outlayer, outlayer-cli, outlayer-connectors, agent-custody, building-outlayer-apps, github-connector,
+gmail-connector, hyperliquid-connector, mercury-connector, polymarket-connector
+  https://github.com/out-layer/skills @ 4239782 (MIT or Apache-2.0: LICENSE-OUTLAYER-*), served at https://skills.outlayer.ai
+
+near-ai-cloud, near-api-js, near-cli-rs, near-contract-audit, near-dapp, near-intents, near-kit, near-smart-contracts
+  https://github.com/near/agent-skills @ cb32b6a (no license file in the repository)
+
+marketplace-worker
+  https://market.near.ai/skill/SKILL.md (version 0.55.0, fetched 2026-11-08)
+
+new-branch-and-pr, review-and-ship, loop-on-ci, fix-merge-conflicts, check-compiler-errors, verify-this, deslop,
+make-pr-easy-to-review, thermo-nuclear-code-quality-review
+  https://github.com/cursor/plugins/tree/main/cursor-team-kit @ 6b03002 (MIT: LICENSE-CURSOR-TEAM-KIT-MIT)
+
+gh-address-comments, gh-fix-ci, security-best-practices, security-threat-model
+  https://github.com/openai/skills/tree/main/skills/.curated @ 49f948f (Apache-2.0: LICENSE.txt in each folder)
+
+differential-review, property-based-testing, solana-vulnerability-scanner
+  https://github.com/trailofbits/skills @ e4dd0bb (CC-BY-SA-4.0: LICENSE-TRAILOFBITS-CC-BY-SA-4.0)
+
+solana-dev
+  https://github.com/solana-foundation/solana-dev-skill @ c9da262 (MIT: LICENSE-SOLANA-FOUNDATION-MIT)
+
+vercel-react-best-practices (upstream folder: skills/react-best-practices)
+  https://github.com/vercel-labs/agent-skills @ 1a2c79d (MIT, stated in its README; no license file)
+
+crypto-regime-analyzer, backtest-expert
+  https://github.com/tradermonty/claude-trading-skills @ 6d7bc46 (MIT: LICENSE-TRADERMONTY-MIT)
+
+risk-metrics-calculation
+  https://github.com/wshobson/agents/tree/main/plugins/quantitative-trading @ 4bde316 (MIT: LICENSE-WSHOBSON-MIT)
+
+coingecko
+  https://github.com/coingecko/skills @ 84fb359 (MIT: LICENSE-COINGECKO-MIT). Its MCP is registered by
+  docker/cont-init.d/05-vibe-city-mcp.
+
+ponytail, ponytail-review, ponytail-audit, ponytail-debt
+  https://github.com/DietrichGebert/ponytail @ 96608e0 (MIT: LICENSE-PONYTAIL-MIT). Installed as skills, not as the
+  Hermes plugin, so the ruleset is not injected into every agent's every turn.
+
+defillama
+  Written for Vibe City against DefiLlama's free public API (endpoints checked 2026-11-08). The official
+  DefiLlama skills (github.com/DefiLlama/DefiLlama-skills) need its paid MCP with an OAuth login.

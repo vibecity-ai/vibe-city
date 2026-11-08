@@ -1,0 +1,8 @@
+# Hermes' own optional skills (shipped in the image under /opt/hermes/optional-skills) to install in every profile.
+# One path per line, relative to that folder. Copied, so they follow the pinned Hermes version.
+blockchain/hyperliquid
+blockchain/solana
+finance/polymarket
+software-development/node-inspect-debugger
+software-development/rest-graphql-debug
+devops/docker-management

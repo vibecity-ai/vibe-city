@@ -1,0 +1,32 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Registers third-party MCP servers in the main Hermes config (cloned into new department profiles) and in every
+# existing profile:
+#   coingecko  CoinGecko's official keyless remote MCP (https://mcp.api.coingecko.com/mcp, shared rate limits).
+#              Two tools: execute (runs CoinGecko SDK code on their side) and search_docs.
+#
+# Runs before any service. Idempotent: a server already configured in a profile is left as it is, so a URL or tool
+# selection changed later in Hermes is never overwritten. Chat stays on its vibecity-only allowlist (set by the
+# backend); Kanban workers get every enabled server.
+
+HERMES_HOME="${HERMES_HOME:-/opt/data}"
+
+# Hermes CLI as the hermes user, against the shared volume. $1 = profile ("" = main config).
+h() {
+    p="$1"; shift
+    if [ -n "$p" ]; then set -- -p "$p" "$@"; fi
+    HOME="$HERMES_HOME" HERMES_HOME="$HERMES_HOME" s6-setuidgid hermes hermes "$@"
+}
+
+add_coingecko() {
+    # an unset key prints "Config key not set: ...", so only a URL counts as configured
+    case "$(h "$1" config get mcp_servers.coingecko.url 2>/dev/null | tail -n 1)" in http*) return 0 ;; esac
+    h "$1" config set mcp_servers.coingecko '{"url":"https://mcp.api.coingecko.com/mcp"}' --force >/dev/null &&
+    echo "[vibe-city] CoinGecko MCP registered${1:+ for profile $1}."
+}
+
+add_coingecko ""
+for dir in "$HERMES_HOME"/profiles/*/; do
+    [ -d "$dir" ] && add_coingecko "$(basename "$dir")"
+done
+exit 0

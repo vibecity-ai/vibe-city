@@ -1,0 +1,440 @@
+# WASI Development Tutorial
+
+## WASI P1 vs P2
+
+| Feature | WASI P1 | WASI P2 |
+|---------|---------|---------|
+| Target | `wasm32-wasip1` | `wasm32-wasip2` |
+| HTTP requests | No | Yes |
+| Binary size | ~100-200KB | ~500KB-1MB |
+| Use case | Simple computation | HTTP APIs |
+
+**Rule**: Use P1 unless you need HTTP.
+
+## Quick Start: WASI P1
+
+### Cargo.toml
+
+```toml
+[package]
+name = "my-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "my-app"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+```
+
+### src/main.rs
+
+```rust
+use serde::{Deserialize, Serialize};
+use std::io::{self, Read, Write};
+
+#[derive(Deserialize)]
+struct Input { name: String }
+
+#[derive(Serialize)]
+struct Output { greeting: String }
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Read from stdin
+    let mut input_string = String::new();
+    io::stdin().read_to_string(&mut input_string)?;
+    let input: Input = serde_json::from_str(&input_string)?;
+
+    // Process
+    let output = Output {
+        greeting: format!("Hello, {}!", input.name),
+    };
+
+    // Write to stdout and FLUSH
+    print!("{}", serde_json::to_string(&output)?);
+    io::stdout().flush()?;
+
+    Ok(())
+}
+```
+
+### Build & Test
+
+```bash
+rustup target add wasm32-wasip1
+cargo build --target wasm32-wasip1 --release
+
+echo '{"name":"World"}' | wasmtime target/wasm32-wasip1/release/my-app.wasm
+# Output: {"greeting":"Hello, World!"}
+```
+
+## Quick Start: WASI P2 (with HTTP)
+
+### Cargo.toml
+
+```toml
+[package]
+name = "my-http-app"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "my-http-app"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wasi-http-client = "0.2"
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+```
+
+### src/main.rs
+
+```rust
+use serde::{Deserialize, Serialize};
+use std::io::{self, Read, Write};
+use wasi_http_client::{Client, Request, Method};
+
+#[derive(Deserialize)]
+struct Input { url: String }
+
+#[derive(Serialize)]
+struct Output { status: u16, body: String }
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut input_string = String::new();
+    io::stdin().read_to_string(&mut input_string)?;
+    let input: Input = serde_json::from_str(&input_string)?;
+
+    // HTTP request
+    let client = Client::new();
+    let request = Request::new(Method::Get, &input.url);
+    let response = client.send(request)?;
+
+    let output = Output {
+        status: response.status(),
+        body: String::from_utf8_lossy(response.body()).to_string(),
+    };
+
+    print!("{}", serde_json::to_string(&output)?);
+    io::stdout().flush()?;
+
+    Ok(())
+}
+```
+
+### Build
+
+```bash
+rustup target add wasm32-wasip2
+cargo build --target wasm32-wasip2 --release
+```
+
+## OutLayer SDK
+
+For WASI P2, use the `outlayer` crate:
+
+```toml
+[dependencies]
+outlayer = "0.2"
+```
+
+### `outlayer::env` - Execution Context
+
+```rust
+use outlayer::env;
+
+// Caller identity
+let signer = env::signer_account_id();          // Option<String> - NEAR account or payment key owner
+let predecessor = env::predecessor_account_id(); // Option<String> - contract that called OutLayer
+
+// Input/output (alternative to raw stdin/stdout)
+let input: MyInput = env::input_json()?.unwrap();  // Deserialize stdin as JSON
+env::output_json(&my_output)?;                      // Serialize to stdout + flush
+
+// Raw I/O
+let raw_bytes: Vec<u8> = env::input();
+let input_str: Option<String> = env::input_string();
+env::output(b"raw bytes");
+env::output_string("text");
+
+// Environment variables (includes secrets)
+let api_key: Option<String> = env::var("MY_API_KEY");
+let has_key: bool = env::has_var("MY_API_KEY");
+
+// Blockchain context
+let tx_hash = env::transaction_hash();   // Option<String>
+let req_id = env::request_id();          // Option<String>
+```
+
+`signer_account_id()` returns:
+- `Some(account)` via blockchain transaction
+- `Some(owner)` via HTTPS with Payment Key
+- `None` via HTTPS without auth
+
+### `outlayer::storage` - Persistent Encrypted Storage
+
+```rust
+use outlayer::storage;
+
+// Worker-private storage (only your project can read/write)
+storage::set_worker("key", b"value")?;
+let data: Option<Vec<u8>> = storage::get_worker("key")?;
+
+// Per-caller storage, encrypted by the keystore (only this caller, in this project)
+storage::set("key", b"value")?;
+let data: Option<Vec<u8>> = storage::get("key")?;
+
+// Convenience wrappers
+storage::set_string("key", "text")?;
+let text: Option<String> = storage::get_string("key")?;
+storage::set_json("key", &my_struct)?;
+let obj: Option<MyStruct> = storage::get_json("key")?;
+
+// Key management
+let exists: bool = storage::has("key")?;   // Err when the storage call fails
+let deleted: bool = storage::delete("key")?;
+let keys: Vec<String> = storage::list_keys("prefix:")?;
+
+// Atomic operations
+let new_val: i64 = storage::increment("counter", 1)?;
+let new_val: i64 = storage::decrement("counter", 1)?;
+
+// Conditional write (CAS)
+storage::set_if_absent("key", b"value")?;
+storage::set_if_equals("key", b"old", b"new")?;
+
+// Another project's PUBLIC worker data, by name or by uuid
+let data = storage::get_worker_from_project("key", Some("oracle.near/price-feed"))?;
+let data = storage::get_worker_from_project("key", Some("p0000000000000001"))?;
+
+// A previous version's data
+let data = storage::get_by_version("key", "wasm-hash")?;
+
+// Cleanup
+storage::clear_all()?;
+storage::clear_version("wasm-hash")?;
+```
+
+**Cross-project reads.** `get_worker_from_project` reads only what the other
+project stored with `set_worker_with_options(key, value, Some(false))`. The
+project is its name `owner.near/project-name` or its uuid (`p` + 16 lowercase
+hex, `OUTLAYER_PROJECT_UUID` in that project's runs). `Ok(None)`: no such key,
+or no such project. `Err`: the key is stored encrypted, or the string is in
+neither form. Outside a module, `GET https://api.outlayer.ai/public/storage/get?project=<name or uuid>&key=<key>`
+and `POST https://api.outlayer.ai/public/storage/batch` `{"project": …, "keys": [...]}`
+(at most 50) read the same data; `project_uuid` is accepted as an alias of
+`project`, in either form.
+
+**Whose storage.** `set`/`get` and every other function outside the `*_worker`
+ones read and write one account's cell of the project. The module never names
+the account; the manifest's `storage_account` picks it:
+
+| `storage_account` | On chain | Over HTTPS |
+|---|---|---|
+| `signer` (default) | the transaction's signer (for a meta-transaction, the account that signed the delegate action) | the payment key's owner |
+| `predecessor` | the account that called the contract (a relaying contract, not the user who signed) | the payment key's owner |
+
+Under `predecessor`, a run with no predecessor is refused before it executes.
+Any other value makes the manifest unreadable, and the run is refused. Worker
+storage is not affected. A module that seals records under a
+`caller: "predecessor"` encryption key declares `storage_account: "predecessor"`
+too ([encryption-keys.md](encryption-keys.md)).
+
+**Who may call it.** The manifest's `callers` block names the doors a run may
+come through; the worker refuses any other before it decrypts or runs anything.
+
+```jsonc
+"callers": {
+  "direct":   "allow" | "deny",                    // absent: allow
+  "contract": "allow" | "deny" | {"only": [...]}, // absent: allow
+  "https":    "allow" | "deny",                    // absent: allow
+  "meta_tx":  "allow" | "deny"                     // absent: deny
+}
+```
+
+| Door | The run |
+|---|---|
+| `direct` | on chain; the account that called OutLayer signed the transaction |
+| `contract` | on chain; a contract called OutLayer on the signer's behalf |
+| `meta_tx` | on chain; a NEP-366 meta-transaction to OutLayer: the user signed a delegate action, a relayer sent it |
+| `https` | an HTTPS call with a payment key |
+
+No block admits every door. A block leaves open every door it does not name,
+except `meta_tx`. `{"only": [...]}` lists every account that may call OutLayer
+for the project (1–32 exact account ids), so it also shuts `direct`, `https`
+and `meta_tx`; pairing it with an explicit `"allow"` elsewhere, or `"tasks":
+true` with the direct door shut, makes the manifest unreadable. A refused run
+fails with an error that starts `This project's manifest` and ends `Nothing was
+executed.`; the owner gets no exception. The rule binds only the version that
+carries it: remove versions published without it (`remove_version`), or a
+caller pins one with `version_key`.
+
+**Raw storage.** The host interface `near:storage` also has `set-raw`,
+`get-raw`, `set-if-absent-raw` and `set-if-equals-raw`: the bytes as given, in
+the same account's cell of the project and the same key namespace, with no keystore on
+the path. The operator can read a raw record's key name and bytes, so encrypt
+the value first with an encryption key and name the record by its `mac`. A key
+holds one record in one mode: the other mode's functions refuse it, and no write
+converts it (delete it first). `has`, `delete` and `list-keys` work on both
+modes; `increment`/`decrement` only on encrypted records. The recipe and a
+complete module: [encryption-keys.md](encryption-keys.md), "Sealed storage".
+
+### `outlayer::vrf` - Verifiable Random Function
+
+```rust
+use outlayer::vrf;
+
+// Generate verifiable randomness (includes proof). A seed is REQUIRED.
+let vrf_output = vrf::random("my-seed")?;
+// Returns VrfOutput { output_hex, signature_hex, alpha } - verifiable on-chain
+```
+
+### Complete Example
+
+```rust
+use outlayer::{env, storage};
+use serde::{Deserialize, Serialize};
+
+#[derive(Deserialize)]
+struct Input { action: String, data: Option<String> }
+
+#[derive(Serialize)]
+struct Output { success: bool, account: String, result: String }
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let account = env::signer_account_id()
+        .ok_or("Authentication required")?;
+
+    let input: Input = env::input_json()?.ok_or("Missing input")?;
+
+    let result = match input.action.as_str() {
+        "save" => {
+            let key = format!("user:{}", account);
+            storage::set_worker(&key, input.data.unwrap_or_default().as_bytes())?;
+            "Data saved".to_string()
+        }
+        "load" => {
+            let key = format!("user:{}", account);
+            storage::get_worker(&key)?
+                .map(|d| String::from_utf8_lossy(&d).to_string())
+                .unwrap_or_else(|| "No data".to_string())
+        }
+        _ => "Unknown action".to_string(),
+    };
+
+    let output = Output { success: true, account, result };
+    env::output_json(&output)?;
+
+    Ok(())
+}
+```
+
+## Input/Output Requirements
+
+1. **Input**: Read from `stdin` (not args)
+2. **Output**: Write to `stdout` (not stderr)
+3. **Format**: JSON only
+4. **Size**:
+   - Blockchain: ≤900 bytes
+   - HTTPS: Up to 10MB
+5. **MUST flush**: `stdout().flush()`
+
+## Common Pitfalls
+
+### "entry symbol not defined: _initialize"
+
+Use `[[bin]]`, not `[lib]`:
+
+```toml
+# CORRECT
+[[bin]]
+name = "my-app"
+path = "src/main.rs"
+
+# WRONG
+[lib]
+crate-type = ["cdylib"]
+```
+
+### Empty output
+
+Forgot to flush:
+
+```rust
+print!("{}", output);
+io::stdout().flush()?;  // Add this!
+```
+
+### "Failed to instantiate WASM module"
+
+Wrong target. Use `wasm32-wasip1` or `wasm32-wasip2`, not `wasm32-unknown-unknown`.
+
+### Version errors
+
+Don't use `cargo add` or `cargo update`. Copy Cargo.toml from working examples.
+
+## Embedded NEAR Contracts
+
+For WASI apps that deploy contracts:
+
+### Structure
+
+```
+your-wasi-app/
+├── Cargo.toml              # Workspace
+├── src/main.rs             # WASI entry
+└── your-contract/
+    ├── Cargo.toml          # edition = "2018"!
+    ├── rust-toolchain.toml # channel = "1.85.0"
+    └── src/lib.rs
+```
+
+### Contract Cargo.toml
+
+```toml
+[package]
+name = "your-contract"
+version = "0.1.0"
+edition = "2018"  # Must be 2018!
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+near-sdk = { version = "5.9.0", features = ["legacy", "unit-testing"] }
+
+[profile.release]
+codegen-units = 1
+opt-level = "s"  # "s" for contracts
+lto = true
+panic = "abort"
+```
+
+### Build
+
+```bash
+cd your-contract
+cargo near build non-reproducible-wasm
+```
+
+### Load in WASI
+
+```rust
+const CONTRACT_WASM: &[u8] = include_bytes!(
+    "../your-contract/res/local/your_contract.wasm"
+);
+```

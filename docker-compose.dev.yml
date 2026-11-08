@@ -33,3 +33,6 @@ services:
     volumes:
       - ./.dev/hermes:/opt/data
       - ./docker/cont-init.d/03-vibe-city-near:/etc/cont-init.d/03-vibe-city-near:ro
+      - ./docker/cont-init.d/04-vibe-city-skills:/etc/cont-init.d/04-vibe-city-skills:ro
+      - ./docker/cont-init.d/05-vibe-city-mcp:/etc/cont-init.d/05-vibe-city-mcp:ro
+      - ./docker/skills:/etc/vibe-city/skills:ro

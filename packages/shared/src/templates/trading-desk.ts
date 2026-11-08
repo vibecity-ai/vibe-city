@@ -1,15 +1,15 @@
 import { purpose, seat, template } from './helpers.ts';
 
 const seats = [
-  seat('Head of Trading'),
-  seat('Market Analyst', { toolsets: ['web'] }),
+  seat('Head of Trading', { skills: ['backtest-expert'] }),
+  seat('Market Analyst', { toolsets: ['web'], skills: ['crypto-regime-analyzer'] }),
   seat('Perps Trader', { skills: ['hyperliquid-connector'] }),
-  seat('Risk Officer', { skills: ['agent-custody'] }),
+  seat('Risk Officer', { skills: ['agent-custody', 'risk-metrics-calculation'] }),
 ];
 
 export const tradingDesk = template({
   id: 'trading-desk', name: 'Trading Desk', unlock: 'treasury', loop: true, wallet: 'company', dailyBudgetCredits: 500,
-  toolsets: ['web', 'terminal'], skills: ['agent-custody', 'hyperliquid-connector'], seats,
+  toolsets: ['web', 'terminal'], skills: ['agent-custody', 'hyperliquid-connector', 'hyperliquid', 'coingecko', 'defillama'], seats,
   purpose: purpose('Trades perpetual futures for the company with the shared company wallet, inside its OutLayer policy.', seats, [
     'Head of Trading splits each objective into research, execution and review, and ends its result with [pnl usd=<realized profit or loss>].',
     'Market Analyst: prices, funding and news; a one-page brief with a recommended position and size.',

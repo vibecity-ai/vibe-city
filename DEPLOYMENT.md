@@ -64,6 +64,14 @@ The city's model pickers list what Hermes reports for the authenticated provider
 
 Other providers: put their variables in `.env.hermes` (optional, read by compose, never baked into the image), using the names Hermes documents for that provider.
 
+### Pre-installed skills
+
+`docker/skills/` holds vendored skills (OutLayer, NEAR, cursor-team-kit, OpenAI, Trail of Bits, Solana Foundation, CoinGecko, ponytail, trading and a DefiLlama skill of our own; sources, commits and licenses in `docker/skills/SOURCES`), and `docker/skills/HERMES_OPTIONAL` names Hermes' own optional skills to take from the image (Hyperliquid, Polymarket, Solana, …). On every start `docker/cont-init.d/04-vibe-city-skills` copies any that are missing into the default profile and every existing profile (category `vibe-city`), with no network. Which department enables which skill is set in `packages/shared/src/templates/`; `templates.test.ts` fails if a template names a skill the container does not install. They are vendored rather than installed with `hermes skills install` because that resolves GitHub skills through `api.github.com`, which hangs with no timeout when unreachable and would block container start.
+
+`docker/cont-init.d/05-vibe-city-mcp` registers CoinGecko's official keyless MCP (`https://mcp.api.coingecko.com/mcp`, two tools, shared rate limits) in every profile. Kanban workers get it; chat stays on its `vibecity`-only allowlist. DefiLlama's official MCP needs a paid plan and an OAuth login, so the `defillama` skill uses its free public API instead.
+
+In dev the scripts and `docker/skills` are bind-mounted: a change to a script needs `npm run dev:hermes:down && npm run dev:hermes` (a single-file mount keeps the old file until the container is recreated).
+
 ### Pinning Hermes
 
 `HERMES_IMAGE` is pinned by digest to `nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d` (Hermes 0.22.6, the image the container was tested with; it was `latest` on 2026-11-03). The pin is the default in the Dockerfile and `docker-compose.yml`. To move to a newer Hermes, update both together (or set `HERMES_IMAGE`), then rebuild and run the smoke test.

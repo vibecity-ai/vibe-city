@@ -1,3 +1,8 @@
 # Shell scripts and container files run on Linux: always LF, even when checked out on Windows.
 *.sh text eol=lf
 docker/** text eol=lf
+# Images are binary everywhere (the docker/** rule above would otherwise rewrite their bytes).
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary

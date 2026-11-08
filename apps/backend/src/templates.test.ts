@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TEMPLATES, TemplateSchema } from '@vibe-city/shared';
 import { memApp } from './testUtils.ts';
+import { readdirSync, readFileSync } from 'node:fs';
 
 test('every template parses and has a lead plus teammates with distinct titles', () => {
   for (const t of TEMPLATES) {
@@ -60,4 +61,14 @@ test('hiring the Trading Desk creates four agents and one disabled schedule; the
     assert.equal(tl.find((t: any) => t.id === 'trading-desk').unlocks, 'treasury');
     assert.equal(tl.find((t: any) => t.id === 'trading-desk').locked, true);
   } finally { if (saved === undefined) delete process.env.NEAR_AI_API_KEY; else process.env.NEAR_AI_API_KEY = saved; }
+});
+
+test('every skill a template names is installed in the container (else it stays silently disabled)', () => {
+  const dir = new URL('../../../docker/skills/', import.meta.url);
+  const vendored = readdirSync(dir, { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name);
+  const optional = readFileSync(new URL('HERMES_OPTIONAL', dir), 'utf8').split('\n').filter((l) => l.trim() && !l.startsWith('#')).map((l) => l.trim().split('/').pop()!);
+  // bundled with Hermes 0.22.6 (the pinned image), seeded into every profile
+  const builtin = ['github', 'requesting-code-review', 'test-driven-development', 'systematic-debugging', 'codebase-inspection', 'spike', 'simplify-code', 'dogfood'];
+  const known = new Set([...vendored, ...optional, ...builtin]);
+  for (const t of TEMPLATES) for (const s of t.inventory.allowedSkillIds) assert.ok(known.has(s), `${t.id}: skill ${s} is not installed by docker/cont-init.d/04-vibe-city-skills`);
 });

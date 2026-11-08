@@ -9,4 +9,5 @@ apps/backend/data
 .env.*
 !.env.example
 *.md
+!docker/skills/**
 .dev
