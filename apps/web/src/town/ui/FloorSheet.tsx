@@ -9,6 +9,8 @@ import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Icon, useDialog } from './kit';
 import { stationFor, toolsReport, type ToolLine } from '../data/floor';
+import { SkillBadge } from './Skills';
+import { skillMeta } from '../data/skills';
 
 export function FloorSheetWindow() {
   const kind = useStore((s) => s.ui.floorSheet);
@@ -43,6 +45,7 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
   const st = stationFor(templateId);
   const report = inv ? toolsReport(templateId, inv) : null;
   const s = useStore.getState();
+  const lib = (skill: string | null) => { close(); s.ui$({ skillLib: { deptId, skill } }); };
   const toLoadout = () => { close(); s.openPanel('dept', { deptTab: 'loadout', agent: null }); };
   const missing = report?.needed.filter((t) => !t.on).length ?? 0;
   const risky = report?.extra.filter((t) => t.risky).length ?? 0;
@@ -70,11 +73,11 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
             {report.extra.length > 0 && <section aria-labelledby="fs-extra"><h3 className="sec-t" id="fs-extra">{report.plain ? 'Tools on' : 'Also on'}</h3><ul className="fs-tools">{report.extra.map((t) => <ToolRow key={t.id} t={t} need={report.plain} />)}</ul></section>}
             {report.skills.length > 0 && (
               <section aria-labelledby="fs-sk"><h3 className="sec-t" id="fs-sk">Skills the work uses</h3>
-                <ul className="fs-skills">{report.skills.map((k) => <li key={k.id} className={k.on ? 'ok' : 'missing'}><code>{k.id}</code><span>{k.on ? (users([k.id]).join(', ') || 'Allowed') : 'Not allowed'}</span></li>)}</ul>
+                <ul className="fs-skills">{report.skills.map((k) => <li key={k.id} className={k.on ? 'ok' : 'missing'}><button className="fs-sk" onClick={() => lib(k.id)}><SkillBadge name={k.id} size={12} /><b>{skillMeta(k.id).label}</b></button><span>{k.on ? (users([k.id]).join(', ') || 'Equipped') : 'Not equipped'}</span></li>)}</ul>
               </section>
             )}
             <p className="fine">Memory, to-do, Kanban, skills and past-chat search are always on: every floor needs them. Changes take effect after a Sync.</p>
-            <div className="fs-act"><button className="btn primary small" onClick={toLoadout}>Change the loadout</button></div>
+            <div className="fs-act"><button className="btn primary small" onClick={toLoadout}>Change the loadout</button><button className="btn secondary small" onClick={() => lib(null)}>Skill library</button></div>
           </>
         )}
 
@@ -88,7 +91,7 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
             </div>
             <section aria-labelledby="fs-uses"><h3 className="sec-t" id="fs-uses">Works with</h3>
               <ul className="fs-tools">{report.needed.map((t) => <ToolRow key={t.id} t={t} need />)}</ul>
-              {report.skills.length > 0 && <ul className="fs-skills">{report.skills.map((k) => <li key={k.id} className={k.on ? 'ok' : 'missing'}><code>{k.id}</code><span>{users([k.id]).join(', ') || (k.on ? 'Allowed' : 'Not allowed')}</span></li>)}</ul>}
+              {report.skills.length > 0 && <ul className="fs-skills">{report.skills.map((k) => <li key={k.id} className={k.on ? 'ok' : 'missing'}><button className="fs-sk" onClick={() => lib(k.id)}><SkillBadge name={k.id} size={12} /><b>{skillMeta(k.id).label}</b></button><span>{users([k.id]).join(', ') || (k.on ? 'Equipped' : 'Not equipped')}</span></li>)}</ul>}
             </section>
             <section aria-labelledby="fs-done"><h3 className="sec-t" id="fs-done">Recently finished</h3>
               {done.length === 0 ? <p className="muted small">Nothing finished yet. Give the floor a quest.</p>

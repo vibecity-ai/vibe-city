@@ -72,6 +72,8 @@ interface UI {
   questLog: boolean;
   /** A sheet opened from a floor's control: the tools behind the server rack, or the template's station. */
   floorSheet: 'tools' | 'station' | null;
+  /** The Skill library window: opened from a floor (that floor first) or the Executive Office, maybe on one skill. */
+  skillLib: { deptId: string | null; skill: string | null } | null;
 }
 
 export interface State {
@@ -136,7 +138,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, origins: {}, schedules: [], personas: {},

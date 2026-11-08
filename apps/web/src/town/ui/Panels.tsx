@@ -8,7 +8,7 @@ import {
 } from '../data/live';
 import { clock } from '../data/derive';
 import {
-  GATEWAY_WARNING, age, attentionCount, blockedQuests, cardLines, companyQuests, defaultTarget, filterColumns, filterQuests, missingDepts, questTargets, searchSort,
+  COLUMN_HINT, GATEWAY_WARNING, age, attentionCount, attentionReason, blockedQuests, cardLines, columnOf, companyQuests, crewOf, defaultTarget, filterColumns, filterQuests, lanes, missingDepts, questTargets, searchSort,
   type BoardQuest, type BoardSort, type ColumnKey, type DeptOption,
 } from '../data/company';
 import {
@@ -27,6 +27,8 @@ import { CurrentQuestCard } from './QuestLog';
 import { progressLabel } from '../data/game';
 import { DecisionsList } from './DecisionsList';
 import { RunwayCard } from './RunwayCard';
+import { SkillBadges, SkillCard } from './Skills';
+import type { SkillState } from '../data/skills';
 
 
 /* ============ top bar ============ */
@@ -196,7 +198,7 @@ export function DeptPanel() {
                     <Portrait shirt="#fff" chief size={44} />
                     <span>
                       <span className="chief-badges"><span className="role">Lead</span><Chip k={d.chief.status} small /></span>
-                      <span className="chief-name"><AgentName deptId={d.id} agentKey="chief" /></span>
+                      <span className="chief-name"><AgentName deptId={d.id} agentKey="chief" /> <SkillBadges names={d.view.agents.find((a) => a.lead)?.skills ?? []} max={4} size={11} /></span>
                       {d.chief.model && <span className="mono muted small">model · {d.chief.model}</span>}
                     </span>
                   </span>
@@ -206,7 +208,7 @@ export function DeptPanel() {
                   {d.workers.map((w) => (
                     <button key={w.id} className={`wrow${sel === w.id ? ' sel' : ''}`} aria-pressed={sel === w.id} onClick={() => s.openPanel('agent', { agent: w.id })}>
                       <Portrait shirt={w.shirt} size={28} />
-                      <span className="wrow-t"><span><b><AgentName deptId={d.id} agentKey={w.id} /></b> <span className="muted">{w.task || 'No task'}</span></span>
+                      <span className="wrow-t"><span><b><AgentName deptId={d.id} agentKey={w.id} /></b> <SkillBadges names={d.view.agents.find((a) => a.key === w.id)?.skills ?? []} max={3} size={10} /> <span className="muted">{w.task || 'No task'}</span></span>
                         <small style={{ color: statusColor(w.status) }}><Glyph k={w.status} />{w.taskId ? WORKER_WORD[w.status] : 'Free'} <span className="muted">· {w.status === 'completed' ? 'done' : 'since'} {w.since}</span></small>
                       </span>
                     </button>
@@ -322,20 +324,18 @@ function DeptLoadout({ d }: { d: Dept }) {
         {!inv && <p className="muted">Loading loadout…</p>}
       </section>
         <section className="pane-sec">
-          <h3 className="sec-t">Skills</h3>
-          <p className="fine">Every agent of the department gets these skills, plus any of its own from its hire. Changes apply when you sync again.</p>
-          {!view?.observedAt && <p className="muted small">Hermes has not reported the installed skills yet (sync the department first). Allowed: {inv?.allowedSkillIds.join(', ') || 'none'}.</p>}
+          <h3 className="sec-t">Skill deck</h3>
+          <div className="sk-deck-h"><p className="fine">Every agent on this floor carries these skills, plus its own from its hire. Changes reach Hermes at the next sync.</p>
+            <button className="btn secondary small" onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: null } })}><Icon n="sparkle" size={12} />Skill library</button></div>
+          {!view?.observedAt && <p className="muted small">Hermes has not reported this floor’s skills yet (sync the floor first). Allowed: {inv?.allowedSkillIds.join(', ') || 'Hermes defaults'}.</p>}
           {view && view.skills.length > 0 && (() => {
             const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name);
+            const stateOf = (k: AgentView['skills'][number]): SkillState => (k.essential ? 'active' : isOn(k) === k.enabled ? (k.enabled ? 'active' : 'off') : isOn(k) ? 'pending-on' : 'pending-off');
             const card = (k: AgentView['skills'][number]) => {
               const on = isOn(k);
-              const pending = !k.essential && on !== k.enabled; // saved here, not in Hermes until the next sync
               return (
-                <div key={k.name} className={`skill${on ? ' on' : ''}${pending ? ' pending' : ''}`}>
-                  <span className="mono">{k.name}</span>
-                  <small className={pending ? 'pending-t' : 'muted'}>{k.essential ? 'always on in Hermes' : pending ? `turns ${on ? 'on' : 'off'} at the next sync` : `${k.enabled ? 'on' : 'off'} in the lead’s profile`}</small>
-                  <button className={`toggle${on ? ' on' : ''}`} disabled={saving || k.essential || !inv} aria-pressed={on} aria-label={`${k.name}: ${on ? 'allowed' : 'not allowed'}`} onClick={() => toggleSkill(k.name)}><i /></button>
-                </div>
+                <SkillCard key={k.name} name={k.name} essential={k.essential} state={stateOf(k)} onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: k.name } })}
+                  action={k.essential ? undefined : <button className={`btn ${on ? 'tertiary' : 'secondary'} small`} disabled={saving || !inv} aria-pressed={on} aria-label={`${k.name}: ${on ? 'unequip' : 'equip'}`} onClick={() => toggleSkill(k.name)}>{on ? 'Unequip' : 'Equip'}</button>} />
               );
             };
             // grouped by what Hermes has, so a toggled skill stays put (in amber) until the sync moves it
@@ -343,12 +343,16 @@ function DeptLoadout({ d }: { d: Dept }) {
             const active = view.skills.filter(inHermes), rest = view.skills.filter((k) => !inHermes(k));
             return (
               <>
-                <div className="skill-grid">{active.map(card)}</div>
-                {rest.length > 0 && <details className="more"><summary>Installed in Hermes ({rest.length})</summary><div className="skill-grid">{rest.map(card)}</div></details>}
+                <div className="sk-deck">{active.map(card)}</div>
+                {rest.length > 0 && <details className="more"><summary>In Hermes, not equipped ({rest.length})</summary><div className="sk-deck">{rest.map(card)}</div></details>}
               </>
             );
           })()}
-          {inv && view && inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).map((n) => <p key={n} className="field-err small"><Glyph k="awaiting" />{n} is allowed but not installed in Hermes.</p>)}
+          {inv && view && inv.allowedSkillIds.some((n) => !view.skills.some((k) => k.name === n)) && <>
+            <p className="field-err small"><Glyph k="awaiting" />Equipped here but Hermes does not have {inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).length === 1 ? 'this skill' : 'these skills'}: install {inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).length === 1 ? 'it' : 'them'} in Hermes, then sync.</p>
+            <div className="sk-deck">{inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).map((n) => <SkillCard key={n} name={n} state="missing" onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: n } })}
+              action={<button className="btn tertiary small" disabled={saving} onClick={() => toggleSkill(n)}>Unequip</button>} />)}</div>
+          </>}
         </section>
 
         <section className="pane-sec">
@@ -719,9 +723,22 @@ export function AgentPanel() {
             {me && agentKey && <ModelPicker label="Model" hint={`Changes apply when you sync again.${view?.provider ? ` Hermes now reports ${view.model ?? '—'} via ${view.provider}.` : ''}`}
               models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
               value={me.model} fallback={inv?.model ?? (view?.model && view.provider ? { provider: view.provider, id: view.model } : null)} disabled={saving} onChange={(m) => void setAgentModel(d.id, agentKey, m)} />}
-            {me && me.skills.length > 0 && <KV rows={[['Own skills', <span className="mono">{me.skills.join(', ')}</span>]]} />}
+            {(() => {
+              // the agent's deck: its own skills first, then what its profile has on in Hermes
+              const own = me?.skills ?? [];
+              const onInHermes = view?.observedAt ? view.skills.filter((k) => k.enabled) : [];
+              const names = [...new Set([...own, ...onInHermes.map((k) => k.name)])];
+              if (!names.length) return <p className="muted small">{view?.observedAt ? 'No skills on in Hermes.' : 'Hermes has not reported this agent’s skills yet.'}</p>;
+              const st = (n: string): SkillState | undefined => (!view?.observedAt ? 'pending-on' : view.skills.find((k) => k.name === n)?.enabled ? 'active' : view.skills.some((k) => k.name === n) ? 'pending-on' : 'missing');
+              return (
+                <>
+                  <div className="sk-deck-h"><h4 className="sk-sub">Skill deck <span className="count">{names.length}</span></h4>
+                    <button className="link" onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: null } })}>Skill library</button></div>
+                  <div className="sk-deck">{names.map((n) => <SkillCard key={n} name={n} compact own={own.includes(n)} essential={view?.skills.find((k) => k.name === n)?.essential} state={st(n)} onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: n } })} />)}</div>
+                </>
+              );
+            })()}
             {view?.observedAt && <KV rows={[
-              ['Skills on in Hermes', <span className="mono">{view.skills.filter((k) => k.enabled).map((k) => k.name).join(', ') || 'none'}</span>],
               ['Toolsets on in Hermes', <span className="mono">{view.toolsets.filter((t) => t.enabled && shownToolset(t.name)).map((t) => t.name).join(', ') || 'none'}</span>],
             ]} />}
             <Btn kind="secondary" onClick={() => s.openPanel('dept', { deptTab: 'loadout' })}>Edit the department loadout</Btn>
@@ -742,10 +759,15 @@ const COL_GLYPH: Record<ColumnKey, StatusKey> = { queued: 'todo', active: 'runni
 /** Leaves the board (or a sheet opened from it) for the floor that is open, or the executive office. */
 const backToPlace = () => { const s = useStore.getState(); s.openPanel(s.ui.view === 'floor' && s.ui.floorId ? 'dept' : 'exec'); };
 
+type BoardLayout = 'columns' | 'lanes';
+const readLayout = (): BoardLayout => { try { return localStorage.getItem('vc.board.layout') === 'lanes' ? 'lanes' : 'columns'; } catch { return 'columns'; } };
+
 export function QuestBoard() {
   const s = useStore();
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<BoardSort>('newest');
+  const [layout, setLayoutState] = useState<BoardLayout>(readLayout);
+  const setLayout = (l: BoardLayout) => { setLayoutState(l); try { localStorage.setItem('vc.board.layout', l); } catch { /* storage off: fine */ } };
   const all = companyQuests(s.depts, s.quests);
   const f = s.ui.boardFilter;
   const dept = s.ui.boardDept && s.depts.some((d) => d.id === s.ui.boardDept) ? s.ui.boardDept : null;
@@ -757,8 +779,22 @@ export function QuestBoard() {
   const canCreate = targets.some((t) => !t.disabled);
   const withBoards = s.depts.filter((d) => s.questSync[d.id] !== 'no_board');
   const count = (k: typeof f) => searchSort(filterQuests(all, dept, k), query, sort).filter(byOk).length;
+  // per floor, with the status/search/origin filters but not the floor filter
+  const onFloor = (id: string | null) => searchSort(filterQuests(all, id, f), query, sort).filter(byOk);
   const open = s.ui.boardQuest && s.quests.some((q) => q.summary.id === s.ui.boardQuest) ? s.ui.boardQuest : null;
   const leave = () => { s.ui$({ boardQuest: null }); backToPlace(); };
+  const cols = filterColumns(f);
+  const column = (c: (typeof cols)[number], list: BoardQuest[], lane = false) => {
+    const mine = list.filter((q) => c.has(q.summary.status));
+    const color = statusColor(COL_GLYPH[c.key]);
+    return (
+      <section key={c.key} className={`col${mine.length ? '' : ' is-empty'}${lane ? ' in-lane' : ''}`} aria-label={`${c.title}: ${mine.length}`} style={{ ['--col' as string]: color }}>
+        {!lane && <h2 className="col-h"><Glyph k={COL_GLYPH[c.key]} /><b>{c.title}</b><span className="col-n">{mine.length}</span><small className="col-hint">{COLUMN_HINT[c.key]}</small></h2>}
+        <div className="col-list">{mine.map((q) => <QuestCard key={q.summary.id} q={q} open={open === q.summary.id} />)}</div>
+        {mine.length === 0 && <div className="col-empty">{query ? 'No match' : lane ? '·' : 'Nothing here'}</div>}
+      </section>
+    );
+  };
   return (
     <div className="pane sheet qb">
       <div className="pane-scroll">
@@ -768,12 +804,26 @@ export function QuestBoard() {
             <h1 className="display" tabIndex={-1}>Ops board</h1>
             <p className="sync" aria-live="polite"><Icon n="refresh" size={12} />{withBoards.length === 0
               ? 'No department has a Hermes board yet. Sync a department to give it quests.'
-              : `Read from ${withBoards.length} Hermes board${withBoards.length === 1 ? '' : 's'}`}</p>
+              : `Live from ${withBoards.length} Hermes board${withBoards.length === 1 ? '' : 's'} · ${all.length} quest${all.length === 1 ? '' : 's'}`}</p>
+            <div className="qb-layout" role="group" aria-label="Board layout">
+              <button aria-pressed={layout === 'columns'} className={layout === 'columns' ? 'on' : ''} onClick={() => setLayout('columns')}>Columns</button>
+              <button aria-pressed={layout === 'lanes'} className={layout === 'lanes' ? 'on' : ''} onClick={() => setLayout('lanes')}>By floor</button>
+            </div>
             <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No department can take a quest right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}><Icon n="plus" sw={3} />New quest</button><button className="x boxed" onClick={leave} aria-label="Close the Ops board"><Icon n="x" /></button></div>
           </div>
+          <div className="qb-floors" role="group" aria-label="Floor">
+            <button aria-pressed={!dept} className={!dept ? 'on' : ''} onClick={() => s.ui$({ boardDept: null })}><Icon n="building" size={13} />All floors<span className="count">{onFloor(null).length}</span></button>
+            {withBoards.map((d) => {
+              const n = onFloor(d.id).length;
+              const attn = all.filter((q) => q.deptId === d.id && columnOf(q.summary.status) === 'attention').length;
+              return (
+                <button key={d.id} aria-pressed={dept === d.id} className={dept === d.id ? 'on' : ''} onClick={() => s.ui$({ boardDept: dept === d.id ? null : d.id })} title={attn ? `${attn} need${attn === 1 ? 's' : ''} your attention` : undefined}>
+                  <FloorKey n={String(floorNum(s.depts, d.id))} />{d.name}<span className="count">{n}</span>{attn > 0 && <i className="qb-attn" aria-label={`${attn} need attention`} />}
+                </button>
+              );
+            })}
+          </div>
           <div className="qb-tools" role="toolbar" aria-label="Filter, search and sort quests">
-            <div className="qb-dept"><PixelSelect value={dept ?? ''} onChange={(v) => s.ui$({ boardDept: v || null })} aria-describedby={undefined}
-              options={[{ value: '', label: 'All departments' }, ...withBoards.map((d) => ({ value: d.id, label: `F${floorNum(s.depts, d.id)} · ${d.name}` }))]} /></div>
             <div className="seg-row" role="group" aria-label="Filter by status">
               {(['all', 'active', 'attention', 'finished'] as const).map((k) => <button key={k} aria-pressed={f === k} className={f === k ? 'on' : ''} onClick={() => s.ui$({ boardFilter: k })}>{{ all: 'All', active: 'Active', attention: 'Attention', finished: 'Finished' }[k]}<span className="count">{count(k)}</span></button>)}
             </div>
@@ -791,19 +841,24 @@ export function QuestBoard() {
           )}
         </div>
         {s.ui.composer && <QuestComposer targets={targets} />}
-        <div className="board">
-          {filterColumns(f).map((c) => {
-            const list = shown.filter((q) => c.has(q.summary.status));
-            const color = statusColor(COL_GLYPH[c.key]);
-            return (
-              <section key={c.key} className={`col${list.length ? '' : ' empty'}`} aria-label={`${c.title}: ${list.length}`} style={{ ['--col' as string]: color }}>
-                <h2 className="col-h"><Glyph k={COL_GLYPH[c.key]} /><b>{c.title}</b><span className="col-n">{list.length}</span></h2>
-                <div className="col-list">{list.map((q) => <QuestCard key={q.summary.id} q={q} open={open === q.summary.id} />)}</div>
-                {list.length === 0 && <div className="col-empty">{query ? 'No match' : 'Nothing here'}</div>}
+        {layout === 'columns' ? (
+          <div className="board" style={{ ['--ncol' as string]: cols.length }}>{cols.map((c) => column(c, shown))}</div>
+        ) : (
+          <div className="lanes" style={{ ['--ncol' as string]: cols.length }}>
+            <div className="lane-h" aria-hidden="true"><span />{cols.map((c) => <span key={c.key} style={{ color: statusColor(COL_GLYPH[c.key]) }}><Glyph k={COL_GLYPH[c.key]} />{c.title}</span>)}</div>
+            {lanes(s.depts, shown).map((l) => (
+              <section key={l.dept.id} className="lane" aria-label={`${l.floor} ${l.dept.name}: ${l.quests.length} quests`}>
+                <button className="lane-who" onClick={() => s.openFloor(l.dept.id)} title="Go to the floor">
+                  <FloorKey n={l.floor.slice(1)} /><b>{l.dept.name}</b>
+                  <span className="lane-crew">{l.dept.chief && <Portrait shirt="#fff" chief size={24} />}{l.dept.workers.slice(0, 4).map((w) => <Portrait key={w.id} shirt={w.shirt} size={24} />)}</span>
+                  <small>{l.quests.length} quest{l.quests.length === 1 ? '' : 's'}</small>
+                </button>
+                {cols.map((c) => column(c, l.quests, true))}
               </section>
-            );
-          })}
-        </div>
+            ))}
+            {shown.length === 0 && <p className="col-empty">{query ? 'No match' : 'No quests yet.'}</p>}
+          </div>
+        )}
       </div>
       {open && (
         <div className="qb-drawer-wrap">
@@ -854,24 +909,35 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
 function QuestCard({ q, open }: { q: BoardQuest; open: boolean }) {
   const ui$ = useStore((s) => s.ui$);
   const detail = useStore((s) => s.details[q.summary.id]);
+  const d = useStore((s) => s.depts.find((x) => x.id === q.deptId));
   const x = q.summary;
-  const workers = detail?.tasks.filter((t) => t.depth > 0) ?? [];
   const lines = cardLines(detail?.tasks);
   const k = questStatus(x.status);
   const origin = useStore((s) => s.origins[x.id]);
+  const why = attentionReason(x);
+  const crew = crewOf(detail?.tasks);
+  const pct = x.counts.tasks ? Math.round((x.counts.done / x.counts.tasks) * 100) : 0;
   return (
-    <button className={`qcard ${x.status}${open ? ' sel' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
-      onClick={() => ui$({ boardQuest: x.id })} aria-label={`${x.title}, ${STATUS[x.status].label}, ${q.deptName}`}>
+    <button className={`qcard ${x.status}${open ? ' sel' : ''}${why ? ' attn-card' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
+      onClick={() => ui$({ boardQuest: x.id })} aria-label={`${x.title}, ${STATUS[x.status].label}, ${q.deptName}${why ? `: ${why}` : ''}`}>
+      {why && <span className="qcard-why"><Glyph k={k} size={9} />{why}</span>}
       <span className="qcard-h"><Glyph k={k} /><b>{x.title}</b></span>
       <span className="qcard-row">
-        <span className="qcard-dept"><FloorKey n={q.floor} />{q.deptName}</span>
+        <span className="qcard-dept"><FloorKey n={q.floor.slice(1)} />{q.deptName}</span>
         {origin?.origin === 'agent' && origin.fromName && <span className="qcard-from" title={`Requested by ${origin.fromName}`}>from {origin.fromName}</span>}
         {origin?.origin === 'schedule' && <span className="qcard-from sched" title="Created by a schedule">scheduled</span>}
-        {x.counts.tasks > 0 && <span className="qcard-tasks">{workers.length > 0 && <span className="pips" aria-hidden="true">{workers.slice(0, 8).map((t) => <Glyph key={t.id} k={taskStatusView(t).k} size={8} />)}</span>}{x.counts.done}/{x.counts.tasks}</span>}
         <span className="qcard-age mono" title={formatTime(x.createdAt)}>{age(x.createdAt)}</span>
       </span>
+      <span className="qcard-row qcard-work">
+        <span className="qcard-crew" aria-hidden="true">{crew.map((key) => {
+          const w = d?.workers.find((y) => y.id === key);
+          return key === 'chief' ? <Portrait key={key} shirt="#fff" chief size={22} /> : <Portrait key={key} shirt={w?.shirt ?? "#8E83B0"} size={22} />;
+        })}</span>
+        {x.counts.tasks > 0
+          ? <span className="qcard-prog" title={`${x.counts.done} of ${x.counts.tasks} tasks done`}><i style={{ width: `${pct}%` }} /><em>{x.counts.done}/{x.counts.tasks}</em></span>
+          : <span className="qcard-prog none"><em>no tasks yet</em></span>}
+      </span>
       <span className="qcard-more" aria-hidden={!lines.plan && !lines.latest}>
-        <span className="qcard-st">{STATUS[x.status].label}</span>
         {lines.plan && <span className="qcard-line"><i>Plan</i>{lines.plan}</span>}
         {lines.latest && <span className={`qcard-line ${lines.latest.k}`}><Glyph k={lines.latest.k} size={8} />{lines.latest.text}</span>}
         {!lines.plan && !lines.latest && <span className="qcard-line muted">Open for the task tree and activity.</span>}

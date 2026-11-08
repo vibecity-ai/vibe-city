@@ -14,6 +14,7 @@ export function execAction(id: ExecObjectId) {
     case 'trophy': s.ui$({ questLog: true }); break;
     case 'org': case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
     case 'assistant': s.ui$({ newDept: true }); break;
+    case 'library': s.ui$({ skillLib: { deptId: null, skill: null } }); break;
     case 'phone': {
       // The phone rings for incoming calls (AR); otherwise it reaches the assistant.
       const h = s.hiring;

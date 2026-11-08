@@ -10,6 +10,7 @@ import { RequestsPoll } from './ui/Requests';
 import { ExecRoomModal } from './ui/ExecRoom';
 import { QuestLogWindow } from './ui/QuestLog';
 import { FloorSheetWindow } from './ui/FloorSheet';
+import { SkillLibraryWindow } from './ui/Skills';
 import { TopBar, ExecPanel, DeptPanel, SettingsSheet, QuestBoard, QuestDetail, CreateDeptModal, ArchiveModal, AgentPanel } from './ui/Panels';
 
 export default function App() {
@@ -51,7 +52,7 @@ export default function App() {
   return (
     <div className="app">
       <TopBar />
-      <main className={`main view-${view}`}>
+      <main className={`main view-${view}${panel === 'board' ? ' wide' : ''}`}>
         <section className="stage">
           <canvas ref={canvas} aria-label="Vibe City tower: each floor is a department of AI agents" />
           <StageOverlay city={city} />
@@ -74,6 +75,7 @@ export default function App() {
       <ExecRoomModal />
       <QuestLogWindow />
       <FloorSheetWindow />
+      <SkillLibraryWindow />
     </div>
   );
 }

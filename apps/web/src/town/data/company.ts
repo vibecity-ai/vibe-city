@@ -122,3 +122,26 @@ export function cardLines(tasks: readonly TaskNode[] | undefined): CardLines {
 
 /** Quests with a blocked task (waiting for the boss's input, or stuck after failures), even while other tasks run. */
 export const blockedQuests = (quests: QuestItem[]) => quests.filter((q) => q.summary.status !== 'cancelling' && q.summary.counts.blocked + q.summary.counts.failed > 0);
+
+/** What a column means to the player, under its title. */
+export const COLUMN_HINT: Record<ColumnKey, string> = { queued: 'Waiting for a lead to pick up', active: 'Agents at work', attention: 'Your move', finished: 'Done or stopped' };
+
+/** Why a quest sits in Needs attention, in the player's words (null for the other columns). */
+export function attentionReason(q: { status: QuestStatus; counts: { blocked: number; failed: number } }): string | null {
+  if (q.status === 'awaiting_input') return 'An agent is waiting for your answer';
+  if (q.status === 'in_review') return 'Done: waiting for your review';
+  if (q.status === 'failed') return q.counts.failed > 1 ? `${q.counts.failed} tasks failed` : 'A task failed';
+  return null;
+}
+
+/** The agents on a quest, lead first, from the loaded task tree (just the lead before it is loaded). */
+export function crewOf(tasks: readonly TaskNode[] | undefined): string[] {
+  if (!tasks?.length) return ['chief'];
+  const keys = [...tasks].sort((a, b) => a.depth - b.depth).map((t) => t.agentKey).filter((k): k is string => !!k);
+  return [...new Set(['chief', ...keys])].filter((k) => k === 'chief' || keys.includes(k)).slice(0, 6);
+}
+
+/** Swimlanes: one per floor that has a quest in `list`, top floor first (the order of `depts`). */
+export function lanes(depts: Dept[], list: BoardQuest[]): { dept: Dept; floor: string; quests: BoardQuest[] }[] {
+  return depts.map((d, i) => ({ dept: d, floor: 'F' + (depts.length - i), quests: list.filter((q) => q.deptId === d.id) })).filter((l) => l.quests.length > 0);
+}

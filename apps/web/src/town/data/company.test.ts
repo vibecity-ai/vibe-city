@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TaskNode } from '@vibe-city/shared';
-import { age, cardLines, searchSort, type BoardQuest } from './company.ts';
+import { age, attentionReason, cardLines, crewOf, lanes, searchSort, type BoardQuest } from './company.ts';
+import type { Dept } from './types.ts';
 
 const q = (title: string, dept: string, createdAt: string): BoardQuest => ({
   deptId: dept, deptName: dept, floor: 'F1',
@@ -43,4 +44,17 @@ test('card lines: the plan from the lead, then a failure beats running beats don
   assert.deepEqual(cardLines([root, done, run]).latest, { k: 'running', text: 'Working on: Compare' });
   assert.deepEqual(cardLines([root, done, run, bad]).latest, { k: 'failed', text: 'Scrape: HTTP 403' });
   assert.deepEqual(cardLines([root, t({ id: 'd', title: 'X' }), t({ id: 'e', title: 'Y' })]).latest, { k: 'todo', text: '2 tasks waiting' });
+});
+
+test('attention cards say why; crew is lead first, from the task tree; lanes keep floor order and skip empty floors', () => {
+  const c = { blocked: 0, failed: 0 };
+  assert.equal(attentionReason({ status: 'awaiting_input', counts: c }), 'An agent is waiting for your answer');
+  assert.equal(attentionReason({ status: 'failed', counts: { blocked: 0, failed: 2 } }), '2 tasks failed');
+  assert.equal(attentionReason({ status: 'running', counts: c }), null);
+  assert.deepEqual(crewOf(undefined), ['chief']);
+  const t = (agentKey: string | null, depth: number) => ({ agentKey, depth } as unknown as TaskNode);
+  assert.deepEqual(crewOf([t('W-02', 1), t('chief', 0), t('W-01', 1), t('W-02', 1), t(null, 1)]), ['chief', 'W-02', 'W-01']);
+  const depts = [{ id: 'a' }, { id: 'b' }, { id: 'c' }] as unknown as Dept[];
+  const list = [{ ...q('x', 'c', ''), deptId: 'c' }, { ...q('y', 'a', ''), deptId: 'a' }] as BoardQuest[];
+  assert.deepEqual(lanes(depts, list).map((l) => [l.dept.id, l.floor, l.quests.length]), [['a', 'F3', 1], ['c', 'F1', 1]]);
 });

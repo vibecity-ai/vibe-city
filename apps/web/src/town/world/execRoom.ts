@@ -7,7 +7,7 @@ import type { Pt } from './pix';
 import { box, chiefDeskStatic, shelfItem, meetingStatic, plant, chairItem, C, STATUS_COL, type IC } from './interior';
 import { shade } from './sprites';
 
-export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'ar' | 'assistant';
+export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'ar' | 'assistant' | 'library';
 /** Footprint boxes (u, v, h, du, dv, dh) for hit-testing and the hover outline, and where the label sits. */
 export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number, number, number, number, number] }[] = [
   { id: 'phone', label: 'Phone', b: [15, 119, 13, 9, 7, 6] },
@@ -19,6 +19,7 @@ export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number
   { id: 'org', label: 'Tower map', b: [92, 138, 6, 88, 2, 38] },
   { id: 'table', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
   { id: 'assistant', label: 'Chief of Staff', b: [104, 92, 0, 8, 8, 34] },
+  { id: 'library', label: 'Skill library', b: [192, 127, 0, 34, 13, 38] },
 ];
 export const ASSISTANT_SPOT: Pt = [108, 96];
 
@@ -63,7 +64,28 @@ export function execProps(c: IC) {
   void STATUS_COL;
 }
 
+/** The skill library: a cabinet of glowing skill cartridges against the back wall, one colour per school. */
+const CARTS = ['#C9B8FF', '#FFC75A', '#7CF5B4', '#3EE6FF', '#FF8AD8', '#FFA86B', '#FF5C7A', '#B98CFF', '#6BD1FF', '#A9A3C9'];
+function libraryCabinet(c: IC) {
+  const { P, px } = c;
+  box(c, 192, 127, 0, 34, 13, 38, '#241A44', { top: '#3A2D66' });
+  // four shelves of cartridges on the front face (v = 127)
+  for (let r = 0; r < 4; r++) {
+    const h = 3 + r * 8.5;
+    px.poly([P(193, 127, h - 1), P(225, 127, h - 1), P(225, 127, h), P(193, 127, h)], '#120A24');
+    for (let i = 0; i < 7; i++) {
+      const u = 194.5 + i * 4.4, col = CARTS[(r * 3 + i * 7) % CARTS.length]!;
+      px.poly([P(u, 127, h), P(u + 3, 127, h), P(u + 3, 127, h + 5.5), P(u, 127, h + 5.5)], col, 1);
+      px.poly([P(u, 127, h + 4.5), P(u + 3, 127, h + 4.5), P(u + 3, 127, h + 5.5), P(u, 127, h + 5.5)], '#FFFFFF', 1);
+    }
+  }
+  // a sign on top
+  box(c, 200, 130, 38, 18, 2, 5, '#3A1050', { top: '#5A1A70', edge: false });
+  px.poly([P(201, 130, 39), P(217, 130, 39), P(217, 130, 42), P(201, 130, 42)], C.gold, 1);
+}
+
 export function execFurniture(c: IC) {
+  libraryCabinet(c);
   chiefDeskStatic(c);
   shelfItem(c);
   meetingStatic(c);
