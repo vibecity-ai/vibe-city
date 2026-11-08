@@ -10,7 +10,7 @@ const base = (): GameInput => ({
   settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, marketAgentHandle: null, marketVerifiedAt: null, githubConnected: false, githubLogin: null, hyperliquidConnectedAt: null, polymarketConnectedAt: null },
   wallet: EMPTY_WALLET, departments: [], templateOf: {}, templates: TEMPLATES,
   usage: { byDepartment: [], companyTodayCents: 0, companySevenDayAvgCents: 0 }, totalMeteredCents: 0,
-  questsByDept: {}, results: [], pendingApprovals: [],
+  questsByDept: {}, results: [], marketEarnedCents: 0, pendingApprovals: [],
 });
 const done = (i: GameInput, id: string) => deriveGame(i).quests.find((q) => q.id === id)!.done;
 
@@ -23,11 +23,11 @@ const cases: Array<[string, (i: GameInput) => void]> = [
   ['connect-hyperliquid', (i) => { i.settings.hyperliquidConnectedAt = '2026-11-08T10:00:00Z'; }],
   ['connect-polymarket', (i) => { i.settings.polymarketConnectedAt = '2026-11-08T10:00:00Z'; }],
   ['market', (i) => { i.settings.marketVerifiedAt = '2026-11-08T10:00:00Z'; }],
-  ['first-job', (i) => { i.templateOf = { cos: 'chief-of-staff' }; i.results = [{ departmentId: 'cos', questId: 'q', text: 'Delivered. [earned usd=12.50]' }]; }],
+  ['first-job', (i) => { i.marketEarnedCents = 1188; }],
   ['first-swap', (i) => { i.templateOf = { td: 'trading-desk' }; i.results = [{ departmentId: 'td', questId: 'q', text: 'Closed ETH long [pnl usd=3.2]' }]; }],
   ['first-ship', (i) => { i.templateOf = { sw: 'software' }; i.results = [{ departmentId: 'sw', questId: 'q', text: 'Opened [pr url=https://github.com/acme/app/pull/7]' }]; }],
   // three ready floors besides the Chief of Staff, and one earning
-  ['ipo', (i) => { i.departments = [dept('a'), dept('b'), dept('c'), dept('cos')]; i.templateOf = { cos: 'chief-of-staff' }; i.results = [{ departmentId: 'cos', questId: 'q', text: '[earned usd=1]' }]; }],
+  ['ipo', (i) => { i.departments = [dept('a'), dept('b'), dept('c'), dept('cos')]; i.templateOf = { cos: 'chief-of-staff' }; i.marketEarnedCents = 95; }],
 ];
 for (const [id, make] of cases) test(`CEO quest ${id}: not done, then done`, () => {
   const i = base();

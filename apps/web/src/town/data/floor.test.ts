@@ -16,7 +16,7 @@ test('every template has a station whose tools the template actually gives its f
   }
   assert.equal(stationFor(null), null);
   assert.equal(stationFor('no-such-template'), null);
-  assert.equal(Object.keys(STATIONS).length, 7);
+  assert.equal(Object.keys(STATIONS).length, 8);
 });
 
 test('the tools report flags missing needs and risky extras, and stays neutral for floors without a template', () => {

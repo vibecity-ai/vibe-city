@@ -42,12 +42,14 @@ import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, regis
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
-import { githubToken, register as registerCompany } from './routes/company.ts';
+import { githubToken, register as registerCompany, secret } from './routes/company.ts';
 import { WalletService } from './domain/walletService.ts';
 import { register as registerWallet } from './routes/wallet.ts';
 import { register as registerAi } from './routes/ai.ts';
 import { register as registerGame } from './routes/game.ts';
 import { register as registerIpo } from './routes/ipo.ts';
+import { register as registerMarket } from './routes/market.ts';
+import { MarketService } from './domain/marketService.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
@@ -73,12 +75,17 @@ export interface AppServices {
   wallet: WalletService;
   /** Rewrites every department's secrets env (GH_TOKEN, OutLayer key) into its profiles (best effort; the next sync retries). */
   pushDepartmentEnv: () => Promise<void>;
+  /** The Agent Market (brief 02). Call tick() periodically (the server does every 45 s) to take and deliver jobs. */
+  market: MarketService;
 }
 
 export interface ServicesExtra {
   kanban?: KanbanApi;
   /** OutLayer's HTTP API (tests pass a fake). */
   outlayerFetch?: typeof fetch;
+  /** market.near.ai's HTTP API (tests pass a fake) and its base URL (default https://market.near.ai). */
+  marketFetch?: typeof fetch;
+  marketBaseUrl?: string;
   /** The safe (spec 6.1): credits source and, for tests and the demo, a fake NEAR reader. */
   money?: Pick<MoneyDeps, 'credits' | 'reader' | 'rpcUrl'>;
   /** Hermes event stream settings. Omit to disable live events (the WebSocket route then answers 503). */
@@ -351,13 +358,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
   registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
   // Secrets a floor's agents get in their profile .env, by template: the Software Department runs git/gh with GH_TOKEN,
-  // company-wallet floors use the OutLayer wallet key. Written after every sync that changed something and whenever
+  // company-wallet floors use the OutLayer wallet key, the Marketplace Agency the Agent Market token (marketplace-worker). Written after every sync that changed something and whenever
   // the CEO pastes a token or a wallet key; other floors never receive them.
   const wallet = new WalletService(db, extra.outlayerFetch);
   const writeDepartmentEnv = async (deptId: string, profiles: string[]) => {
     const t = TEMPLATES.find((x) => x.id === departments.getRow(deptId).template_id);
     const gh = t?.id === 'software' ? githubToken(db) : null;
-    const env = { ...(gh ? { GH_TOKEN: gh } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
+    const mkt = t?.id === 'marketplace-agency' ? secret(db, 'marketAgentToken') : null;
+    const env = { ...(gh ? { GH_TOKEN: gh } : {}), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
     if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
     for (const p of profiles) await hermes.setProfileEnv(p, env);
   };
@@ -538,9 +546,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     });
   }
 
-  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv };
+  const market = new MarketService({
+    db, departments, createQuest: (id, input) => quests_.create(id, input), results: (id, q) => quests_.results(id, q),
+    recordOrigin: (id, q) => questRequests.recordOrigin(id, q, 'market'), model: extra.chatModel ?? noModel, companyName: () => company.view().name,
+    ...(extra.marketFetch ? { fetch: extra.marketFetch } : {}), ...(extra.marketBaseUrl ? { baseUrl: extra.marketBaseUrl } : {}),
+  });
+  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market };
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
-  registerAi(app, services); registerGame(app, services); registerIpo(app, services);
+  registerAi(app, services); registerGame(app, services); registerIpo(app, services); registerMarket(app, services);
   return services;
 }

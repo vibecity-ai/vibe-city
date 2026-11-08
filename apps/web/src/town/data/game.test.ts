@@ -18,6 +18,8 @@ test('the quest log highlights the first quest not done, and its button opens th
   assert.equal(next.id, 'treasury');
   assert.deepEqual(questTarget(next.id), { kind: 'safe' });
   assert.deepEqual(questTarget('hire'), { kind: 'hire' });
+  assert.deepEqual(questTarget('market'), { kind: 'market' });
+  assert.deepEqual(questTarget('first-job'), { kind: 'market' }, 'claim, go live and hire the agency');
   assert.deepEqual(questTarget('connect-hyperliquid'), { kind: 'connector', name: 'hyperliquid' });
   assert.equal(questTarget('policy'), null, 'the self-confirmed policy quest is gone');
   assert.equal(questTarget('connect-ai')?.kind, 'note');

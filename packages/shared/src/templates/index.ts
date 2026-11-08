@@ -7,6 +7,7 @@ import { tokenTreasury } from './token-treasury.ts';
 import { predictionDesk } from './prediction-desk.ts';
 import { redTeam } from './red-team.ts';
 import { blueTeam } from './blue-team.ts';
+import { marketplaceAgency } from './marketplace-agency.ts';
 
-export const TEMPLATES: readonly Template[] = [software, treasuryOps, tradingDesk, tokenTreasury, predictionDesk, redTeam, blueTeam];
+export const TEMPLATES: readonly Template[] = [software, marketplaceAgency, treasuryOps, tradingDesk, tokenTreasury, predictionDesk, redTeam, blueTeam];
 export const templateById = (id: string) => TEMPLATES.find((t) => t.id === id) ?? null;

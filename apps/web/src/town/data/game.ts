@@ -4,7 +4,7 @@ import type { CeoQuest, GameState } from '@vibe-city/shared';
 
 export type QuestTarget =
   | { kind: 'safe' } | { kind: 'hire' } | { kind: 'connector'; name: 'hyperliquid' | 'polymarket' } | { kind: 'quest-board' } | { kind: 'ipo' }
-  | { kind: 'github' } | { kind: 'note'; text: string };
+  | { kind: 'github' } | { kind: 'market' } | { kind: 'note'; text: string };
 
 export const nextQuest = (g: GameState): CeoQuest | null => g.quests.find((q) => !q.done) ?? null;
 
@@ -14,11 +14,11 @@ export function questTarget(id: string): QuestTarget | null {
     case 'hire': return { kind: 'hire' };
     case 'connect-hyperliquid': return { kind: 'connector', name: 'hyperliquid' };
     case 'connect-polymarket': return { kind: 'connector', name: 'polymarket' };
-    case 'first-job': case 'first-swap': case 'first-ship': return { kind: 'quest-board' };
+    case 'first-swap': case 'first-ship': return { kind: 'quest-board' };
     case 'ipo': return { kind: 'ipo' };
     case 'connect-ai': return { kind: 'note', text: 'Set NEAR_AI_API_KEY in .env for now; the settings field comes with the metering work.' };
     case 'connect-github': return { kind: 'github' };
-    case 'market': return { kind: 'note', text: 'The Chief of Staff walks you through it once it moves in.' };
+    case 'market': case 'first-job': return { kind: 'market' };
     default: return null;
   }
 }

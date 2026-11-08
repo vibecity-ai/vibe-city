@@ -1014,6 +1014,7 @@ export const CompanySettingsSchema = z.object({
   outlayerWalletId: z.string().nullable(),
   outlayerAccountId: z.string().nullable(),
   marketAgentHandle: z.string().nullable(),
+  /** When market.near.ai last accepted the agent token (a 200 on the agent's assignments). */
   marketVerifiedAt: z.string().nullable(),
   githubConnected: z.boolean(),
   githubLogin: z.string().nullable(),
@@ -1026,8 +1027,6 @@ export type CompanySettings = z.infer<typeof CompanySettingsSchema>;
 export const CompanySettingsPatchSchema = z.object({
   nearAiApiKey: z.string().trim().min(1).max(500),
   nearAiCreditsLoadedCents: z.number().int().min(0).nullable(),
-  marketAgentHandle: z.string().trim().max(100).nullable(),
-  marketAgentToken: z.string().trim().min(1).max(500),
   githubToken: z.string().trim().min(1).max(500),
 }).partial().strict();
 export type CompanySettingsPatch = z.infer<typeof CompanySettingsPatchSchema>;
@@ -1053,10 +1052,50 @@ export type ConnectorCheckReply = z.infer<typeof ConnectorCheckReplySchema>;
 /** An OutLayer wallet's agent API key, created by the CEO at app.outlayer.ai/wallet/new. Write-only: never returned. */
 export const WalletKeySchema = z.object({ apiKey: z.string().trim().regex(/^wk_[A-Za-z0-9]{16,128}$/, 'not an OutLayer wallet key (wk_…)') }).strict();
 
+// ---- the NEAR AI Agent Market (brief 02): the company is one self-registered agent; the backend polls its assignments ----
+
+/** market.near.ai's closed category set (openapi `Category`). */
+export const MARKET_CATEGORIES = ['automation', 'creative', 'customer_support', 'data', 'dev_tools', 'events', 'finance', 'legal_compliance', 'marketing', 'operations', 'research', 'sales', 'travel', 'other'] as const;
+/** A handle becomes a DNS label: 3-30 chars, [a-z][a-z0-9-]*, no trailing '-'. */
+export const MARKET_HANDLE_RE = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/;
+
 export const ListingDraftSchema = z.object({
-  name: z.string(), tagline: z.string(), description: z.string(), priceUsdc: z.number(), slaHours: z.number(), deliverables: z.array(z.string()),
+  handle: z.string(), name: z.string(), category: z.enum(MARKET_CATEGORIES),
+  tagline: z.string(), description: z.string(), priceUsdc: z.number(), slaHours: z.number(), deliverables: z.array(z.string()),
 }).strict();
 export type ListingDraft = z.infer<typeof ListingDraftSchema>;
+
+/** Self-registration (`POST /v1/agents/register`): the token comes back once and stays on the server. */
+export const MarketRegisterSchema = z.object({
+  handle: z.string().trim().regex(MARKET_HANDLE_RE, '3-30 characters: lowercase letters, digits and dashes, starting with a letter'),
+  name: z.string().trim().min(1).max(80),
+  category: z.enum(MARKET_CATEGORIES),
+  slaHours: z.number().int().min(1).max(720).optional(),
+}).strict();
+export type MarketRegister = z.infer<typeof MarketRegisterSchema>;
+/** An agent created in the market UI: its handle and the `aat_` token from "Create token". */
+export const MarketTokenSchema = z.object({
+  handle: z.string().trim().regex(MARKET_HANDLE_RE, 'not a market handle'),
+  token: z.string().trim().regex(/^aat_[A-Za-z0-9]{16,128}$/, 'not an Agent Market token (aat_…)'),
+}).strict();
+
+export const MARKET_JOB_STATES = ['working', 'submitted', 'accepted', 'failed', 'closed'] as const;
+export const MarketJobSchema = z.object({
+  assignmentId: z.string(), title: z.string(), departmentId: z.string(), questId: z.string(),
+  state: z.enum(MARKET_JOB_STATES), rounds: z.number().int(), amount: z.string(), token: z.string(),
+  note: z.string().nullable(), updatedAt: z.string(),
+}).strict();
+export type MarketJob = z.infer<typeof MarketJobSchema>;
+export const MarketViewSchema = z.object({
+  connected: z.boolean(), handle: z.string().nullable(), verifiedAt: z.string().nullable(),
+  lastPollAt: z.string().nullable(), lastError: z.string().nullable(),
+  /** A Marketplace Agency floor is hired and ready: jobs have somewhere to go. */
+  agencyReady: z.boolean(),
+  /** Accepted jobs, after the market's 5% fee. */
+  earnedCents: z.number().int(),
+  jobs: z.array(MarketJobSchema),
+}).strict();
+export type MarketView = z.infer<typeof MarketViewSchema>;
 
 export const AiUsageSummarySchema = z.object({
   byDepartment: z.array(z.object({
