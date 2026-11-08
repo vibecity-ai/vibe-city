@@ -133,7 +133,6 @@ export const api = {
   marketDraft: (): Promise<ListingDraft> => request('POST', '/api/market/listing-draft', ListingDraftSchema),
   marketRegister: (input: MarketRegister): Promise<MarketView> => request('POST', '/api/market/register', MarketViewSchema, input),
   marketToken: (handle: string, token: string): Promise<MarketView> => request('POST', '/api/market/token', MarketViewSchema, { handle, token }),
-  marketPoll: (): Promise<MarketView> => request('POST', '/api/market/poll', MarketViewSchema),
   setCompanySettings: (patch: CompanySettingsPatch): Promise<CompanySettings> => request('PATCH', '/api/company/settings', CompanySettingsSchema, patch),
   schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
   createSchedule: (dept: string, input: Partial<ScheduleCreate> & Pick<ScheduleCreate, 'name' | 'cron' | 'title' | 'objective'>): Promise<Schedule> => request('POST', `${d(dept)}/schedules`, ScheduleSchema, input),

@@ -95,7 +95,13 @@ function MarketQuest() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   const s = useStore.getState();
-  useEffect(() => { api.market().then(setM).catch(() => undefined); }, []);
+  // the backend polls the market every 45 s; the card follows it (and the quest log, once a job is paid)
+  useEffect(() => {
+    const load = () => api.market().then((v) => { setM(v); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
+    void load();
+    const t = setInterval(load, 15_000);
+    return () => clearInterval(t);
+  }, []);
   const run = <T,>(p: Promise<T>, ok: (v: T) => void) => {
     setBusy(true); setNote(null);
     p.then(ok).catch((e) => setNote(errMsg(e))).finally(() => setBusy(false));
@@ -185,8 +191,7 @@ function MarketQuest() {
         </ul>
       )}
       <div className="mk-foot">
-        <button className="btn primary small" type="button" disabled={busy} onClick={() => run(api.marketPoll(), done)}>{busy ? 'Checking…' : 'Check for jobs'}</button>
-        <span className="ql-note" role="status">{note ?? m.lastError ?? (checked ? `Checked at ${checked}, then every 45 s` : 'Checked every 45 s')}</span>
+        <span className="ql-note" role="status">{note ?? m.lastError ?? (checked ? `Checked the market at ${checked}; it is checked every 45 s.` : 'The market is checked every 45 s.')}</span>
       </div>
     </div>
   );

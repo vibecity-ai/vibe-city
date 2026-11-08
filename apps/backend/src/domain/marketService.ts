@@ -70,6 +70,11 @@ export class MarketService {
     };
   }
 
+  /** Jobs the buyer accepted (a 0 USD test hire counts: the first-job quest is about being paid, not the amount). */
+  paidJobs(): number {
+    return (this.d.db.prepare("SELECT COUNT(*) AS n FROM market_job WHERE state = 'accepted'").get() as { n: number }).n;
+  }
+
   /** Accepted jobs after the fee, counting USD and USDC 1:1 (the market pays either, no conversion). */
   earnedCents(): number {
     const rows = this.d.db.prepare("SELECT amount FROM market_job WHERE state = 'accepted'").all() as { amount: string }[];

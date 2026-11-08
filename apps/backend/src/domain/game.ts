@@ -22,6 +22,8 @@ export interface GameInput {
   results: ResultLine[];
   /** Agent Market jobs the buyer accepted, after the market's fee (brief 02). */
   marketEarnedCents: number;
+  /** How many Agent Market jobs the buyer accepted (any amount). */
+  marketJobsPaid: number;
   /** Hermes approvals waiting on an agent turn. Only chat approvals are known (Kanban does not expose them). */
   pendingApprovals: Array<{ departmentId: string; agentKey: string; title: string }>;
 }
@@ -54,7 +56,7 @@ export const CEO_QUESTS: readonly QuestDef[] = [
     hint: 'Pick a team from the templates. Each one comes with its agents and their jobs.' },
   { id: 'market', title: 'Join the Agent Market', unlocks: 'Marketplace Agency', done: (x) => !!x.i.settings.marketVerifiedAt,
     hint: 'Register the company as an agent on market.near.ai. Its token stays on the server and goes to the Marketplace Agency.' },
-  { id: 'first-job', title: 'Win your first job', unlocks: 'Token & Treasury', done: (x) => x.i.marketEarnedCents > 0,
+  { id: 'first-job', title: 'Win your first job', unlocks: 'Token & Treasury', done: (x) => x.i.marketJobsPaid > 0,
     hint: 'Go live on market.near.ai, hire the Marketplace Agency, and a buyer accepts its first delivery.' },
   { id: 'first-swap', title: 'First profitable trade', unlocks: null, done: (x) => amounts(x.textOf(['treasury-ops', 'trading-desk']), 'pnl').some((n) => n > 0),
     hint: 'Treasury Ops or the Trading Desk closes a trade with a realized profit.' },
