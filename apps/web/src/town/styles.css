@@ -909,6 +909,13 @@ button.org-row:hover, button.org-row:focus-visible { border-color: var(--cyan); 
 .ql-card-act { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 2px; }
 .ql-unl { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--cyan); }
 .ql-note { font-size: 12px; line-height: 1.45; color: var(--ink-mute); }
+.ql-gh { display: flex; flex-direction: column; gap: 8px; width: 100%; }
+.ql-gh p { margin: 0; }
+.ql-gh a { color: var(--cyan); }
+.ql-gh summary { cursor: pointer; color: var(--ink-dim); }
+.ql-gh ul { margin: 6px 0; padding-left: 18px; }
+.ql-gh-row { display: flex; gap: 8px; align-items: center; }
+.ql-gh-row .input { min-height: 36px; min-width: 0; flex: 1; }
 .ql { width: min(1040px, 100%); display: flex; flex-direction: column; gap: 14px; }
 .ql-progress { display: flex; align-items: center; gap: 12px; font-size: 12px; color: var(--ink-dim); }
 .ql-progress .ql-pips i { width: 26px; height: 8px; }

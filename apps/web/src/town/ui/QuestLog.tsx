@@ -9,6 +9,46 @@ import { api, ApiError } from '../../api';
 import { Icon, useDialog } from './kit';
 import { acts, nextQuest, progressLabel, questTarget } from '../data/game';
 
+const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
+
+/** Paste a fine-grained token for the Software Department. Write-only: the backend stores it and never sends it back. */
+function GithubTokenForm() {
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+  const s = useStore.getState();
+  const save = () => {
+    setBusy(true);
+    api.setCompanySettings({ githubToken: token.trim() })
+      .then(() => api.game()).then((game) => { useStore.setState({ game }); setToken(''); s.toast('GitHub connected. The Software Department can be hired.'); })
+      .catch((e) => s.toast(e instanceof ApiError ? e.message : 'That did not work.', 'bad')).finally(() => setBusy(false));
+  };
+  return (
+    <form className="ql-gh" onSubmit={(e) => { e.preventDefault(); if (token.trim()) save(); }}>
+      <p className="ql-note">
+        <a href={NEW_TOKEN_URL} target="_blank" rel="noreferrer">Create a fine-grained token on GitHub</a>, limited to the
+        repositories the agents may touch, with an expiry.
+      </p>
+      <details className="ql-note">
+        <summary>Permissions to grant</summary>
+        <ul>
+          <li>Repository access: <b>Only select repositories</b></li>
+          <li>Contents, Pull requests, Issues: <b>Read and write</b></li>
+          <li>Workflows: <b>Read and write</b> (DevOps edits CI)</li>
+          <li>Actions, Commit statuses: <b>Read-only</b> (CI logs and checks)</li>
+          <li>Metadata: <b>Read-only</b> (GitHub adds it)</li>
+        </ul>
+        Agents use it as <code>GH_TOKEN</code> for <code>git</code> and <code>gh</code>. Stored on the Vibe City server,
+        never shown again; paste a new one to replace it.
+      </details>
+      <div className="ql-gh-row">
+        <input className="input mono" type="password" autoComplete="off" spellCheck={false} placeholder="github_pat_…"
+          aria-label="GitHub fine-grained token" value={token} onChange={(e) => setToken(e.target.value)} />
+        <button className="btn primary small" type="submit" disabled={busy || !token.trim()}>Connect</button>
+      </div>
+    </form>
+  );
+}
+
 /** The button (or note) that takes the CEO where the quest is done; the mapping lives in data/game.ts. */
 function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -27,6 +67,7 @@ function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
     );
     case 'quest-board': return <button className="btn secondary small" onClick={go(() => s.openPanel('board', { composer: false, boardDept: null }))}>Open the Ops board</button>;
     case 'ipo': return <button className="btn primary small" disabled title="The IPO button arrives with the IPO work">Go public</button>;
+    case 'github': return <GithubTokenForm />;
     case 'note': return <span className="ql-note">{t.text}</span>;
     default: return null;
   }

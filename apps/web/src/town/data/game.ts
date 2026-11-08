@@ -4,7 +4,7 @@ import type { CeoQuest, GameState } from '@vibe-city/shared';
 
 export type QuestTarget =
   | { kind: 'safe' } | { kind: 'hire' } | { kind: 'confirm-policy' } | { kind: 'quest-board' } | { kind: 'ipo' }
-  | { kind: 'note'; text: string };
+  | { kind: 'github' } | { kind: 'note'; text: string };
 
 export const nextQuest = (g: GameState): CeoQuest | null => g.quests.find((q) => !q.done) ?? null;
 
@@ -16,7 +16,7 @@ export function questTarget(id: string): QuestTarget | null {
     case 'first-job': case 'first-swap': case 'first-ship': return { kind: 'quest-board' };
     case 'ipo': return { kind: 'ipo' };
     case 'connect-ai': return { kind: 'note', text: 'Set NEAR_AI_API_KEY in .env for now; the settings field comes with the metering work.' };
-    case 'connect-github': return { kind: 'note', text: 'Set GITHUB_TOKEN in .env for now; the settings field comes with the metering work.' };
+    case 'connect-github': return { kind: 'github' };
     case 'market': return { kind: 'note', text: 'The Chief of Staff walks you through it once it moves in.' };
     default: return null;
   }

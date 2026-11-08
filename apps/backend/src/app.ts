@@ -42,7 +42,7 @@ import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, regis
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
-import { register as registerCompany } from './routes/company.ts';
+import { githubToken, register as registerCompany } from './routes/company.ts';
 import { register as registerWallet } from './routes/wallet.ts';
 import { register as registerAi } from './routes/ai.ts';
 import { register as registerGame } from './routes/game.ts';
@@ -68,6 +68,8 @@ export interface AppServices {
   db: DatabaseSync;
   departments: DepartmentService;
   money: MoneyService;
+  /** Writes the GitHub token as GH_TOKEN into every Software Department profile (best effort; the next sync retries). */
+  pushGithubToken: () => Promise<void>;
 }
 
 export interface ServicesExtra {
@@ -342,6 +344,20 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
   });
   registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
+  // The Software Department's agents run git/gh with GH_TOKEN in their profile .env (written after every sync that
+  // changed something, and whenever the CEO pastes a new token).
+  const writeGithubToken = async (deptId: string, profiles: string[]) => {
+    const token = githubToken(db);
+    if (!token || !hermes?.setProfileEnv || departments.getRow(deptId).template_id !== 'software') return;
+    for (const p of profiles) await hermes.setProfileEnv(p, { GH_TOKEN: token });
+  };
+  const pushGithubToken = async () => {
+    for (const d of departments.list()) {
+      const profiles = departments.agents(d.id).map((a) => a.profile_ref).filter((p): p is string => !!p);
+      try { await writeGithubToken(d.id, profiles); } catch (e) { console.warn(`GH_TOKEN not written for ${d.id}: ${(e as Error).message}`); }
+    }
+  };
+  provisioning.afterProvision = writeGithubToken;
   if (extra.mcpUrl && hermes?.setMcpServer) {
     const url = extra.mcpUrl, rt = hermes;
     provisioning.afterProvision = async (deptId, profiles) => {
@@ -354,6 +370,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
         // Naming the read-only entry makes chat's list an allowlist: chat reads task files but gets no request_quest.
         await rt.setPlatformMcpServers?.(p, 'api_server', [MCP_CHAT_SERVER_NAME]);
       }
+      await writeGithubToken(deptId, profiles);
     };
   }
   // ---- the safe (feature spec 6.1): wallets, treasury and credits, read-only; signing happens in the user's wallet ----
@@ -511,7 +528,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     });
   }
 
-  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money };
+  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money, pushGithubToken };
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
   registerAi(app, services); registerGame(app, services); registerIpo(app, services);

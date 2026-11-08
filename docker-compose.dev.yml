@@ -10,7 +10,13 @@
 # Hermes' data lives in ./.dev/hermes (bind mount), so it survives `down`/rebuilds; delete it for a fresh Hermes.
 services:
   hermes:
-    image: ${HERMES_IMAGE:-nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d}
+    # The pinned Hermes image plus gh (Dockerfile stage "hermes"); rebuilt only when that stage changes.
+    build:
+      context: .
+      target: hermes
+      args:
+        HERMES_IMAGE: ${HERMES_IMAGE:-nousresearch/hermes-agent@sha256:d27689bc6e8581ec884a7227c9101fdaebf6c853cff8859020dac14f21452b4d}
+    image: vibe-city-hermes:dev
     container_name: vibe-city-hermes-dev
     network_mode: host
     restart: unless-stopped

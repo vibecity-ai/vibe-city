@@ -35,14 +35,18 @@ COPY apps/backend/package.json apps/backend/
 COPY apps/web/package.json apps/web/
 RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev -w @vibe-city/backend
 
-# ---- runtime: Hermes image + Vibe City ----
-FROM ${HERMES_IMAGE} AS runtime
+# ---- Hermes + gh: what the agents run in. docker-compose.dev.yml builds only this stage (target: hermes) ----
+FROM ${HERMES_IMAGE} AS hermes
 USER root
+# gh for the Software Department's agents: they open pull requests from the terminal with GH_TOKEN, which the backend
+# writes into their profile .env once the CEO pastes a token (connect-github quest) or GITHUB_TOKEN is set.
+RUN apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/* && gh --version
+
+# ---- runtime: Hermes image + Vibe City ----
+FROM hermes AS runtime
 # Hermes bundles Node 26 (/usr/local/bin/node -> /opt/hermes/tools/node-*); reuse it instead of adding a second copy
 # (~150 MB). Fails the build if Hermes stops shipping it or ships another major (the backend needs Node 26).
 RUN node --version | grep -q '^v26\.'
-# gh for the Software Department's agents (brief 01): they open pull requests from the terminal with GH_TOKEN.
-RUN apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /opt/vibe-city
 COPY --from=deps /src/node_modules node_modules

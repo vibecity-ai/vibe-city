@@ -2,7 +2,9 @@
    One row in company_settings. Secrets live under `secrets` and never leave this module. */
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
-import { CompanySettingsSchema, type CompanySettings } from '@vibe-city/shared';
+import { CompanySettingsPatchSchema, CompanySettingsSchema, type CompanySettings } from '@vibe-city/shared';
+import { InvalidInputError } from '../domain/errors.ts';
+import { gameState } from './game.ts';
 import type { AppServices } from '../app.ts';
 
 type Stored = Partial<Omit<CompanySettings, 'nearAiApiKeySet' | 'githubConnected'>> & { secrets?: Record<string, unknown> };
@@ -36,6 +38,27 @@ export function writeSettings(db: DatabaseSync, patch: Partial<Stored>): void {
     .run(JSON.stringify(next));
 }
 
+/** The token the Software Department's agents use as GH_TOKEN: the one pasted in the UI, else GITHUB_TOKEN from the env. */
+export function githubToken(db: DatabaseSync, env: NodeJS.ProcessEnv = process.env): string | null {
+  const t = stored(db).secrets?.githubToken;
+  return typeof t === 'string' && t ? t : env.GITHUB_TOKEN || null;
+}
+
 export function register(app: FastifyInstance, deps: AppServices) {
   app.get('/api/company/settings', async () => readSettings(deps.db));
+  // Write-only secrets. Only the GitHub token is settable so far (the NEAR AI key and market token come with briefs 02/04).
+  app.patch('/api/company/settings', async (req) => {
+    const patch = CompanySettingsPatchSchema.parse(req.body);
+    const other = Object.keys(patch).filter((k) => k !== 'githubToken');
+    if (other.length) throw new InvalidInputError(`not settable yet: ${other.join(', ')}`);
+    if (patch.githubToken) {
+      // a token is one line without spaces; it ends up as GH_TOKEN in the agents' .env
+      if (/\s/.test(patch.githubToken)) throw new InvalidInputError('That does not look like a GitHub token.');
+      const s = stored(deps.db);
+      writeSettings(deps.db, { secrets: { ...s.secrets, githubToken: patch.githubToken } });
+      await deps.pushGithubToken();
+      await gameState(deps, true); // the connect-github quest reads githubConnected through the 5 s game cache
+    }
+    return readSettings(deps.db);
+  });
 }
