@@ -70,7 +70,7 @@ export const STATIONS: Record<string, Station> = {
 
 export const stationFor = (templateId: string | undefined | null): Station | null => (templateId ? STATIONS[templateId] ?? null : null);
 
-/* ---------------- the tools report behind the server rack ---------------- */
+/* ---------------- what a floor's work needs (the loadout and the station show it) ---------------- */
 
 export interface ToolLine { id: string; label: string; does: string; risky: boolean; on: boolean }
 export interface ToolsReport {
@@ -104,15 +104,14 @@ export function toolsReport(templateId: string | undefined | null, inv: Pick<Inv
 
 /* ---------------- the objects every floor shares ---------------- */
 
-export type FloorObjectId = 'board' | 'lead' | 'meeting' | 'rack' | 'clock' | 'elevator' | 'station';
+export type FloorObjectId = 'board' | 'lead' | 'meeting' | 'rack' | 'clock' | 'station';
 
 /** What a click opens, so the screen copy and the test agree. */
 export const FLOOR_OBJECT_HELP: Record<FloorObjectId, string> = {
   board: 'This floor\'s jobs on the Ops board',
   lead: 'The lead\'s profile and chat',
-  meeting: 'The loadout: skills, tools, model',
-  rack: 'Tools & access: what this floor needs',
+  meeting: 'This floor\'s jobs on the Ops board',
+  rack: 'The loadout: tools, skills, models',
   clock: 'This floor\'s schedules',
-  elevator: 'Hire someone for this floor',
   station: 'The station: what this team works with',
 };

@@ -32,8 +32,9 @@ import { HireGrid, type HireTemplate } from './HirePanel';
 import { progressLabel } from '../data/game';
 import { CeoConsole } from './CeoConsole';
 import { SkillBadges, SkillCard } from './Skills';
+import { skillMeta } from '../data/skills';
 import { SkillPicker, ToolPicker, ToolSlot } from './Picker';
-import { stationFor } from '../data/floor';
+import { stationFor, toolsReport } from '../data/floor';
 import type { SkillState } from '../data/skills';
 
 
@@ -267,7 +268,7 @@ function PendingSync({ d }: { d: Dept }) {
 
 const teamLine = (n: number) => (n <= 1 ? '1 · the lead works alone' : `${n} · a lead + ${n - 1} teammate${n === 2 ? '' : 's'}, one Hermes profile each`);
 
-/** The department's loadout: what every agent gets by default (skills, model, toolsets, MCP tools) and its limits.
+/** The department's loadout: what every agent gets by default (skills, model, toolsets) and its limits.
     Installed skills and toolset states are read back from the lead's profile. */
 function DeptLoadout({ d }: { d: Dept }) {
   const s = useStore();
@@ -282,6 +283,12 @@ function DeptLoadout({ d }: { d: Dept }) {
   const allowed = new Set(inv?.allowedSkillIds ?? []);
   const toggleSkill = (n: string) => inv && save({ allowedSkillIds: allowed.has(n) ? inv.allowedSkillIds.filter((x) => x !== n) : [...inv.allowedSkillIds, n] });
   const observedTools = new Map((view?.toolsets ?? []).map((t) => [t.name, t.enabled]));
+  // what the floor's template says its work needs (the server rack opens this tab)
+  const report = inv ? toolsReport(d.view.templateId, inv) : null;
+  const needs = new Set(report?.needed.map((t) => t.id) ?? []);
+  const needOff = report?.needed.filter((t) => !t.on) ?? [];
+  const riskyOn = report?.extra.filter((t) => t.risky).length ?? 0;
+  const skillsOff = report?.skills.filter((k) => !k.on) ?? [];
   // model -> the agents on it: the agent's own choice, else the department's, else what Hermes reports for the profile
   const modelsInUse = new Map<string, string[]>();
   for (const a of d.view.agents) {
@@ -295,7 +302,7 @@ function DeptLoadout({ d }: { d: Dept }) {
           {s.busy[`inv:${d.id}`] && <p className="muted small" role="status">Saving…</p>}
           {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this loadout.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
         </div>
-        <p className="fine">Every agent on this floor gets these skills, toolsets and MCP tools by default. An agent’s own skills from its hire come on top, and each agent has its own model.</p>
+        <p className="fine">Every agent on this floor gets these skills and toolsets by default. An agent’s own skills from its hire come on top, and each agent has its own model.</p>
         <KV rows={[['Agents', teamLine(d.teamSize)]]} />
         {!inv && <p className="muted">Loading loadout…</p>}
       </section>
@@ -303,6 +310,7 @@ function DeptLoadout({ d }: { d: Dept }) {
           <h3 className="sec-t">Skill deck</h3>
           <div className="sk-deck-h"><p className="fine">Every agent on this floor carries these skills, plus its own from its hire. Changes reach Hermes at the next sync.</p>
             <button className="btn secondary small" onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: null } })}><Icon n="sparkle" size={12} />Skill library</button></div>
+          {skillsOff.length > 0 && <p className="note warn">This floor’s work uses {skillsOff.map((k) => skillMeta(k.id).label).join(', ')}, which {skillsOff.length === 1 ? 'is' : 'are'} not equipped.</p>}
           {!view?.observedAt && <p className="muted small">Hermes has not reported this floor’s skills yet (sync the floor first). Allowed: {inv?.allowedSkillIds.join(', ') || 'Hermes defaults'}.</p>}
           {view && view.skills.length > 0 && (() => {
             const isOn = (k: { name: string; essential: boolean }) => k.essential || allowed.has(k.name);
@@ -342,6 +350,10 @@ function DeptLoadout({ d }: { d: Dept }) {
         <section className="pane-sec">
           <h3 className="sec-t">Toolsets</h3>
           <p className="fine">Gear every agent on this floor carries. Flip a switch, then sync the floor to apply it in Hermes.</p>
+          {report && !report.plain && <p className={`note${needOff.length ? ' warn' : ''}`}>{needOff.length
+            ? `${needOff.length === 1 ? 'A tool' : `${needOff.length} tools`} this floor’s work needs ${needOff.length === 1 ? 'is' : 'are'} off (${needOff.map((t) => t.label).join(', ')}): its jobs will stall.`
+            : riskyOn ? `Everything the work needs is on. ${riskyOn} risky tool${riskyOn === 1 ? ' it does not need is' : 's it does not need are'} on too: switch ${riskyOn === 1 ? 'it' : 'them'} off unless you mean it.`
+            : 'Everything this floor’s work needs is on.'}</p>}
           {(() => {
             // grouped by what Hermes has, like the skills above, so a toggled toolset stays put until the sync moves it
             const slot = (t: Toolset) => {
@@ -350,7 +362,7 @@ function DeptLoadout({ d }: { d: Dept }) {
               const pending = inHermes !== undefined && allowedT !== inHermes;
               return <ToolSlot key={t} name={t} on={allowedT} disabled={saving || !inv}
                 onToggle={() => inv && save({ allowedToolsets: allowedT ? inv.allowedToolsets.filter((x) => x !== t) : [...inv.allowedToolsets, t] })}
-                foot={pending ? <span className="tt-pend">{allowedT ? 'Turns on' : 'Turns off'} at the next sync</span> : inHermes === undefined ? <span className="tt-def">Not reported by Hermes</span> : null} />;
+                foot={<>{needs.has(t) && <span className="tt-need">Needed</span>}{pending ? <span className="tt-pend">{allowedT ? 'Turns on' : 'Turns off'} at the next sync</span> : inHermes === undefined ? <span className="tt-def">Not reported by Hermes</span> : null}</>} />;
             };
             const shown = TOOLSETS.filter(shownToolset);
             const on = shown.filter((t) => observedTools.get(t)), off = shown.filter((t) => !observedTools.get(t));
@@ -361,34 +373,17 @@ function DeptLoadout({ d }: { d: Dept }) {
           })()}
         </section>
 
-        <section className="pane-sec">
-          <h3 className="sec-t">MCP tools</h3>
-          <ListEditor label="MCP tools" hint="server:tool, or a bare server id for the whole server. Saved for every agent; not applied in Hermes yet." values={inv?.allowedMcpTools ?? []} disabled={saving || !inv} onSave={(v) => save({ allowedMcpTools: v })} />
-        </section>
 
       {inv && (
         <section className="pane-sec">
           <h3 className="sec-t">Limits</h3>
-          <p className="fine">{LIMIT_COPY.teammates} To add an agent, hire through AR.</p>
+          <p className="fine">{LIMIT_COPY.teammates} To add an agent, use Hire at the top of this panel.</p>
           <Field label="Max seconds for the lead’s task (10–86400, blank = none)" hint={LIMIT_COPY.maxTaskRuntimeSeconds}>
             {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
               onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
           </Field>
         </section>
       )}
-    </div>
-  );
-}
-
-function ListEditor({ label, hint, values, onSave, disabled }: { label: string; hint: string; values: readonly string[]; onSave: (v: string[]) => void; disabled: boolean }) {
-  const [draft, setDraft] = useState('');
-  const add = () => { const v = draft.trim(); if (v && !values.includes(v)) onSave([...values, v]); setDraft(''); };
-  const hid = `h-${label.replace(/\W+/g, '-').toLowerCase()}`;
-  return (
-    <div className="kv-card block" role="group" aria-labelledby={`${hid}-l`}>
-      <b id={`${hid}-l`}>{label}</b> <span id={hid} className="muted small">{hint}</span>
-      <ul className="chips" aria-label={`${label} (${values.length})`}>{values.map((v) => <li key={v} className="itag mono">{v}<button type="button" aria-label={`Remove ${v}`} disabled={disabled} onClick={() => onSave(values.filter((x) => x !== v))}>×</button></li>)}{values.length === 0 && <li className="muted small">None</li>}</ul>
-      <div className="inline"><input className="input mono" value={draft} placeholder={`Add ${label.toLowerCase()}`} aria-label={`Add ${label}`} aria-describedby={hid} disabled={disabled} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add(); } }} /><Btn onClick={add} disabled={disabled || !draft.trim()}>Add</Btn></div>
     </div>
   );
 }
@@ -696,7 +691,7 @@ export function AgentPanel() {
         {tab === 'loadout' && (
           <section className="pane-sec">
             <h3 className="sec-t">Loadout</h3>
-            <p className="fine">This agent gets the department’s skills, toolsets and MCP tools.{me?.skills.length ? ' On top of that it has its own skills from its hire.' : ''}</p>
+            <p className="fine">This agent gets the department’s skills and toolsets.{me?.skills.length ? ' On top of that it has its own skills from its hire.' : ''}</p>
             {me && agentKey && <ModelPicker label="Model" hint={`Changes apply when you sync again.${view?.provider ? ` Hermes now reports ${view.model ?? '—'} via ${view.provider}.` : ''}`}
               models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
               value={me.model} fallback={inv?.model ?? (view?.model && view.provider ? { provider: view.provider, id: view.model } : null)} disabled={saving} onChange={(m) => void setAgentModel(d.id, agentKey, m)} />}

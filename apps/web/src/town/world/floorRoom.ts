@@ -1,5 +1,5 @@
 /* A department floor's controls: the objects every floor shares (Kanban wall, the lead's office, meeting table, server
-   rack, wall clock, elevator) and the station a template brings in place of the lounge. Footprints are room boxes
+   rack, wall clock) and the station a template brings in place of the lounge. Footprints are room boxes
    (u, v, h, du, dv, dh), hit-tested and outlined like the Executive Office's (execRoom.ts). What each opens is in
    data/floor.ts and ui/FloorSheet.tsx. */
 import type { FloorObjectId } from '../data/floor';
@@ -14,9 +14,8 @@ const COMMON: FloorObject[] = [
   { id: 'board', label: 'Kanban wall', b: [95, 138, 4, 82, 2, 38] },
   { id: 'lead', label: 'Lead’s office', b: [12, 114, 0, 40, 20, 26] },
   { id: 'meeting', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
-  { id: 'rack', label: 'Tools & access', b: [0, 56, 0, 14, 18, 44] },
+  { id: 'rack', label: 'Loadout', b: [0, 56, 0, 14, 18, 44] },
   { id: 'clock', label: 'Schedules', b: [-1, 78, 24, 2, 14, 14] },
-  { id: 'elevator', label: 'Hire', b: [-1, 18, 0, 2, 34, 44] },
 ];
 /** The station stands where the lounge would be. */
 export const STATION_BOX: Box6 = [200, 8, 0, 38, 34, 30];

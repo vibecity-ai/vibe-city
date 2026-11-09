@@ -7,7 +7,7 @@ import type { Pt } from './pix';
 import { box, chiefDeskStatic, shelfItem, meetingStatic, plant, chairItem, C, STATUS_COL, type IC } from './interior';
 import { shade } from './sprites';
 
-export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'ar' | 'assistant' | 'library';
+export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'assistant' | 'library';
 /** Footprint boxes (u, v, h, du, dv, dh) for hit-testing and the hover outline, and where the label sits. */
 export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number, number, number, number, number] }[] = [
   { id: 'phone', label: 'Phone', b: [15, 119, 13, 9, 7, 6] },
@@ -15,7 +15,6 @@ export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number
   { id: 'trophy', label: 'Quest log', b: [0, 118, 0, 8, 20, 46] },
   { id: 'safe', label: 'Safe', b: [0, 70, 0, 16, 18, 20] },
   { id: 'calendar', label: 'Calendar', b: [-1, 76, 21, 2, 15, 19] },
-  { id: 'ar', label: 'Hiring office', b: [-1, 56, 0, 2, 18, 42] },
   { id: 'org', label: 'Tower map', b: [92, 138, 6, 88, 2, 38] },
   { id: 'table', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
   { id: 'assistant', label: 'Chief of Staff', b: [104, 92, 0, 8, 8, 34] },
@@ -30,14 +29,6 @@ export function execProps(c: IC) {
   // elevator doors (closed)
   px.poly([WL(18, 0), WL(34.5, 0), WL(34.5, 42), WL(18, 42)], '#3A3460'); px.poly([WL(35.5, 0), WL(52, 0), WL(52, 42), WL(35.5, 42)], '#332D58');
   px.line(WL(35, 0), WL(35, 42), '#15112A'); px.line(WL(20, 40), WL(33, 40), '#5A52A0'); px.line(WL(37, 40), WL(50, 40), '#5A52A0');
-  // AR's door: mint door with a sign
-  px.poly([WL(56, 0), WL(74, 0), WL(74, 42), WL(56, 42)], '#1C3A34');
-  px.poly([WL(57.5, 0), WL(72.5, 0), WL(72.5, 40), WL(57.5, 40)], '#2E6A5C');
-  px.poly([WL(59, 22), WL(71, 22), WL(71, 37), WL(59, 37)], shade('#2E6A5C', 0.12));
-  px.poly([WL(59, 3), WL(71, 3), WL(71, 19), WL(59, 19)], shade('#2E6A5C', -0.08));
-  px.poly([WL(69, 17), WL(71, 17), WL(71, 19), WL(69, 19)], C.gold);
-  px.poly([WL(60, 47), WL(70, 47), WL(70, 54), WL(60, 54)], '#0E2A24');
-  px.text('AR', (a, b) => WL(61.5 + a, 52.5 - b), 1, '#7CF5B4', 1);
   // calendar (over the photo frame): month grid with a few marked days
   px.poly([WL(76, 21), WL(91, 21), WL(91, 40), WL(76, 40)], '#EDE8FF');
   px.poly([WL(76, 36), WL(91, 36), WL(91, 40), WL(76, 40)], C.pink);

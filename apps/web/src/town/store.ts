@@ -70,8 +70,8 @@ interface UI {
   scheduleDept: string | null;
   /** The CEO quest log window (brief 05). */
   questLog: boolean;
-  /** A sheet opened from a floor's control: the tools behind the server rack, or the template's station. */
-  floorSheet: 'tools' | 'station' | null;
+  /** The sheet a template's station opens on its floor. */
+  floorSheet: 'station' | null;
   /** The Skill library window: opened from a floor (that floor first) or the Executive Office, maybe on one skill. */
   skillLib: { deptId: string | null; skill: string | null } | null;
 }
