@@ -8,13 +8,14 @@ import type { Character, ChatMessage, ChatProgress, ChatProposal, Mood } from '@
 import { useStore, type BlockedTalk } from '../store';
 import { api, ApiError } from '../../api';
 import { answerTask, createQuest } from '../data/live';
+import { agentLabel, nameProfiles } from '../data/views';
 import { lookFor, quirkProp, type Look } from '../world/sprites';
 import { portrait, type Gag } from '../world/portrait';
 import { Icon } from './kit';
 
 const PAGE = 92;
 /** Replies longer than this many pages show their opening in the box and the whole text in a panel. */
-const LONG_PAGES = 2;
+const LONG_PAGES = 4;
 const CPS = 42;
 
 /** Split text into pages that fit the text bar: whole sentences where they fit, whole words otherwise. */
@@ -91,7 +92,6 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   hideInput?: boolean; inputHint?: string;
 }) {
   const [input, setInput] = useState('');
-  const [page, setPage] = useState(0);
   const [shown, setShown] = useState(0);
   const [muted, setMuted] = useState(readMuted);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -102,15 +102,15 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const full = !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
   const speech = error ?? (!ready ? (notReady ?? 'No chat model is set up yet. Finish the first quest (your NEAR AI key and the Chief of Staff model), then we can talk.')
     : full ? `${paginate(full.text).slice(0, LONG_PAGES).join(' ')} …` : lastAgent?.text ?? greeting);
-  const pages = useMemo(() => paginate(speech), [speech]);
-  const text = pages[Math.min(page, pages.length - 1)] ?? '';
+  // The whole reply types into one box that follows the text as it goes (no clicking through pages).
+  const text = speech;
   const typing = !waiting && shown < text.length;
-  const lastPage = page >= pages.length - 1;
-  const done = !waiting && !typing && lastPage;
+  const done = !waiting && !typing;
   const mood: Mood = waiting ? 'focused' : error ? 'worried' : lastAgent?.mood ?? baseMood;
 
-  useEffect(() => { setPage(0); setShown(0); }, [speech]);
-  useEffect(() => { setShown(0); }, [page]);
+  useEffect(() => { setShown(0); }, [speech]);
+  const textBox = useRef<HTMLDivElement>(null);
+  useEffect(() => { const el = textBox.current; if (el) el.scrollTop = el.scrollHeight; }, [shown, waiting, text]);
   useEffect(() => { if (!waiting) inputRef.current?.focus(); }, [waiting, who]);
   // Time-based typing: on a busy main thread a tick can add several characters, so the speed never drops.
   const typeStart = useRef(0);
@@ -125,7 +125,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
     return () => window.clearTimeout(id);
   }, [typing, shown, text, muted, who]);
 
-  const advance = () => { if (typing) setShown(text.length); else if (!lastPage) setPage((p) => p + 1); };
+  const advance = () => { if (typing) setShown(text.length); };
   const send = async (msg: string) => {
     const m = msg.trim(); if (!m || waiting || !ready) return;
     setInput('');
@@ -135,7 +135,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); onClose(); }
-      else if ((e.key === ' ' || e.key === 'Enter') && (typing || !lastPage) && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
+      else if ((e.key === ' ' || e.key === 'Enter') && typing && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -147,17 +147,17 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
 
   return (
     <div className="dlg" role="dialog" aria-modal="true" aria-label={`Talking to ${who?.name ?? 'agent'}`} style={{ ['--who' as string]: color }}>
-      <div className="dlg-bar top" />
+      <div className="dlg-bar dlg-top" />
       <div className="dlg-band" onClick={advance}>
         <div className="dlg-side">
           <PortraitCanvas look={look} mood={mood} talking={typing} size={384} gag={gag} />
         </div>
       </div>
-      <div className="dlg-bar bottom">
+      <div className="dlg-bar dlg-bottom">
         <div className="dlg-plate"><b>{who?.name ?? '…'}</b><span>{who?.title ?? ''}</span></div>
-        <div className="dlg-text" onClick={advance} aria-live="polite">
+        <div className="dlg-text" ref={textBox} onClick={advance} aria-live="polite">
           <span className="sr">{waiting ? status ?? 'Thinking' : speech}</span>
-          <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className={`dlg-caret${lastPage ? '' : ' more'}`}>{lastPage ? '■' : '▼'}</span>}</p>
+          <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className="dlg-caret">■</span>}</p>
         </div>
         {below}
         {done && full && <FullAnswer key={full.id} text={full.text} />}
@@ -211,6 +211,7 @@ export function DialogueWindow() {
 
 function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk }) {
   const d = useStore((s) => s.depts.find((x) => x.id === deptId));
+  const personas = useStore((s) => s.personas);
   const worker = agentKey === 'chief' ? null : d?.workers.find((w) => w.id === agentKey) ?? null;
   const close = useCallback(() => useStore.getState().ui$({ talk: null }), []);
 
@@ -261,9 +262,12 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
 
   if (!d) return null;
   const last = [...messages].reverse().find((m) => m.from === 'agent') ?? null;
+  // agents name teammates by profile id; the scene says their names
+  const named = (t: string) => nameProfiles(t, d.view.agents, (k) => agentLabel(k, personas[`${deptId}:${k}`]));
+  const lines = messages.map((m) => (m.from === 'agent' ? { ...m, text: named(m.text) } : m));
   return (
     <DialogueFrame
-      who={ch} look={look} lines={messages} ready={ready} waiting={waiting} status={progress} error={error} greeting={greeting}
+      who={ch} look={look} lines={lines} ready={ready} waiting={waiting} status={progress} error={error} greeting={greeting}
       notReady="I don't have a desk in Hermes yet. Sync this floor with Hermes first, then we can talk."
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
       defaultReplies={blocked ? ["What's the problem?", 'What do you need from me?'] : ['What are you working on?', 'How is the floor doing?', 'I have a job for you']}

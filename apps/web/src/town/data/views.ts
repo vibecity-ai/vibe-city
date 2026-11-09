@@ -9,6 +9,13 @@ import type { StatusKey } from '../ui/kit.tsx';
 
 /* ---------- names ---------- */
 
+/** Agents report teammates by their Hermes profile id (vc-0e8bd7b1c040-w01); the dialogue says their names instead. */
+export function nameProfiles(text: string, agents: readonly { key: string; profileRef: string | null }[], label: (key: string) => string): string {
+  let out = text;
+  for (const a of [...agents].sort((x, y) => (y.profileRef?.length ?? 0) - (x.profileRef?.length ?? 0))) if (a.profileRef) out = out.split(a.profileRef).join(label(a.key));
+  return out;
+}
+
 /** What the user calls an agent: its persona name, else "Lead" / "Teammate 2". Never a seat key or profile id. */
 export function agentLabel(key: string | null, ch?: Character | null): string {
   if (ch) return ch.name;
