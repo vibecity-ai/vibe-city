@@ -1740,3 +1740,21 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .ql-chip small { font: 500 10px var(--f-mono); color: var(--ink-mute); }
 .ql-chip.floor { border-color: rgba(240,165,60,.35); color: #F3C98A; }
 .ql-chip.on { border-color: rgba(111,214,154,.4); color: var(--mint); }
+
+/* ---------- the Chief of Staff's setup: the NEAR AI key and the model it thinks with (first quest, Executive Office) ---------- */
+.cos-setup { display: grid; gap: 14px; width: 100%; max-width: 520px; }
+.cos-field { display: grid; gap: 6px; }
+.cos-label { font: 600 11px var(--f-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); }
+.cos-help { font: 400 12px/1.5 var(--f-ui); color: var(--ink-mute); }
+.cos-help a { color: var(--amber); }
+.cos-keyset { display: inline-flex; align-items: center; gap: 8px; font: 500 13px var(--f-ui); color: var(--mint); }
+.cos-keyset .link { margin-left: 6px; font-size: 12px; }
+.cos-err { margin: 0; font: 500 12px/1.45 var(--f-ui); color: #FF8A9A; }
+.cos-act { display: flex; gap: 8px; flex-wrap: wrap; }
+.cos-card { display: grid; gap: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 12px; background: #141311; }
+.cos-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cos-now { display: flex; align-items: baseline; gap: 8px; min-width: 0; flex-wrap: wrap; }
+.cos-now small { font: 500 11px var(--f-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--ink-mute); }
+.cos-now b { font: 500 13px var(--f-mono); color: var(--ink); overflow-wrap: anywhere; }
+.cos-now i { font: 500 10px var(--f-mono); font-style: normal; color: var(--amber); border: 1px solid rgba(240,165,60,.35); border-radius: 4px; padding: 1px 5px; }
+.ql-now-act .cos-setup { margin-top: 2px; }

@@ -35,7 +35,8 @@ test('a pasted GitHub token is stored write-only and reaches only the Software D
 
 test('settings PATCH rejects fields that are not settable yet and values that are not a token', async () => {
   const { app } = provApp();
-  assert.equal((await patch(app, { nearAiApiKey: 'k' })).statusCode, 400);
+  assert.equal((await patch(app, { nearAiApiKey: 'two words' })).statusCode, 400);
+  assert.equal((await patch(app, { nearAiCreditsLoadedCents: 100 })).statusCode, 400, 'not settable yet');
   assert.equal((await patch(app, { githubToken: 'two words' })).statusCode, 400);
   assert.equal((await patch(app, { unknown: 1 })).statusCode, 400, 'strict schema');
   assert.equal((await app.inject('/api/company/settings')).json().githubConnected, !!process.env.GITHUB_TOKEN);

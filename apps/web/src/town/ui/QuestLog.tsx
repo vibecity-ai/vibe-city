@@ -9,6 +9,7 @@ import { api, ApiError } from '../../api';
 import { Icon, PixelSelect } from './kit';
 import { DeskSheet } from './Desk';
 import { acts, nextQuest, progressLabel, questTarget } from '../data/game';
+import { ChiefOfStaffSetup } from './ChiefOfStaff';
 
 const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
 
@@ -200,7 +201,8 @@ function MarketQuest() {
 export const JOB_LABEL: Record<MarketView['jobs'][number]['state'], string> = { working: 'In progress', submitted: 'Delivered', accepted: 'Paid', failed: 'Failed', closed: 'Closed' };
 
 /** The button (or note) that takes the CEO where the quest is done; the mapping lives in data/game.ts. */
-export function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
+/** compact: on a small screen (the CEO console) a form quest is a button to the Quest log, where its form is. */
+export function QuestAction({ q, onGo, compact }: { q: CeoQuest; onGo?: () => void; compact?: boolean }) {
   const s = useStore.getState();
   const go = (fn: () => void) => () => { onGo?.(); fn(); };
   const t = questTarget(q.id);
@@ -211,6 +213,9 @@ export function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
     case 'quest-board': return <button className="btn secondary small" onClick={go(() => s.openPanel('board', { composer: false, boardDept: null }))}>Open the Ops board</button>;
     case 'ipo': return <button className="btn primary small" disabled title="The IPO button arrives with the IPO work">Go public</button>;
     case 'github': return <GithubTokenForm />;
+    case 'cos': return compact
+      ? <button className="btn primary small" onClick={go(() => s.ui$({ questLog: true }))}>Set it up</button>
+      : <ChiefOfStaffSetup />;
     case 'market': return <MarketQuest />;
     case 'note': return <span className="ql-note">{t.text}</span>;
     default: return null;

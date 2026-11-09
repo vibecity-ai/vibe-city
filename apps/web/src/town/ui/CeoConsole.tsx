@@ -39,7 +39,7 @@ export function CeoConsole() {
             {next ? <>
               <h2 className="ceo-q">{next.title}</h2>
               <p className="scr-mono">{next.hint}</p>
-              <div className="ceo-act"><QuestAction q={next} />{next.unlocks && <span className="scr-mono ceo-unl">Unlocks: {next.unlocks}</span>}</div>
+              <div className="ceo-act"><QuestAction q={next} compact />{next.unlocks && <span className="scr-mono ceo-unl">Unlocks: {next.unlocks}</span>}</div>
             </> : <h2 className="ceo-q">The company is public.</h2>}
             <button className="ceo-log scr-mono" onClick={() => s.ui$({ questLog: true })}>Quest log · {progressLabel(game)} ▸</button>
           </section>

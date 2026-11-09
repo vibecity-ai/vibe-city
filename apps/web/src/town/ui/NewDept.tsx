@@ -65,7 +65,7 @@ function NewDept() {
     <DialogueFrame
       who={me?.character ?? null} look={look} lines={lines} ready={me?.modelReady ?? true} waiting={waiting} error={error}
       greeting="What do you need, boss? I can hire a whole team from our templates, find one specialist for a floor, or design a new floor with you: just describe it."
-      notReady="I can't draft floors without a chat model. Put NEAR_AI_API_KEY in the .env file and restart; templates and the form still work."
+      notReady="I can't think yet: finish the first quest (your NEAR AI key and my model). Templates and the form still work."
       baseMood="happy" defaultReplies={IDEAS} onSend={onSend} onClose={close}
       inputHint="Or describe a floor, e.g. “handles invoices and chases late payments”"
       below={

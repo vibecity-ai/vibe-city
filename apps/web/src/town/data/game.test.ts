@@ -5,7 +5,7 @@ import { decisionTarget, nextQuest, questTarget } from './game.ts';
 
 const fixture: GameState = {
   quests: [
-    { id: 'connect-ai', title: 'Connect NEAR AI Cloud', done: true, hint: '', unlocks: 'Hiring' },
+    { id: 'connect-ai', title: 'Set up your Chief of Staff', done: true, hint: '', unlocks: 'Hiring' },
     { id: 'connect-github', title: 'Connect GitHub', done: true, hint: '', unlocks: 'Software Department' },
     { id: 'treasury', title: 'Set up the treasury', done: false, hint: 'Create the company wallet…', unlocks: 'Treasury Ops' },
     { id: 'hire', title: 'Hire your first department', done: false, hint: '', unlocks: null },
@@ -22,7 +22,7 @@ test('the quest log highlights the first quest not done, and its button opens th
   assert.deepEqual(questTarget('first-job'), { kind: 'market' }, 'claim, go live and hire the agency');
   assert.deepEqual(questTarget('connect-hyperliquid'), { kind: 'connector', name: 'hyperliquid' });
   assert.equal(questTarget('policy'), null, 'the self-confirmed policy quest is gone');
-  assert.equal(questTarget('connect-ai')?.kind, 'note');
+  assert.equal(questTarget('connect-ai')?.kind, 'cos');
   assert.equal(nextQuest({ ...fixture, quests: fixture.quests.map((q) => ({ ...q, done: true })) }), null);
 });
 

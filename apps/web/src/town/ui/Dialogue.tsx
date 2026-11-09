@@ -100,7 +100,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   // Long answers (Hermes agents report results in full) would be many pages of clicking: the box types the opening and
   // the whole answer goes in a scrollable panel underneath.
   const full = !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
-  const speech = error ?? (!ready ? (notReady ?? 'No chat model is set up. Put NEAR_AI_API_KEY in the .env file and restart the container, then we can talk.')
+  const speech = error ?? (!ready ? (notReady ?? 'No chat model is set up yet. Finish the first quest (your NEAR AI key and the Chief of Staff model), then we can talk.')
     : full ? `${paginate(full.text).slice(0, LONG_PAGES).join(' ')} …` : lastAgent?.text ?? greeting);
   const pages = useMemo(() => paginate(speech), [speech]);
   const text = pages[Math.min(page, pages.length - 1)] ?? '';

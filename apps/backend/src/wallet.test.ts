@@ -147,6 +147,7 @@ test('Connect Hyperliquid is done only when OutLayer reports the owner\'s policy
   const saved = process.env.NEAR_AI_API_KEY; process.env.NEAR_AI_API_KEY = 'k'; // hiring itself waits for NEAR AI
   t.after(() => { if (saved === undefined) delete process.env.NEAR_AI_API_KEY; else process.env.NEAR_AI_API_KEY = saved; });
   const { app, outlayer } = setup();
+  await app.inject({ method: 'PATCH', url: '/api/company/settings', payload: { chiefOfStaffModel: 'deepseek/deepseek-v4.1-flash' } });
   const check = (name: string) => app.inject({ method: 'POST', url: `/api/wallet/connectors/${name}/check` });
   assert.equal((await check('hyperliquid')).statusCode, 400, 'no wallet yet');
   await app.inject({ method: 'POST', url: '/api/wallet/key', payload: { apiKey: KEY } });

@@ -2,7 +2,9 @@
 # shellcheck shell=sh
 # NEAR AI Cloud as the default model provider (OpenAI-compatible endpoint), configured from the environment.
 #
-#   NEAR_AI_API_KEY   required to enable it; never written to disk (Hermes reads it via key_env at call time)
+#   NEAR_AI_API_KEY   optional here: the CEO can paste the key in the game's first quest instead, and Vibe City writes
+#                     it into every agent profile's .env (Hermes reads it via key_env at call time). Not written by this
+#                     script either way.
 #   NEAR_AI_BASE_URL  default https://cloud-api.near.ai/v1
 #   NEAR_AI_MODEL     default model for a fresh Hermes home, default deepseek/deepseek-v4.1-flash
 #   NEAR_AI_REASONING_EFFORT  default high. Hermes' built-in "medium" is rejected by DeepSeek V4.x on NEAR
@@ -14,9 +16,9 @@
 #   - model.provider/model.default are only set (main config and every profile) while no provider has been chosen
 #     (unset or "auto"), so a choice made later in Hermes or in Vibe City is never overwritten on restart.
 
+# The provider is configured with or without the key: it only names the variable (key_env) the key is read from.
 if [ -z "${NEAR_AI_API_KEY:-}" ]; then
-    echo "[vibe-city] NEAR_AI_API_KEY is not set; NEAR AI Cloud is not configured."
-    exit 0
+    echo "[vibe-city] NEAR_AI_API_KEY is not set; NEAR AI Cloud is configured and waits for the key from the game."
 fi
 
 HERMES_HOME="${HERMES_HOME:-/opt/data}"

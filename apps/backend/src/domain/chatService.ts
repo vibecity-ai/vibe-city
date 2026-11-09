@@ -25,7 +25,8 @@ export interface ChatDeps {
   /** The gateway API server client. Omit: chat is unavailable (history still loads). */
   agentChat?: AgentChat;
   /** Extra variables every agent profile needs in its .env to answer through the gateway (its model provider's key). */
-  agentEnv?: Record<string, string>;
+  /** Read on each first chat: the NEAR AI key can be pasted in the game after the backend started. */
+  agentEnv?: () => Record<string, string>;
   hermes: HermesRuntime;
   /** Reads the department's board for the chat's snapshot. Omit: the agent is told the board cannot be read. */
   kanban?: KanbanApi;
@@ -129,7 +130,7 @@ export class ChatService {
     let key = row?.api_key;
     if (!key || rotate || !this.synced.has(profile)) {
       key = key && !rotate ? key : newKey();
-      await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv, API_SERVER_KEY: key });
+      await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv?.(), API_SERVER_KEY: key });
       this.synced.add(profile);
     }
     this.d.db.prepare(`INSERT INTO agent_chat (profile, api_key, session_id, created_at) VALUES (?, ?, ?, ?)

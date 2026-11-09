@@ -22,6 +22,7 @@ import { DeskSheet } from './Desk';
 import { Mark } from './Device';
 import { Wordmark } from './Wordmark';
 import { Directory, InTray, StatusBoard } from './ExecDesk';
+import { ChiefOfStaffCard } from './ChiefOfStaff';
 import { callAr } from './Hiring';
 import { PendingRequests } from './Requests';
 import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, NeedsInput, PersonaLine, TaskSteps } from './AgentView';
@@ -109,6 +110,7 @@ export function ExecPanel() {
       <div className="pane-scroll">
         <div className="ceo-wrap"><CeoConsole /></div>
         <InTray />
+        <ChiefOfStaffCard />
         <PendingRequests />
         <StatusBoard />
         <Directory />

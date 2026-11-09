@@ -18,6 +18,7 @@ import {
   CancellationStatusSchema, DepartmentArchivedSchema, DepartmentListSchema, LiveMessageSchema, QuestActivitySchema, QuestCreateSchema,
   QuestCreatedSchema, QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, ReconcileResultSchema, TEMPLATES,
 } from '@vibe-city/shared';
+import { ChiefOfStaffModelsSchema } from '@vibe-city/shared';
 import { z } from 'zod';
 import type { KanbanApi } from './hermes/kanbanApi.ts';
 import { QuestService } from './domain/questService.ts';
@@ -35,14 +36,14 @@ import { ChatService } from './domain/chatService.ts';
 import type { AgentChat } from './hermes/agentChat.ts';
 import { ModelFailedError, ModelUnavailableError, type ChatModel } from './model/chatModel.ts';
 import { HiringService } from './domain/hiringService.ts';
-import type { ModelPrices } from './model/nearPrices.ts';
+import { dailyCredits, type ModelPrices, type PriceList } from './model/nearPrices.ts';
 import { AssistantService } from './domain/assistantService.ts';
 import { QuestRequestService } from './domain/questRequests.ts';
 import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
-import { githubToken, register as registerCompany, secret } from './routes/company.ts';
+import { githubToken, nearAiKey, readSettings, register as registerCompany, secret } from './routes/company.ts';
 import { WalletService } from './domain/walletService.ts';
 import { register as registerWallet } from './routes/wallet.ts';
 import { register as registerAi } from './routes/ai.ts';
@@ -77,6 +78,12 @@ export interface AppServices {
   pushDepartmentEnv: () => Promise<void>;
   /** The Agent Market (brief 02). Call tick() periodically (the server does every 45 s) to take and deliver jobs. */
   market: MarketService;
+  /** The Chief of Staff's chat model (checks a NEAR AI key and model before the settings route saves them). */
+  chatModel: ChatModel;
+  /** NEAR AI Cloud's priced model list, when configured: the models the Chief of Staff may use. */
+  modelPrices: ModelPrices | null;
+  /** The model the Chief of Staff uses until the CEO picks one. */
+  chatModelDefault: string;
 }
 
 export interface ServicesExtra {
@@ -98,8 +105,11 @@ export interface ServicesExtra {
   chatModel?: ChatModel;
   /** The gateway API server, for the dialogue window's chat with an agent's own Hermes profile. Omit: agent chat answers 503. */
   agentChat?: AgentChat;
-  /** Variables each agent profile needs in its .env to answer through the gateway (e.g. NEAR_AI_API_KEY). */
+  /** Variables each agent profile needs in its .env to answer through the gateway (e.g. NEAR_AI_API_KEY from the
+      backend env). A NEAR AI key pasted in the game takes precedence over this one. */
   agentEnv?: Record<string, string>;
+  /** The Chief of Staff's model until the CEO picks one (NEAR_AI_MODEL / CHAT_MODEL in the container). */
+  chatModelDefault?: string;
   /** URL Hermes uses to reach the Vibe City MCP server. Set: every provisioned agent gets it in its config. */
   mcpUrl?: string;
   /** NEAR AI Cloud model prices for AR's shortlist. Omit: costs are guessed from model names. */
@@ -113,7 +123,15 @@ export function buildApp(db: DatabaseSync, hermes?: HermesRuntime): FastifyInsta
   return buildServices(db, hermes).app;
 }
 
+/** The Chief of Staff's model when neither the CEO nor the env chose one (the container's NEAR_AI_MODEL default). */
+export const DEFAULT_CHAT_MODEL = 'deepseek/deepseek-v4.1-flash';
+
 export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: ServicesExtra = {}): AppServices {
+  /** What every agent profile gets for NEAR AI Cloud: the key pasted in the first quest, else the backend env's. */
+  const aiEnv = (): Record<string, string> => {
+    const key = nearAiKey(db, extra.agentEnv?.NEAR_AI_API_KEY);
+    return { ...extra.agentEnv, ...(key ? { NEAR_AI_API_KEY: key } : {}) };
+  };
   const company = new CompanyService(db);
   const c = company.ensureCompany();
   const departments = new DepartmentService(db, c.id);
@@ -260,12 +278,12 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
 
   // ---- Characters and dialogue-window chat (feature spec 2.1, 2.2, 2.5) ----
-  const noModel: ChatModel = { ready: false, complete: async () => { throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.'); } };
+  const noModel: ChatModel = { ready: false, complete: async () => { throw new ModelUnavailableError('No chat model is configured. Add your NEAR AI API key in the first quest.'); } };
   const characters = new CharacterService(db);
   const chat = new ChatService({
     db, departments, characters, hermes: runtime, companyName: () => company.view().name,
     ...(extra.kanban ? { kanban: extra.kanban } : {}),
-    ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), ...(extra.agentEnv ? { agentEnv: extra.agentEnv } : {}),
+    ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), agentEnv: aiEnv,
   });
   /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */
   const sessionOf = (query: unknown): string | undefined => {
@@ -350,6 +368,16 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     companyId: () => company.view().id, companyName: () => company.view().name,
   });
   app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
+  // The models the Chief of Staff may think with (NEAR AI's priced list, cheapest per day first) and the one in use.
+  app.get('/api/assistant/models', async () => {
+    const list = extra.modelPrices ? await extra.modelPrices.list().catch(() => new Map() as PriceList) : new Map() as PriceList;
+    const chosen = readSettings(db).chiefOfStaffModel;
+    return parse(ChiefOfStaffModelsSchema, {
+      current: chosen ?? extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, chosen: !!chosen,
+      models: [...list].sort(([, a], [, b]) => dailyCredits(a) - dailyCredits(b))
+        .map(([id, p]) => ({ id, inPerM: Math.round(p.inPerM * 100) / 100, outPerM: Math.round(p.outPerM * 100) / 100, context: p.context })),
+    });
+  });
   app.post('/api/assistant/department-draft', async (req) =>
     parse(DeptDraftReplySchema, await assistant.draftDepartment(parse(DeptDraftRequestSchema, req.body).messages)));
 
@@ -366,7 +394,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const t = TEMPLATES.find((x) => x.id === departments.getRow(deptId).template_id);
     const gh = t?.id === 'software' ? githubToken(db) : null;
     const mkt = t?.id === 'marketplace-agency' ? secret(db, 'marketAgentToken') : null;
-    const env = { ...(gh ? { GH_TOKEN: gh } : {}), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
+    // every agent thinks with NEAR AI Cloud: the key (pasted in the first quest, else the backend env) goes to all floors
+    const env = { ...aiEnv(), ...(gh ? { GH_TOKEN: gh } : {}), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
     if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
     for (const p of profiles) await hermes.setProfileEnv(p, env);
   };
@@ -552,7 +581,10 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     recordOrigin: (id, q) => questRequests.recordOrigin(id, q, 'market'), model: extra.chatModel ?? noModel, companyName: () => company.view().name,
     ...(extra.marketFetch ? { fetch: extra.marketFetch } : {}), ...(extra.marketBaseUrl ? { baseUrl: extra.marketBaseUrl } : {}),
   });
-  const services: AppServices = { app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market };
+  const services: AppServices = {
+    app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market,
+    chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL,
+  };
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
   registerAi(app, services); registerGame(app, services); registerIpo(app, services); registerMarket(app, services);

@@ -6,6 +6,7 @@ import { loadConfig } from './config.ts';
 import { RealHermesRuntime } from './hermes/realRuntime.ts';
 import { KanbanClient } from './hermes/kanbanClient.ts';
 import { OpenAiCompatModel } from './model/chatModel.ts';
+import { nearAiKey, readSettings } from './routes/company.ts';
 import { NearModelPrices } from './model/nearPrices.ts';
 import { HermesAgentChat } from './hermes/agentChat.ts';
 import { NearAiCredits } from './domain/moneyService.ts';
@@ -26,12 +27,14 @@ const { app, provisioning, schedules, market } = buildServices(db, hermes, {
   live: { wsBaseUrl: cfg.hermesUrl.replace(/^http/, 'ws'), sessionToken: cfg.hermesToken ?? '' },
   ...(cfg.allowedOrigins ? { allowedOrigins: cfg.allowedOrigins } : {}),
   ...(cfg.webDist ? { webDist: cfg.webDist } : {}),
-  chatModel: new OpenAiCompatModel(cfg.chat), modelPrices: new NearModelPrices({ baseUrl: cfg.chat.baseUrl }), agentChat: new HermesAgentChat({ baseUrl: cfg.hermesApiUrl }),
+  // The Chief of Staff reads the key and model live: both can be set in the first quest without a restart.
+  chatModel: new OpenAiCompatModel({ ...cfg.chat, apiKey: () => nearAiKey(db, cfg.chat.apiKey), model: () => readSettings(db).chiefOfStaffModel ?? cfg.chat.model }),
+  chatModelDefault: cfg.chat.model, modelPrices: new NearModelPrices({ baseUrl: cfg.chat.baseUrl }), agentChat: new HermesAgentChat({ baseUrl: cfg.hermesApiUrl }),
   money: { credits: new NearAiCredits({ baseUrl: cfg.chat.baseUrl, orgId: cfg.near.billingOrgId, token: cfg.near.billingToken }), rpcUrl: cfg.near.rpc },
   // Profiles served by the multiplexed gateway read credentials only from their own .env, not this container's env.
   ...(process.env.NEAR_AI_API_KEY ? { agentEnv: { NEAR_AI_API_KEY: process.env.NEAR_AI_API_KEY } } : {}), ...(cfg.mcpUrl ? { mcpUrl: cfg.mcpUrl } : {}),
 });
-if (!cfg.chat.apiKey) console.warn('NEAR_AI_API_KEY is not set: AR interviews and the executive assistant cannot talk.');
+if (!nearAiKey(db, cfg.chat.apiKey)) console.warn('No NEAR AI API key yet: the Chief of Staff talks once the CEO adds one in the first quest.');
 
 // Schedules (feature spec 8): the backend fires due schedules by creating ordinary quests.
 setInterval(() => { void schedules.tick().catch((e) => console.warn('schedule tick failed:', (e as Error).message)); }, 30_000).unref();

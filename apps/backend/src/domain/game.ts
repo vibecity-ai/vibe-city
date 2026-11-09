@@ -39,8 +39,10 @@ interface Ctx { i: GameInput; textOf: (templates: string[]) => string[]; earnedC
 
 /** In display order. */
 export const CEO_QUESTS: readonly QuestDef[] = [
-  { id: 'connect-ai', title: 'Connect NEAR AI Cloud', unlocks: 'Hiring', done: (x) => x.i.settings.nearAiApiKeySet,
-    hint: 'Your agents think with NEAR AI Cloud models. Add your NEAR AI API key and the credits you loaded.' },
+  // First: the Chief of Staff (and every agent after it) thinks with NEAR AI Cloud, so the key comes before anything else.
+  { id: 'connect-ai', title: 'Set up your Chief of Staff', unlocks: 'Hiring',
+    done: (x) => x.i.settings.nearAiApiKeySet && x.i.settings.chiefOfStaffModel !== null,
+    hint: 'Paste your NEAR AI Cloud API key and pick the model your Chief of Staff thinks with. Every agent you hire uses the same key.' },
   { id: 'connect-github', title: 'Connect GitHub', unlocks: 'Software Department', done: (x) => x.i.settings.githubConnected,
     hint: 'Give the Software Department a GitHub token (a fine-grained personal access token) so its agents can push and open pull requests.' },
   { id: 'treasury', title: 'Set up the treasury', unlocks: 'Treasury Ops',

@@ -1028,6 +1028,8 @@ export const CompanySettingsSchema = z.object({
   /** When OutLayer last reported the owner's policy for that trading connector (the connect-* quests); null = never. */
   hyperliquidConnectedAt: z.string().nullable(),
   polymarketConnectedAt: z.string().nullable(),
+  /** The NEAR AI model the Chief of Staff (assistant and AR) thinks with; null = not chosen yet (the first quest). */
+  chiefOfStaffModel: z.string().nullable(),
 }).strict();
 export type CompanySettings = z.infer<typeof CompanySettingsSchema>;
 /** Write-only secrets are accepted here and never returned. */
@@ -1035,8 +1037,19 @@ export const CompanySettingsPatchSchema = z.object({
   nearAiApiKey: z.string().trim().min(1).max(500),
   nearAiCreditsLoadedCents: z.number().int().min(0).nullable(),
   githubToken: z.string().trim().min(1).max(500),
+  chiefOfStaffModel: z.string().trim().min(1).max(200).regex(/^[\w.:/-]+$/, 'That is not a model id.'),
 }).partial().strict();
 export type CompanySettingsPatch = z.infer<typeof CompanySettingsPatchSchema>;
+
+/** The models the Chief of Staff can think with: NEAR AI Cloud's priced list (cheapest first) and the one in use. */
+export const ChiefOfStaffModelsSchema = z.object({
+  /** The model the Chief of Staff uses right now (the chosen one, else the server default). */
+  current: z.string(),
+  /** Whether the CEO picked it (false: the server default is in use). */
+  chosen: z.boolean(),
+  models: z.array(z.object({ id: z.string(), inPerM: z.number(), outPerM: z.number(), context: z.number().int() }).strict()),
+}).strict();
+export type ChiefOfStaffModels = z.infer<typeof ChiefOfStaffModelsSchema>;
 
 export const WalletStateSchema = z.object({
   registered: z.boolean(),

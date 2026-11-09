@@ -7,7 +7,7 @@ import { memApp } from './testUtils.ts';
 
 const dept = (id: string, state: DepartmentView['state'] = 'ready') => ({ id, name: id, state }) as DepartmentView;
 const base = (): GameInput => ({
-  settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, marketAgentHandle: null, marketVerifiedAt: null, githubConnected: false, githubLogin: null, hyperliquidConnectedAt: null, polymarketConnectedAt: null },
+  settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, marketAgentHandle: null, marketVerifiedAt: null, githubConnected: false, githubLogin: null, hyperliquidConnectedAt: null, polymarketConnectedAt: null, chiefOfStaffModel: null },
   wallet: EMPTY_WALLET, departments: [], templateOf: {}, templates: TEMPLATES,
   usage: { byDepartment: [], companyTodayCents: 0, companySevenDayAvgCents: 0 }, totalMeteredCents: 0,
   questsByDept: {}, results: [], marketEarnedCents: 0, marketJobsPaid: 0, pendingApprovals: [],
@@ -16,7 +16,7 @@ const done = (i: GameInput, id: string) => deriveGame(i).quests.find((q) => q.id
 
 // each quest: an input where it is not done, and the change that makes it done
 const cases: Array<[string, (i: GameInput) => void]> = [
-  ['connect-ai', (i) => { i.settings.nearAiApiKeySet = true; }],
+  ['connect-ai', (i) => { i.settings.nearAiApiKeySet = true; i.settings.chiefOfStaffModel = 'deepseek/deepseek-v4.1-flash'; }],
   ['connect-github', (i) => { i.settings.githubConnected = true; }],
   ['treasury', (i) => { i.wallet = { ...EMPTY_WALLET, registered: true, binding: { accountId: 'boss.near', status: 'active' } }; }],
   ['hire', (i) => { i.departments = [dept('d1')]; }],
@@ -42,10 +42,12 @@ test('a security floor cannot finish first-ship', () => {
   assert.equal(done(i, 'first-ship'), false);
 });
 
-test('templates lock until NEAR AI is connected and their own quest is done', () => {
+test('templates lock until the Chief of Staff is set up (key and model) and their own quest is done', () => {
   const i = base();
   assert.ok(Object.values(deriveGame(i).locked).every(Boolean), 'nothing before NEAR AI');
   i.settings.nearAiApiKeySet = true;
+  assert.ok(Object.values(deriveGame(i).locked).every(Boolean), 'a key alone is not enough: the Chief of Staff needs a model');
+  i.settings.chiefOfStaffModel = 'deepseek/deepseek-v4.1-flash';
   let l = deriveGame(i).locked;
   assert.equal(l.software, true);
   i.settings.githubConnected = true;
@@ -57,7 +59,7 @@ test('templates lock until NEAR AI is connected and their own quest is done', ()
 
 test('a funded treasury opens Treasury Ops; perps and prediction markets wait for their connector policy', () => {
   const i = base();
-  i.settings.nearAiApiKeySet = true;
+  i.settings.nearAiApiKeySet = true; i.settings.chiefOfStaffModel = 'deepseek/deepseek-v4.1-flash';
   assert.equal(deriveGame(i).locked['treasury-ops'], true);
   i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'USDC', amount: '5000000', decimals: 6, source: 'intents', chain: 'near', usd: 5, logo: null }] };
   let l = deriveGame(i).locked;

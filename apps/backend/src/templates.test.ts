@@ -59,6 +59,8 @@ test('hiring the Trading Desk creates four agents and one disabled schedule; the
     assert.ok(off.every((t: any) => t.locked && t.unlocks === 'connect-ai'));
     process.env.NEAR_AI_API_KEY = 'test-key';
     const { app: on } = memApp();
+    assert.equal((await on.inject('/api/templates')).json()[0].unlocks, 'connect-ai', 'a key alone is not enough: the Chief of Staff needs a model');
+    await on.inject({ method: 'PATCH', url: '/api/company/settings', payload: { chiefOfStaffModel: 'deepseek/deepseek-v4.1-flash' } });
     const tl = (await on.inject('/api/templates')).json();
     assert.equal(tl.find((t: any) => t.id === 'trading-desk').unlocks, 'connect-hyperliquid');
     assert.equal(tl.find((t: any) => t.id === 'trading-desk').locked, true);

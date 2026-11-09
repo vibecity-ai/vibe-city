@@ -41,7 +41,7 @@ The Vibe City API has **no login**. It is published on loopback only. For remote
 
 ### Models: NEAR AI Cloud (default)
 
-The container uses [NEAR AI Cloud](https://cloud.near.ai) as its model provider. NEAR AI Cloud is an OpenAI-compatible endpoint (`https://cloud-api.near.ai/v1`). Set the key in `.env`:
+The container uses [NEAR AI Cloud](https://cloud.near.ai) as its model provider. NEAR AI Cloud is an OpenAI-compatible endpoint (`https://cloud-api.near.ai/v1`). The key can come two ways: paste it in the game's first quest ("Set up your Chief of Staff", together with the Chief of Staff's model), or set it in `.env`. A key pasted in the game wins; it is stored server-side and never returned by the API.
 
 ```
 NEAR_AI_API_KEY=...
@@ -53,12 +53,14 @@ NEAR_AI_REASONING_EFFORT=high
 
 On every start, `docker/cont-init.d/03-vibe-city-near` does three things before any Hermes service runs:
 
-- It writes a `providers.near-ai` block (name, `api`, `key_env: NEAR_AI_API_KEY`, `transport: chat_completions`) into the Hermes config.
+- It writes a `providers.near-ai` block (name, `api`, `key_env: NEAR_AI_API_KEY`, `transport: chat_completions`) into the Hermes config, with or without the key in `.env` (the block only names the variable).
 - It writes the same block into every existing profile, so department profiles created before the key was set can use it too.
 - While no provider has been chosen yet (`model.provider` unset or `auto`), it makes `near-ai` with `NEAR_AI_MODEL` the default. A provider chosen later is never overwritten.
 - Where `agent.reasoning_effort` is unset (Hermes then uses `medium`), it sets `NEAR_AI_REASONING_EFFORT` (default `high`), in the main config and every profile. DeepSeek V4.x on NEAR rejects `medium` with HTTP 400 ("reasoning_effort must be low, high, xhigh, max …"). Departments created later inherit the setting, because their profiles are cloned from `default`.
 
-Hermes' own workers read the key from the environment. The dialogue window is the exception: it talks to each agent's profile through the gateway API server, where Hermes multiplexes profiles and a profile reads credentials **only from its own `.env`**. So the backend writes `NEAR_AI_API_KEY` (and the profile's `API_SERVER_KEY`) into an agent's profile `.env` the first time someone chats with it, and again once after every restart, so a changed key propagates. Without the key, nothing is configured: provisioning and the UI still work, but quests cannot run.
+Under the gateway's profile multiplexing a profile reads credentials **only from its own `.env`**. So the backend writes `NEAR_AI_API_KEY` into every agent profile's `.env`: when the floor is provisioned, whenever the key is saved in the game (every existing floor at once), and with the profile's `API_SERVER_KEY` the first time someone chats with an agent. Without any key, provisioning and the UI still work, hiring stays locked behind the first quest, and quests cannot run.
+
+The Chief of Staff (the assistant and AR) is not a Hermes agent: the backend calls NEAR AI directly with the model chosen in the first quest (changeable later in the Executive Office), else `CHAT_MODEL` / `NEAR_AI_MODEL`, else `deepseek/deepseek-v4.1-flash`. Saving a key or a model first makes one tiny NEAR AI call with both, so a wrong key is refused instead of saved.
 
 The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
 
