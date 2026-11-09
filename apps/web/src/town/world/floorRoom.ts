@@ -75,6 +75,18 @@ export function stationStatic(c: IC, templateId: string) {
       box(c, 206, 12, 0, 22, 10, 11, '#3A2448', { top: '#5A3A6A' }); // the desk under it
       break;
     }
+    case 'marketplace-agency': {
+      // the job board: a cork board on legs with a JOBS header, and the delivery desk under it with parcels going out
+      standingScreen(c, 202, 26, 34, 10, 20, '#4A2E1C');
+      const S = face(c, 202, 26, 10, 34, 20);
+      quadOn(c, S, 0, 0, 34, 20, '#8A5A30', 0);
+      for (let i = 0; i < 14; i++) { const p = S(1 + hash(i, 11) * 32, 1 + hash(i, 12) * 18); px.dot(Math.floor(p[0]), Math.floor(p[1]), '#6E4424'); }
+      px.text('JOBS', (a, b) => S(2 + a, 1.5 + b), 1, '#F6E7C0');
+      box(c, 206, 12, 0, 22, 10, 11, '#3A2448', { top: '#5A3A6A' });
+      box(c, 209, 14, 11, 5, 4, 4, '#B07A40', { top: '#D09A5A' });
+      box(c, 215, 15, 11, 4, 3, 3, '#9A6A38', { top: '#C08A50' });
+      break;
+    }
     case 'token-treasury': {
       // the vault: a steel block with a round door facing the room, and a small DAO podium
       box(c, 204, 30, 0, 30, 8, 30, '#3A3A52', { top: '#5A5A78', left: '#4A4A66' });
@@ -138,6 +150,24 @@ export function stationLive(c: IC, templateId: string, lit: boolean) {
         quadOn(c, S, x, mid - body, 2, body * 2, up ? C.mint : C.red, on);
       }
       if (lit) L.add(...c.P(219, 26, 22), 46, C.mint, 0.3);
+      break;
+    }
+    case 'marketplace-agency': {
+      // job cards pinned in two rows; each moves working (cyan) -> delivered (gold) -> paid (mint), then a new one
+      const S = face(c, 202, 26, 10, 34, 20);
+      const cols = [C.cyan, C.gold, C.mint];
+      for (let r = 0; r < 2; r++) for (let k = 0; k < 4; k++) {
+        const i = r * 4 + k, x = 1.5 + k * 8, y = 7.5 + r * 6.5, st = Math.floor(t * 0.35 + hash(i, 21) * 3) % 3;
+        quadOn(c, S, x, y, 7, 5.5, lit ? '#E6DABA' : '#8C8470', 0);
+        quadOn(c, S, x + 1, y + 1.4, 4 + hash(i, 22) * 1.5, 0.6, '#6A6080', 0);
+        quadOn(c, S, x + 1, y + 2.6, 3 + hash(i, 23) * 2, 0.6, '#6A6080', 0);
+        quadOn(c, S, x, y + 4.2, 7, 1.3, cols[st]!, 0.7 * on);
+        const pin = S(x + 3.5, y + 0.3); px.dot(Math.floor(pin[0]), Math.floor(pin[1]), C.red, 0.4 * on);
+      }
+      // a payout coin on the desk, glinting now and then
+      const glint = Math.max(0, Math.sin(t * 1.3)) ** 6, p = c.P(222, 16, 11);
+      px.ellipse(p[0], p[1], 2.5, 1.4, C.gold, on);
+      if (lit) { L.add(...c.P(219, 26, 22), 40, '#FFD27A', 0.14); L.add(p[0], p[1], 8 + 8 * glint, C.gold, 0.5 * glint); }
       break;
     }
     case 'prediction-desk': {
