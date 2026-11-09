@@ -423,12 +423,18 @@ export const QUEST_STATUSES = [
 ] as const;
 export type QuestStatus = (typeof QUEST_STATUSES)[number];
 
+/** Reference files the CEO can attach to a job: Hermes caps one attachment at 25 MB. */
+export const QUEST_FILE_MAX_BYTES = 25 * 1024 * 1024;
+export const QUEST_FILES_MAX = 10;
+
 export const QuestCreateSchema = z.object({
   /** Client-generated UUID per form submission. Retrying the same request returns the same quest (no duplicates). */
   clientRequestId: z.string().uuid(),
   title: z.string().trim().min(1, 'title is required').max(200),
   objective: z.string().trim().min(1, 'objective is required').max(8000),
   instructions: z.string().trim().max(8000).optional(),
+  /** Names of the reference files the CEO attaches right after creating (listed in the brief so the lead looks for them). */
+  files: z.array(z.string().trim().min(1).max(200)).max(QUEST_FILES_MAX).optional(),
 }).strict();
 export type QuestCreate = z.infer<typeof QuestCreateSchema>;
 
@@ -556,8 +562,14 @@ export const AttachmentViewSchema = z.object({
   createdAt: iso,
   /** Vibe City download route. Hermes' stored_path is never exposed. */
   downloadUrl: z.string(),
+  /** A reference file the CEO attached (not an agent's output). */
+  fromCeo: z.boolean(),
 }).strict();
 export type AttachmentView = z.infer<typeof AttachmentViewSchema>;
+
+/** POST /api/departments/:id/quests/:questId/files (raw bytes, name in the x-filename header). */
+export const QuestFileAddedSchema = z.object({ attachment: AttachmentViewSchema }).strict();
+export type QuestFileAdded = z.infer<typeof QuestFileAddedSchema>;
 
 export const QuestResultsSchema = z.object({
   questId: z.string(),

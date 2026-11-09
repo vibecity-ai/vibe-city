@@ -1,16 +1,16 @@
 import {
-  HERMES_TASK_ID_RE, type ActivityEvent, type AttachmentView, type CancellationStatus, type QuestCreate, type QuestCreated,
+  HERMES_TASK_ID_RE, QUEST_FILE_MAX_BYTES, type ActivityEvent, type AttachmentView, type CancellationStatus, type QuestCreate, type QuestCreated,
   type QuestDetail, type QuestResults, type QuestSummary, type TaskNode,
 } from '@vibe-city/shared';
 import { HermesNotFoundError, HermesRejectedError } from '../hermes/ports.ts';
 import type { KanbanApi, RawRun, TaskDetail } from '../hermes/kanbanApi.ts';
 import { describeEvent } from './activity.ts';
 import { delegationRules } from './instructions.ts';
-import { ConflictError, NotFoundError } from './errors.ts';
+import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
 import type { DepartmentService } from './departmentService.ts';
 import { aggregateQuest, type AggNode } from './questAggregation.ts';
 import { runState } from './runTracker.ts';
-import { scrub } from './scrub.ts';
+import { safeFilename, scrub } from './scrub.ts';
 
 export const MAX_TREE_TASKS = 200;
 export const MAX_TREE_DEPTH = 8;
@@ -19,6 +19,9 @@ export const CANCEL_MARKER = '[vibe-city] cancel-requested';
 const MARKER_AUTHOR = 'vibe-city';
 /** Comment author of the boss's answers to blocked tasks, as the agent sees them on the board. */
 const ANSWER_AUTHOR = 'the boss (CEO)';
+/** `uploaded_by` of the reference files the CEO attaches, so they are told apart from the agents' output. */
+export const CEO_UPLOADER = 'vibe-city-ceo';
+const FILES_HEADING = '## Reference files from the CEO';
 const str = (v: unknown) => (typeof v === 'string' ? v : null);
 const iso = (t: number | null | undefined) => (t == null ? null : new Date(t * 1000).toISOString());
 const isTerminal = (s: string) => s === 'done' || s === 'archived';
@@ -39,19 +42,37 @@ interface Tree {
 }
 
 /** `lead` gets the quest; `teammates` are the other agents' profiles (empty: the lead does the work itself). */
-export function buildQuestBody(q: { title: string; objective: string; instructions?: string }, lead: string, teammates: string[]): string {
+export function buildQuestBody(q: { title: string; objective: string; instructions?: string; files?: string[] }, lead: string, teammates: string[]): string {
   return [
     `# Quest: ${q.title}`,
     '',
     '## Objective',
     q.objective,
     ...(q.instructions ? ['', '## Additional instructions', q.instructions] : []),
+    ...(q.files?.length ? ['', FILES_HEADING, ...q.files.map((f) => `- ${f}`), '', referenceRule(q.files.length)] : []),
     '',
     '## How to execute (department workflow)',
     'This task is a quest and you own it.',
     ...delegationRules(lead, teammates),
     'Complete every task with a summary of what you did (and which child tasks you created) and attach any output files.',
   ].join('\n');
+}
+
+const referenceRule = (n: number) =>
+  `The CEO attached ${n === 1 ? 'this file' : `these ${n} files`} to this task right after creating it. Before you plan, list the task's attachments `
+  + '(kanban_attachments) and read them: they are part of the brief. If one is not listed yet it is still uploading, so wait a minute and look again. '
+  + 'When a teammate needs a file, put its full path in their task.';
+
+/** The reference files the brief lists (a file added later is not in it, so the lead is told with a comment). */
+function listedFiles(body: string | null): string[] {
+  const at = body?.indexOf(`${FILES_HEADING}\n`) ?? -1;
+  if (at < 0) return [];
+  const out: string[] = [];
+  for (const line of body!.slice(at + FILES_HEADING.length + 1).split('\n')) {
+    if (!line.startsWith('- ')) break;
+    out.push(line.slice(2));
+  }
+  return out;
 }
 
 function extractObjective(body: string | null): string {
@@ -278,6 +299,7 @@ export class QuestService {
     return {
       id: a.id, taskId: a.task_id, filename: scrub(a.filename, 200) ?? 'file', contentType: a.content_type, size: a.size,
       createdAt: iso(a.created_at), downloadUrl: `/api/departments/${ctx.departmentId}/quests/${questId}/attachments/${a.id}`,
+      fromCeo: a.uploaded_by === CEO_UPLOADER,
     };
   }
 
@@ -353,13 +375,33 @@ export class QuestService {
     const ctx = this.ctx(departmentId, { requireReady: true });
     const { task, warning } = await this.kanban.createTask(ctx.board, {
       title: input.title,
-      body: buildQuestBody(input, ctx.lead, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
+      body: buildQuestBody({ ...input, files: [...new Set(input.files?.map(safeFilename))] }, ctx.lead, [...ctx.agents.keys()].filter((p) => p !== ctx.lead)),
       assignee: ctx.lead,
       // Same clientRequestId -> Hermes returns the existing task instead of creating a duplicate.
       idempotency_key: `vibe-city:${departmentId}:${input.clientRequestId}`,
       ...(ctx.maxRuntime ? { max_runtime_seconds: ctx.maxRuntime } : {}),
     });
     return { questId: task.id, hermesBoardSlug: ctx.board, warnings: warning ? [scrub(warning, 500)!] : [] };
+  }
+
+  /**
+   * Attaches a reference file from the CEO to the quest root, where the lead's worker context lists it. A file the
+   * brief did not announce (added after creation) also gets a comment, so a lead that already read the brief notices.
+   */
+  async addFile(departmentId: string, questId: string, file: { filename: string; contentType: string | null; bytes: Uint8Array }): Promise<AttachmentView> {
+    const ctx = this.ctx(departmentId);
+    const root = await this.resolveRoot(ctx, questId);
+    if (isTerminal(root.task.status)) throw new ConflictError('this job is finished, so a new file would never be read');
+    if (file.bytes.length === 0) throw new InvalidInputError('the file is empty');
+    if (file.bytes.length > QUEST_FILE_MAX_BYTES) throw new InvalidInputError('files can be at most 25 MB (the Hermes limit)');
+    const filename = safeFilename(file.filename);
+    const contentType = file.contentType && /^[\w.+-]+\/[\w.+-]+$/.test(file.contentType) ? file.contentType : null;
+    const a = await this.kanban.uploadAttachment(ctx.board, questId, { filename, contentType, bytes: file.bytes }, CEO_UPLOADER);
+    if (!listedFiles(root.task.body).includes(filename)) {
+      await this.kanban.addComment(ctx.board, questId, ANSWER_AUTHOR,
+        `I attached another reference file to this job: "${a.filename}". Read it with kanban_attachments and use it for the remaining work.`);
+    }
+    return this.attachmentView(ctx, questId, a);
   }
 
   // ---- cancellation --------------------------------------------------------------------

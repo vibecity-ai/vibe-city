@@ -17,6 +17,7 @@ import {
   settingsFormFrom, settingsPatch, taskStatusView, settingsErrorField, type SettingsForm,
 } from '../data/views';
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
+import { AttachTray, ReferenceFiles } from './QuestFiles';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { DeskSheet } from './Desk';
 import { Mark } from './Device';
@@ -851,6 +852,7 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
   const [title, setTitle] = useState('');
   const [obj, setObj] = useState('');
   const [instr, setInstr] = useState('');
+  const [files, setFiles] = useState<File[]>([]);
   const [dept, setDept] = useState<string | null>(() => defaultTarget(targets, s.ui.composerDept));
   const reqId = useRef<{ fingerprint: string; id: string } | null>(null);
   const target = targets.find((t) => t.id === dept && !t.disabled) ?? null;
@@ -860,8 +862,8 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
     e.preventDefault();
     if (!target || !title.trim() || !obj.trim() || busy) return;
     reqId.current = requestIdFor(JSON.stringify([target.id, title.trim(), obj.trim(), instr.trim()]), reqId.current, () => crypto.randomUUID());
-    const id = await createQuest(target.id, { clientRequestId: reqId.current.id, title: title.trim(), objective: obj.trim(), ...(instr.trim() && { instructions: instr.trim() }) });
-    if (id) { setTitle(''); setObj(''); setInstr(''); reqId.current = null; close(); }
+    const id = await createQuest(target.id, { clientRequestId: reqId.current.id, title: title.trim(), objective: obj.trim(), ...(instr.trim() && { instructions: instr.trim() }) }, files);
+    if (id) { setTitle(''); setObj(''); setInstr(''); setFiles([]); reqId.current = null; close(); }
   };
   return (
     <form className="composer printer" onSubmit={submit} aria-busy={busy} aria-labelledby="qc-h">
@@ -877,10 +879,11 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
       <Field label="Job title">{(p) => <input {...p} className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} autoFocus />}</Field>
       <Field label="Objective">{(p) => <textarea {...p} className="input" rows={3} maxLength={8000} value={obj} onChange={(e) => setObj(e.target.value)} />}</Field>
       <Field label="Extra instructions (optional)">{(p) => <textarea {...p} className="input" rows={2} maxLength={8000} value={instr} onChange={(e) => setInstr(e.target.value)} />}</Field>
+      <AttachTray files={files} onChange={setFiles} disabled={busy} />
       {target ? <small className="muted">Assigned to <b className="gold-n">{target.chief ? <AgentName deptId={target.id} agentKey="chief" /> : 'the lead'}</b></small> : <small className="muted">Choose a department that is ready.</small>}
       {target && !s.conn.gateway && <p className="field-err"><Glyph k="awaiting" />{GATEWAY_WARNING}</p>}
       </div>
-      <div className="printer-keys"><button className="dev-key hot" type="submit" aria-busy={busy || undefined} disabled={busy || !target || !title.trim() || !obj.trim()}>{busy ? 'Printing…' : 'Print to the rail'}</button><button className="dev-key" type="button" onClick={close} disabled={busy}>Cancel</button></div>
+      <div className="printer-keys"><button className="dev-key hot" type="submit" aria-busy={busy || undefined} disabled={busy || !target || !title.trim() || !obj.trim()}>{busy ? (files.length ? 'Printing and attaching…' : 'Printing…') : 'Print to the rail'}</button><button className="dev-key" type="button" onClick={close} disabled={busy}>Cancel</button></div>
     </form>
   );
 }
@@ -982,6 +985,7 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
                   {detail.warnings.map((w) => <div key={w} className="banner warn inline-b"><Glyph k="awaiting" /><div>{w}</div></div>)}
                   {detail.violations.length > 0 && <div className="banner bad inline-b"><Glyph k="failed" /><div><b>Tasks outside this department</b>{detail.violations.map((v) => <p key={v}>{v}</p>)}<p className="fine">Detected, not prevented: Hermes cannot stop an agent from creating them.</p></div></div>}
                   <h3 className="sec-t">Objective</h3><p className="box-p">{objectiveText(detail.objective, sum.title) || 'No objective written.'}</p>
+                  <ReferenceFiles deptId={item.deptId} questId={sum.id} status={sum.status} />
                   <h3 className="sec-t">Tasks <span className="count">{detail.counts.done}/{detail.counts.tasks} done</span></h3>
                   <TaskProgress c={detail.counts} />
                   <ul className="stack tasks">{treeRows(detail.tasks).map(({ node, depth }) => <TaskRow key={node.id} deptId={item.deptId} questId={sum.id} node={node} depth={depth} all={detail.tasks} />)}</ul>
@@ -1103,8 +1107,10 @@ function CancellationSection({ deptId, questId, status, tasks }: { deptId: strin
 
 function ResultsSection({ deptId, status, extra }: { deptId: string; status: QuestStatus; extra: ReturnType<typeof useStore.getState>['extra'][string] | undefined }) {
   const r = extra?.results;
-  const withOutput = r?.tasks.filter((t) => t.summary || t.error || t.attachments.length) ?? [];
-  const silent = (r?.tasks.length ?? 0) - withOutput.length;
+  // the CEO's own reference files are listed on the overview, not as output
+  const tasks = r?.tasks.map((t) => ({ ...t, attachments: t.attachments.filter((a) => !a.fromCeo) }));
+  const withOutput = tasks?.filter((t) => t.summary || t.error || t.attachments.length) ?? [];
+  const silent = (tasks?.length ?? 0) - withOutput.length;
   return (
     <section className="pane-sec" aria-busy={extra?.loading}>
       {extra?.loading && !r && <p className="muted">Loading…</p>}

@@ -64,7 +64,7 @@ const P: Record<string, ReactNode> = {
   sparkle: <path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z" />, plug: <path d="M9 3v5M15 3v5M7 8h10v4a5 5 0 01-10 0zM12 17v4" />,
   chip: <><rect x="7" y="7" width="10" height="10" rx="1" /><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" /></>,
   folder: <path d="M3 6h7l2 2h9v11H3z" />, shield: <path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z" />, gauge: <><path d="M4 16a8 8 0 1116 0" /><path d="M12 16l4-5" /></>,
-  file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /></>, download: <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />, ext: <path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" />,
+  file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /></>, clip: <path d="M20 11.5l-8.2 8.2a4.8 4.8 0 0 1-6.8-6.8l8.2-8.2a3.2 3.2 0 0 1 4.5 4.5l-8.2 8.2a1.6 1.6 0 0 1-2.3-2.3l7.6-7.6" />, download: <path d="M12 4v11M7 10l5 5 5-5M5 20h14" />, ext: <path d="M14 4h6v6M20 4l-9 9M18 14v6H4V6h6" />,
   refresh: <path d="M20 11a8 8 0 10-2.3 5.7M20 5v6h-6" />, lock: <><rect x="5" y="11" width="14" height="9" rx="1" /><path d="M8 11V8a4 4 0 018 0v3" /></>,
   more: <><circle cx="6" cy="12" r="1.2" /><circle cx="12" cy="12" r="1.2" /><circle cx="18" cy="12" r="1.2" /></>, fit: <path d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5" />,
   minus: <path d="M5 12h14" />, search: <><circle cx="11" cy="11" r="6" /><path d="M20 20l-4.5-4.5" /></>, bell: <path d="M6 16V11a6 6 0 0112 0v5l2 2H4zM10 20a2 2 0 004 0" />, phone: <path d="M5 4h4l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v4a1 1 0 01-1 1A16 16 0 014 5a1 1 0 011-1z" />, building: <path d="M5 21V5l7-3 7 3v16M9 9h1M14 9h1M9 13h1M14 13h1M10 21v-4h4v4" />,

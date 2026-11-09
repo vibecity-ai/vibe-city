@@ -1,5 +1,5 @@
 import { HermesAuthError, HermesNotFoundError, HermesRejectedError, HermesUnavailableError } from '../hermes/ports.ts';
-import type { CreateTaskInput, KanbanApi, RawAttachment, RawComment, RawEvent, RawRun, RawTask, TaskDetail } from '../hermes/kanbanApi.ts';
+import type { CreateTaskInput, KanbanApi, RawAttachment, UploadFile, RawComment, RawEvent, RawRun, RawTask, TaskDetail } from '../hermes/kanbanApi.ts';
 
 type Status = RawTask['status'];
 interface FTask extends RawTask { parents: string[] }
@@ -113,7 +113,7 @@ export class FakeKanban implements KanbanApi {
   attach(board: string, taskId: string, filename: string, text: string, stored_path = `/home/u/.hermes/kanban/boards/${board}/attachments/${taskId}/${filename}`): FAttach {
     const b = this.board(board);
     const bytes = new TextEncoder().encode(text);
-    const a: FAttach = { id: b.attachments.length + 1, task_id: taskId, filename, content_type: null, size: bytes.length, created_at: this.now(), bytes, stored_path };
+    const a: FAttach = { id: b.attachments.length + 1, task_id: taskId, filename, content_type: null, size: bytes.length, created_at: this.now(), uploaded_by: null, bytes, stored_path };
     b.attachments.push(a);
     this.event(b, taskId, 'attached', { filename });
     return a;
@@ -204,5 +204,24 @@ export class FakeKanban implements KanbanApi {
     const a = this.board(board).attachments.find((x) => x.id === attachmentId);
     if (!a) throw new HermesNotFoundError('attachment not found');
     return new Response(a.bytes as BodyInit, { status: 200, headers: { 'content-type': a.content_type ?? 'application/octet-stream' } });
+  }
+
+  async uploadAttachment(board: string, taskId: string, file: UploadFile, uploadedBy: string): Promise<RawAttachment> {
+    this.enter('uploadAttachment', [board, taskId, file.filename]);
+    const b = this.board(board);
+    this.task(b, taskId);
+    // Hermes' rules: basename only, no leading dots, a free name on collision
+    const base = file.filename.split(/[\\/]/).pop()!.replace(/^\.+/, '').slice(0, 200);
+    if (!base) throw new HermesRejectedError('Hermes 400: invalid filename');
+    let name = base;
+    for (let n = 1; b.attachments.some((x) => x.task_id === taskId && x.filename === name); n++) name = base.replace(/(\.[^.]*)?$/, `-${n}$1`);
+    const a: FAttach = {
+      id: b.attachments.length + 1, task_id: taskId, filename: name, content_type: file.contentType, size: file.bytes.length,
+      created_at: this.now(), uploaded_by: uploadedBy, bytes: file.bytes, stored_path: `/home/u/.hermes/kanban/boards/${board}/attachments/${taskId}/${name}`,
+    };
+    b.attachments.push(a);
+    this.event(b, taskId, 'attached', { filename: name });
+    const { bytes: _b, stored_path: _s, ...view } = a;
+    return view;
   }
 }

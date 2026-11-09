@@ -44,6 +44,11 @@ them with live calls.
 - Workspace paths are **not** isolation: an agent with the file tool can write anywhere the Hermes process can.
 - Attachment records carry an absolute `stored_path`; it is dropped at the adapter boundary and never exposed.
   Attachment ids are per board.
+- Uploading (v0.22.6): `POST /tasks/{id}/attachments?board=` takes multipart `file` plus optional `uploaded_by`,
+  caps a file at 25 MB (413), keeps only the basename and picks a free name on collision. The worker's context lists
+  a task's attachments with their paths; agents also have the `kanban_attachments` tool. There is no way to create
+  a task held until its files arrive (triage tasks may be auto-decomposed), so the CEO's reference files are uploaded
+  right after creation, the brief names them and tells the lead to wait for any not listed yet.
 - Task events include plumbing (heartbeats); `domain/activity.ts` filters them.
 
 ## MCP and chat

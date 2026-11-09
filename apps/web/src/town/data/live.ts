@@ -396,14 +396,38 @@ export async function provisionDepartment(id: string) {
   else if (status.error) st().toast(status.error.message, status.error.retryable ? 'warn' : 'bad');
 }
 
-export async function createQuest(deptId: string, input: { clientRequestId: string; title: string; objective: string; instructions?: string }) {
-  const out = await run(`quest:${deptId}`, 'Could not create the job', () => api.createQuest(deptId, input));
+/** Creates the job, then attaches the CEO's reference files to it (the brief already names them, so the lead looks for them). */
+export async function createQuest(deptId: string, input: { clientRequestId: string; title: string; objective: string; instructions?: string }, files: File[] = []) {
+  const out = await run(`quest:${deptId}`, 'Could not create the job', async () => {
+    const created = await api.createQuest(deptId, { ...input, ...(files.length && { files: files.map((f) => f.name) }) });
+    await uploadAll(deptId, created.questId, files);
+    return created;
+  });
   if (!out) return null;
   await refreshDept(deptId);
   for (const w of out.warnings) st().toast(w, 'warn');
   const d = st().depts.find((x) => x.id === deptId);
   st().toast(`Job created${d ? ` for ${d.name}` : ''} and assigned to ${(d && st().personas[`${d.id}:chief`]?.name) ?? 'its lead'}.`);
   return out.questId;
+}
+
+/** Uploads one at a time; returns the names that failed (each failure is toasted with its reason). */
+async function uploadAll(deptId: string, questId: string, files: File[]): Promise<string[]> {
+  const failed: string[] = [];
+  for (const f of files) {
+    try { await api.addQuestFile(deptId, questId, f); }
+    catch (e) { failed.push(f.name); st().toast(`"${f.name}" was not attached (${message(e)}). You can add it from the job.`, 'bad'); }
+  }
+  return failed;
+}
+
+/** Adds reference files to a job that is already running (the lead also gets a comment about each). */
+export async function addQuestFiles(deptId: string, questId: string, files: File[]) {
+  const out = await run(`files:${questId}`, 'Could not attach the files', () => uploadAll(deptId, questId, files));
+  if (!out) return;
+  const ok = files.length - out.length;
+  if (ok) st().toast(`${ok === 1 ? 'File' : `${ok} files`} attached. The lead was told on the board.`, 'good');
+  await loadQuest(deptId, questId, true);
 }
 
 export async function cancelQuest(deptId: string, questId: string) {

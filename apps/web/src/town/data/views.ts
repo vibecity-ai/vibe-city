@@ -4,6 +4,7 @@
 import type {
   CancellationStatus, CapabilityEntry, Character, DepartmentUpdate, DepartmentView, ProvisioningError, ProvisioningStatus, SyncCheck, TaskNode,
 } from '@vibe-city/shared';
+import { QUEST_FILE_MAX_BYTES, QUEST_FILES_MAX } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
 import type { StatusKey } from '../ui/kit.tsx';
 
@@ -187,4 +188,18 @@ export function cancellationView(c: CancellationStatus, tasks: Pick<TaskNode, 'i
 export function newerCancellation(prev: CancellationStatus | null | undefined, next: CancellationStatus): CancellationStatus {
   if (prev?.state === 'confirmed' && next.state !== 'confirmed') return prev;
   return next;
+}
+
+/** Reference files for a job: accepts what fits Hermes' limits and says why the rest did not (same name twice: kept once). */
+export function pickFiles<F extends { name: string; size: number }>(have: F[], picked: F[]): { files: F[]; error: string | null } {
+  const files = [...have];
+  const refused: string[] = [];
+  for (const f of picked) {
+    if (files.some((x) => x.name === f.name)) continue;
+    if (f.size === 0) refused.push(`"${f.name}" is empty`);
+    else if (f.size > QUEST_FILE_MAX_BYTES) refused.push(`"${f.name}" is over 25 MB`);
+    else if (files.length >= QUEST_FILES_MAX) refused.push(`a job takes at most ${QUEST_FILES_MAX} files`);
+    else files.push(f);
+  }
+  return { files, error: refused.length ? `${[...new Set(refused)].join('; ')}.` : null };
 }

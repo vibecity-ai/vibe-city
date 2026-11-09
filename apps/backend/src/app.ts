@@ -50,6 +50,7 @@ import { register as registerAi } from './routes/ai.ts';
 import { register as registerGame } from './routes/game.ts';
 import { register as registerIpo } from './routes/ipo.ts';
 import { register as registerMarket } from './routes/market.ts';
+import { register as registerQuestFiles } from './routes/questFiles.ts';
 import { MarketService } from './domain/marketService.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
@@ -588,5 +589,6 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
   registerAi(app, services); registerGame(app, services); registerIpo(app, services); registerMarket(app, services);
+  registerQuestFiles(app, services);
   return services;
 }
