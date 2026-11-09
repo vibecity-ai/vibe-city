@@ -8,48 +8,8 @@ import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Icon, PixelSelect } from './kit';
 import { DeskSheet } from './Desk';
-import { acts, nextQuest, progressLabel, questTarget } from '../data/game';
+import { acts, nextQuest, progressLabel, questTarget, sideQuests } from '../data/game';
 import { ChiefOfStaffSetup } from './ChiefOfStaff';
-
-const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
-
-/** Paste a fine-grained token for the Software Department. Write-only: the backend stores it and never sends it back. */
-function GithubTokenForm() {
-  const [token, setToken] = useState('');
-  const [busy, setBusy] = useState(false);
-  const s = useStore.getState();
-  const save = () => {
-    setBusy(true);
-    api.setCompanySettings({ githubToken: token.trim() })
-      .then(() => api.game()).then((game) => { useStore.setState({ game }); setToken(''); s.toast('GitHub connected. The Software Department can be hired.'); })
-      .catch((e) => s.toast(e instanceof ApiError ? e.message : 'That did not work.', 'bad')).finally(() => setBusy(false));
-  };
-  return (
-    <form className="ql-gh" onSubmit={(e) => { e.preventDefault(); if (token.trim()) save(); }}>
-      <p className="ql-note">
-        <a href={NEW_TOKEN_URL} target="_blank" rel="noreferrer">Create a fine-grained token on GitHub</a>, limited to the
-        repositories the agents may touch, with an expiry.
-      </p>
-      <details className="ql-note">
-        <summary>Permissions to grant</summary>
-        <ul>
-          <li>Repository access: <b>Only select repositories</b></li>
-          <li>Contents, Pull requests, Issues: <b>Read and write</b></li>
-          <li>Workflows: <b>Read and write</b> (DevOps edits CI)</li>
-          <li>Actions, Commit statuses: <b>Read-only</b> (CI logs and checks)</li>
-          <li>Metadata: <b>Read-only</b> (GitHub adds it)</li>
-        </ul>
-        Agents use it as <code>GH_TOKEN</code> for <code>git</code> and <code>gh</code>. Stored on the Vibe City server,
-        never shown again; paste a new one to replace it.
-      </details>
-      <div className="ql-gh-row">
-        <input className="input mono" type="password" autoComplete="off" spellCheck={false} placeholder="github_pat_…"
-          aria-label="GitHub fine-grained token" value={token} onChange={(e) => setToken(e.target.value)} />
-        <button className="btn primary small" type="submit" disabled={busy || !token.trim()}>Connect</button>
-      </div>
-    </form>
-  );
-}
 
 /** The caps OutLayer's connector needs before it opens orders (a stored policy is fail-closed without them). */
 const CONNECTOR_CAPS = { hyperliquid: 'max order, max daily volume and max leverage', polymarket: 'max order and max daily volume' } as const;
@@ -210,9 +170,7 @@ export function QuestAction({ q, onGo, compact }: { q: CeoQuest; onGo?: () => vo
     case 'safe': return <button className="btn primary small" onClick={go(() => { s.openExec(); s.ui$({ execModal: 'safe' }); })}>Open the safe</button>;
     case 'hire': return <button className="btn primary small" onClick={go(() => s.ui$({ modal: 'create' }))}>Hire a department</button>;
     case 'connector': return <ConnectorQuest name={t.name} />;
-    case 'quest-board': return <button className="btn secondary small" onClick={go(() => s.openPanel('board', { composer: false, boardDept: null }))}>Open the Ops board</button>;
-    case 'ipo': return <button className="btn primary small" disabled title="The IPO button arrives with the IPO work">Go public</button>;
-    case 'github': return <GithubTokenForm />;
+    case 'quest-board': return <button className="btn primary small" onClick={go(() => s.openPanel('board', { composer: true, boardDept: null }))}>Give Treasury Ops the launch</button>;
     case 'cos': return compact
       ? <button className="btn primary small" onClick={go(() => s.ui$({ questLog: true }))}>Set it up</button>
       : <ChiefOfStaffSetup />;
@@ -226,7 +184,7 @@ export function Pips({ g }: { g: GameState }) {
   const next = nextQuest(g);
   return (
     <span className="ql-pips" aria-hidden="true">
-      {g.quests.map((q) => <i key={q.id} className={q.done ? 'done' : q === next ? 'now' : ''} />)}
+      {g.quests.filter((q) => !q.side).map((q) => <i key={q.id} className={q.done ? 'done' : q === next ? 'now' : ''} />)}
     </span>
   );
 }
@@ -317,7 +275,28 @@ function QuestLog() {
             </section>
           );
         })}
-        {!next && <p className="ql-intro">Every quest is done. The company is public.</p>}
+        {sideQuests(game).length > 0 && (
+          <section className="ql-act current" aria-label="Side quests">
+            <h3 className="ql-act-t"><span className="ql-act-n">Side</span>Side quests<span className="ql-act-c">{sideQuests(game).filter((q) => q.done).length}/{sideQuests(game).length}</span></h3>
+            <p className="ql-act-b">Optional. Each opens another floor; the main line never waits on them.</p>
+            <ol className="ql-list">
+              {sideQuests(game).map((q) => q.done ? (
+                <li key={q.id} className="ql-row done">
+                  <span className="ql-mark" aria-hidden="true"><Icon n="check" size={11} sw={3} /></span>
+                  <span className="ql-row-t">{q.title}<span className="sr">, done</span></span>
+                  {q.unlocks && <span className="ql-unlocks">{unlock(q.unlocks, true)}</span>}
+                </li>
+              ) : (
+                <li key={q.id} className="ql-row now">
+                  <div className="ql-now-top"><span className="ql-mark" aria-hidden="true"><i /></span><span className="ql-row-t">{q.title}</span></div>
+                  <p className="ql-now-h">{q.hint}</p>
+                  <div className="ql-now-act"><QuestAction q={q} onGo={close} />{q.unlocks && <span className="ql-unlocks">Unlocks {unlock(q.unlocks, false)}</span>}</div>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+        {!next && <p className="ql-intro">Every main quest is done. The company is public.</p>}
     </DeskSheet>
   );
 }

@@ -9,7 +9,7 @@ import { ModelFailedError } from '../model/chatModel.ts';
 import { gameState } from './game.ts';
 import type { AppServices } from '../app.ts';
 
-type Stored = Partial<Omit<CompanySettings, 'nearAiApiKeySet' | 'githubConnected'>> & { secrets?: Record<string, unknown> };
+type Stored = Partial<Omit<CompanySettings, 'nearAiApiKeySet'>> & { secrets?: Record<string, unknown> };
 
 function stored(db: DatabaseSync): Stored {
   const r = db.prepare('SELECT settings_json FROM company_settings WHERE id = 1').get() as { settings_json: string } | undefined;
@@ -26,9 +26,6 @@ export function readSettings(db: DatabaseSync, env: NodeJS.ProcessEnv = process.
     outlayerAccountId: s.outlayerAccountId ?? null,
     marketAgentHandle: s.marketAgentHandle ?? null,
     marketVerifiedAt: s.marketVerifiedAt ?? null,
-    // the Software Department's token: stored through settings (brief 04), or GITHUB_TOKEN in the backend env (brief 01)
-    githubConnected: !!(secrets.githubToken || env.GITHUB_TOKEN),
-    githubLogin: s.githubLogin ?? null,
     hyperliquidConnectedAt: s.hyperliquidConnectedAt ?? null,
     polymarketConnectedAt: s.polymarketConnectedAt ?? null,
     chiefOfStaffModel: s.chiefOfStaffModel ?? null,
@@ -42,7 +39,7 @@ export function writeSettings(db: DatabaseSync, patch: Partial<Stored>): void {
     .run(JSON.stringify(next));
 }
 
-/** A write-only secret (GitHub token, OutLayer wallet key). Server-side only: never in a response. */
+/** A write-only secret (NEAR AI key, market token, OutLayer wallet key). Server-side only: never in a response. */
 export function secret(db: DatabaseSync, name: string): string | null {
   const v = stored(db).secrets?.[name];
   return typeof v === 'string' && v ? v : null;
@@ -56,24 +53,14 @@ export function nearAiKey(db: DatabaseSync, fallback: string | null | undefined 
   return secret(db, 'nearAiApiKey') ?? (fallback || null);
 }
 
-/** The token the Software Department's agents use as GH_TOKEN: the one pasted in the UI, else GITHUB_TOKEN from the env. */
-export function githubToken(db: DatabaseSync, env: NodeJS.ProcessEnv = process.env): string | null {
-  return secret(db, 'githubToken') ?? (env.GITHUB_TOKEN || null);
-}
-
 export function register(app: FastifyInstance, deps: AppServices) {
   app.get('/api/company/settings', async () => readSettings(deps.db));
   // Write-only secrets and the Chief of Staff's model. The first quest sends the NEAR AI key and the model together:
   // both are tried with one tiny NEAR AI call before anything is saved, so a typo never locks the company out.
   app.patch('/api/company/settings', async (req) => {
     const patch = CompanySettingsPatchSchema.parse(req.body);
-    const other = Object.keys(patch).filter((k) => !['githubToken', 'nearAiApiKey', 'chiefOfStaffModel'].includes(k));
+    const other = Object.keys(patch).filter((k) => !['nearAiApiKey', 'chiefOfStaffModel'].includes(k));
     if (other.length) throw new InvalidInputError(`not settable yet: ${other.join(', ')}`);
-    if (patch.githubToken) {
-      // a token is one line without spaces; it ends up as GH_TOKEN in the agents' .env
-      if (/\s/.test(patch.githubToken)) throw new InvalidInputError('That does not look like a GitHub token.');
-      setSecrets(deps.db, { githubToken: patch.githubToken });
-    }
     if (patch.nearAiApiKey !== undefined || patch.chiefOfStaffModel !== undefined) {
       if (patch.nearAiApiKey && /\s/.test(patch.nearAiApiKey)) throw new InvalidInputError('That does not look like a NEAR AI API key.');
       const key = patch.nearAiApiKey ?? nearAiKey(deps.db);
@@ -90,8 +77,8 @@ export function register(app: FastifyInstance, deps: AppServices) {
       if (patch.nearAiApiKey) setSecrets(deps.db, { nearAiApiKey: patch.nearAiApiKey });
       if (patch.chiefOfStaffModel) writeSettings(deps.db, { chiefOfStaffModel: patch.chiefOfStaffModel });
     }
-    // agents get the new key and token in their profile .env; the quests read settings through the 5 s game cache
-    if (patch.githubToken || patch.nearAiApiKey) await deps.pushDepartmentEnv();
+    // agents get the new key in their profile .env; the quests read settings through the 5 s game cache
+    if (patch.nearAiApiKey) await deps.pushDepartmentEnv();
     await gameState(deps, true);
     return readSettings(deps.db);
   });

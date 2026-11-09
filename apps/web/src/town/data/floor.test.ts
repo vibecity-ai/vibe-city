@@ -16,13 +16,13 @@ test('every template has a station whose tools the template actually gives its f
   }
   assert.equal(stationFor(null), null);
   assert.equal(stationFor('no-such-template'), null);
-  assert.equal(Object.keys(STATIONS).length, 8);
+  assert.equal(Object.keys(STATIONS).length, 4);
 });
 
 test('the tools report flags missing needs and risky extras, and stays neutral for floors without a template', () => {
-  const r = toolsReport('software', { allowedToolsets: ['file', 'web', 'browser', 'memory', 'kanban', 'image_gen'], allowedSkillIds: [] });
-  assert.deepEqual(r.needed.filter((x) => !x.on).map((x) => x.id), ['terminal', 'code_execution'], 'the Software floor cannot ship without these');
-  assert.deepEqual(r.extra.map((x) => x.id), ['browser', 'image_gen'], 'extras, risky first; base tools are never listed');
+  const r = toolsReport('trading-desk', { allowedToolsets: ['file', 'web', 'browser', 'memory', 'kanban', 'image_gen'], allowedSkillIds: [] });
+  assert.deepEqual(r.needed.filter((x) => !x.on).map((x) => x.id), ['terminal'], 'the Trading Desk cannot trade without it');
+  assert.deepEqual(r.extra.map((x) => x.id), ['browser', 'file', 'image_gen'], 'extras, risky first; base tools are never listed');
   assert.equal(r.extra[0]!.risky, true);
   const plain = toolsReport(undefined, { allowedToolsets: ['web', 'memory', 'terminal'], allowedSkillIds: [] });
   assert.equal(plain.plain, true);

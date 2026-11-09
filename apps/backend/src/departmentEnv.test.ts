@@ -27,7 +27,7 @@ test('a floor variable goes into every agent profile and is never sent back', as
 test('names Vibe City manages, bad names and multi-line values are refused', async () => {
   const t = questApp();
   const d = await t.readyDept('Eng');
-  for (const n of ['NEAR_AI_API_KEY', 'GH_TOKEN', 'API_SERVER_KEY', 'HERMES_HOME', 'PATH', 'lower_case', 'X', '1ABC']) {
+  for (const n of ['NEAR_AI_API_KEY', 'MARKET_AGENT_TOKEN', 'API_SERVER_KEY', 'HERMES_HOME', 'PATH', 'lower_case', 'X', '1ABC']) {
     assert.equal((await t.app.inject({ method: 'PUT', url: E(d.id, n), payload: { value: 'v' } })).statusCode, 400, n);
   }
   for (const value of ['', 'a\nb', 'x'.repeat(4097)]) {

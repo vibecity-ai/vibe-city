@@ -32,5 +32,5 @@ test('floor env names are UPPER_SNAKE and never one Vibe City or Hermes sets', (
   assert.equal(envNameProblem(''), null);
   assert.equal(envNameProblem('SERPAPI_API_KEY'), null);
   for (const n of ['lower', 'A', '9LIVES', 'WITH-DASH']) assert.match(envNameProblem(n)!, /capitals/, n);
-  for (const n of ['NEAR_AI_API_KEY', 'GH_TOKEN', 'HERMES_HOME', 'PATH']) assert.match(envNameProblem(n)!, /itself/, n);
+  for (const n of ['NEAR_AI_API_KEY', 'MARKET_AGENT_TOKEN', 'HERMES_HOME', 'PATH']) assert.match(envNameProblem(n)!, /itself/, n);
 });

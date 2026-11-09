@@ -1035,8 +1035,6 @@ export const CompanySettingsSchema = z.object({
   marketAgentHandle: z.string().nullable(),
   /** When market.near.ai last accepted the agent token (a 200 on the agent's assignments). */
   marketVerifiedAt: z.string().nullable(),
-  githubConnected: z.boolean(),
-  githubLogin: z.string().nullable(),
   /** When OutLayer last reported the owner's policy for that trading connector (the connect-* quests); null = never. */
   hyperliquidConnectedAt: z.string().nullable(),
   polymarketConnectedAt: z.string().nullable(),
@@ -1048,7 +1046,6 @@ export type CompanySettings = z.infer<typeof CompanySettingsSchema>;
 export const CompanySettingsPatchSchema = z.object({
   nearAiApiKey: z.string().trim().min(1).max(500),
   nearAiCreditsLoadedCents: z.number().int().min(0).nullable(),
-  githubToken: z.string().trim().min(1).max(500),
   chiefOfStaffModel: z.string().trim().min(1).max(200).regex(/^[\w.:/-]+$/, 'That is not a model id.'),
 }).partial().strict();
 export type CompanySettingsPatch = z.infer<typeof CompanySettingsPatchSchema>;
@@ -1144,7 +1141,8 @@ export const AiUsageSummarySchema = z.object({
 }).strict();
 export type AiUsageSummary = z.infer<typeof AiUsageSummarySchema>;
 
-export const CeoQuestSchema = z.object({ id: z.string(), title: z.string(), done: z.boolean(), hint: z.string(), unlocks: z.string().nullable() }).strict();
+/** side: optional (a connector or tool); the main line never waits on it. */
+export const CeoQuestSchema = z.object({ id: z.string(), title: z.string(), done: z.boolean(), hint: z.string(), unlocks: z.string().nullable(), side: z.boolean() }).strict();
 export type CeoQuest = z.infer<typeof CeoQuestSchema>;
 export const DecisionSchema = z.object({
   id: z.string(), kind: z.enum(['approval', 'owner_confirm', 'answer', 'budget']), departmentId: z.string(), title: z.string(), href: z.string(),
@@ -1172,7 +1170,7 @@ export type IpoState = z.infer<typeof IpoStateSchema>;
 /** UPPER_SNAKE, as Hermes stores it in a profile's .env. */
 export const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
 /** Set by Vibe City itself (keys from the company settings, the agents' API server key) or by Hermes: not editable here. */
-export const MANAGED_ENV_NAMES = ['NEAR_AI_API_KEY', 'API_SERVER_KEY', 'GH_TOKEN', 'MARKET_AGENT_TOKEN', 'OUTLAYER_API_KEY', 'OUTLAYER_WALLET_ID'] as const;
+export const MANAGED_ENV_NAMES = ['NEAR_AI_API_KEY', 'API_SERVER_KEY', 'MARKET_AGENT_TOKEN', 'OUTLAYER_API_KEY', 'OUTLAYER_WALLET_ID'] as const;
 export const isReservedEnvName = (n: string) =>
   (MANAGED_ENV_NAMES as readonly string[]).includes(n) || n.startsWith('HERMES_') || ['PATH', 'HOME', 'USER', 'SHELL', 'PWD', 'LANG', 'TERM', 'TZ'].includes(n);
 

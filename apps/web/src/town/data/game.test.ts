@@ -5,17 +5,17 @@ import { decisionTarget, nextQuest, questTarget } from './game.ts';
 
 const fixture: GameState = {
   quests: [
-    { id: 'connect-ai', title: 'Set up your Chief of Staff', done: true, hint: '', unlocks: 'Hiring' },
-    { id: 'connect-github', title: 'Connect GitHub', done: true, hint: '', unlocks: 'Software Department' },
-    { id: 'treasury', title: 'Set up the treasury', done: false, hint: 'Create the company wallet…', unlocks: 'Treasury Ops' },
-    { id: 'hire', title: 'Hire your first department', done: false, hint: '', unlocks: null },
+    { id: 'connect-ai', title: 'Set up your Chief of Staff', done: true, hint: '', unlocks: 'Hiring', side: false },
+    { id: 'connect-hyperliquid', title: 'Connect Hyperliquid', done: false, hint: '', unlocks: 'Trading Desk', side: true },
+    { id: 'treasury', title: 'Set up the treasury', done: false, hint: 'Create the company wallet…', unlocks: 'Treasury Ops', side: false },
+    { id: 'hire', title: 'Hire your first department', done: false, hint: '', unlocks: null, side: false },
   ],
   decisions: [], runway: { creditsRemainingCents: null, dailyBurnCents: 0, days: null, earnedCents: 0, estimated: true }, ipoUnlocked: false,
 };
 
 test('the quest log highlights the first quest not done, and its button opens the right panel', () => {
   const next = nextQuest(fixture)!;
-  assert.equal(next.id, 'treasury');
+  assert.equal(next.id, 'treasury', 'an open side quest is never next');
   assert.deepEqual(questTarget(next.id), { kind: 'safe' });
   assert.deepEqual(questTarget('hire'), { kind: 'hire' });
   assert.deepEqual(questTarget('market'), { kind: 'market' });
@@ -23,7 +23,9 @@ test('the quest log highlights the first quest not done, and its button opens th
   assert.deepEqual(questTarget('connect-hyperliquid'), { kind: 'connector', name: 'hyperliquid' });
   assert.equal(questTarget('policy'), null, 'the self-confirmed policy quest is gone');
   assert.equal(questTarget('connect-ai')?.kind, 'cos');
-  assert.equal(nextQuest({ ...fixture, quests: fixture.quests.map((q) => ({ ...q, done: true })) }), null);
+  assert.deepEqual(questTarget('dao-funds'), { kind: 'safe' });
+  assert.deepEqual(questTarget('ipo'), { kind: 'quest-board' }, 'Treasury Ops does the launch');
+  assert.equal(nextQuest({ ...fixture, quests: fixture.quests.map((q) => ({ ...q, done: !q.side })) }), null);
 });
 
 test('a decision href leads to its quest, the floor settings or a chat', () => {
@@ -35,10 +37,12 @@ test('a decision href leads to its quest, the floor settings or a chat', () => {
 
 test('the quest log groups quests into three acts in order, and counts progress', async () => {
   const { acts, progressLabel } = await import('./game.ts');
-  const g = { ...fixture, quests: [...fixture.quests, { id: 'ipo', title: 'IPO', done: false, hint: '', unlocks: 'IPO button' }, { id: 'new-quest', title: 'New', done: false, hint: '', unlocks: null }] };
+  const { sideQuests } = await import('./game.ts');
+  const g = { ...fixture, quests: [...fixture.quests, { id: 'ipo', title: 'IPO', done: false, hint: '', unlocks: 'the opening bell', side: false }, { id: 'new-quest', title: 'New', done: false, hint: '', unlocks: null, side: false }] };
   const a = acts(g);
   assert.deepEqual(a.map((x) => x.title), ['Set up the company', 'Earn', 'Go public']);
-  assert.deepEqual(a[0]!.quests.map((q) => q.id), ['connect-ai', 'connect-github', 'treasury', 'hire', 'new-quest']);
+  assert.deepEqual(a[0]!.quests.map((q) => q.id), ['connect-ai', 'treasury', 'hire', 'new-quest']);
   assert.deepEqual(a[2]!.quests.map((q) => q.id), ['ipo']);
-  assert.equal(progressLabel(g), '2 of 6 done');
+  assert.deepEqual(sideQuests(g).map((q) => q.id), ['connect-hyperliquid']);
+  assert.equal(progressLabel(g), '1 of 5 done', 'side quests do not count');
 });

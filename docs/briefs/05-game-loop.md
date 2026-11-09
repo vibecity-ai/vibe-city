@@ -91,3 +91,13 @@ refresh cycle.
   follow; runway null without credits, computed with; a department over budget yields a `budget` decision;
   `awaiting_input` yields an `answer` decision.
 - Web: the quest log renders from a fixture and the next quest's button opens the right panel.
+
+## Revised 2026-11-09 (quest progression)
+
+Main line, in three acts: **Set up** (`connect-ai`, `treasury`, `hire`, `market` "List on the Agent Market"), **Earn**
+(`first-job`, `dao-funds`: at least 6 NEAR in the company wallet, the Sputnik DAO factory deposit), **Go public**
+(`ipo`: done when Treasury Ops writes `[dao account=<name>.sputnik-dao.near]`; its purpose tells it how to create the
+vault through agent-custody). `ipoUnlocked` = `first-job` and `dao-funds` done. Side quests (`side: true` on
+`CeoQuestSchema`, never "next", not counted in progress): `connect-hyperliquid`, `connect-polymarket`. Removed:
+`first-ship`, `connect-github` (and the GitHub token setting), and the Software, Red Team, Blue Team and Token &
+Treasury templates.
