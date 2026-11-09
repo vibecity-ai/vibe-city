@@ -2,14 +2,15 @@
    chat with AR's head in the dialogue window that ends in a brief; AR leaves to scout; the shortlist shows four
    candidates (two serious, two joke); you can interview any of them, then hire one. Every number on a card comes from
    the backend: loadouts are built from what Hermes really offers, and the joke candidates' numbers are honestly bad. */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Candidate, ChatMessage, HiringRequestView, InterviewReply } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { lookFor } from '../world/sprites';
 import type { Gag } from '../world/portrait';
 import { DialogueFrame, PortraitCanvas, blip, readMuted, type Line } from './Dialogue';
-import { Icon, useDialog } from './kit';
+import { Icon } from './kit';
+import { DeskSheet } from './Desk';
 import { loadDeptInfo, refreshDept } from '../data/live';
 
 const POLL_MS = 15_000;
@@ -234,9 +235,7 @@ function Shortlist({ reqId }: { reqId: string }) {
   const [confirm, setConfirm] = useState<Candidate | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const ref = useRef<HTMLDivElement>(null);
   const close = useCallback(() => { if (confirm) setConfirm(null); else call(null); }, [confirm]);
-  useDialog(ref, true, close);
   if (!h || !h.brief) return null;
   const brief = h.brief;
   const hire = async (c: Candidate) => {
@@ -251,15 +250,13 @@ function Shortlist({ reqId }: { reqId: string }) {
     finally { setBusy(false); }
   };
   return (
-    <div className="hire-scrim">
-      <div className="hire" ref={ref} role="dialog" aria-modal="true" aria-labelledby="hire-t">
+    <DeskSheet title="Shortlist" wide onClose={close} className="hire">
         <header className="hire-head">
           <div>
             <span className="dlg-tag">Shortlist · {brief.departmentName}</span>
-            <h2 id="hire-t">{brief.focus}</h2>
+            <h2>{brief.focus}</h2>
             <span className="muted">Budget {brief.budgetPerDay} credits a day{brief.skills.length ? ` · wants ${brief.skills.join(', ')}` : ''}</span>
           </div>
-          <button className="dlg-icon" onClick={() => call(null)} aria-label="Close shortlist"><Icon n="x" size={14} /></button>
         </header>
         <div className="hire-grid">
           {h.candidates.map((c) => {
@@ -303,7 +300,6 @@ function Shortlist({ reqId }: { reqId: string }) {
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </DeskSheet>
   );
 }

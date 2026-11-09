@@ -195,6 +195,28 @@ function facadeFront(px: Pix, state: DeptState, em: number, num: number, power: 
   px.line(RF(0, 55), RF(140, 55), trim ? shade(C.pink, -0.25) : '#4A2444', 1, trim);
   px.line(LF(240, 0), LF(240, 56), '#6A5AA8');
 }
+/** What an agent seen through a floor's glass is doing, from its status and the clock (deterministic per seat, so
+ *  floors do not move in step): at work they sit at a desk typing; idle they wander to the coffee machine or a
+ *  colleague and back; a finished job gets a hop; a failure paces at the desk. `u` is the spot along the facade. */
+function behave(st: AgentStatus, j: number, t: number, num: number) {
+  const home = [44, 92, 136, 180, 214][j];
+  const desk = 24 + j * 44 + 11;
+  const still = { u: home, lift: 0, dir: 'f' as const, seated: false, frame: 0, flip: j % 2 === 1, mug: false, moving: false };
+  if (st === 'running') return { ...still, u: desk, dir: 'b' as const, seated: true };
+  if (st === 'failed') return { ...still, u: desk + Math.round(Math.sin(t * 1.3 + j) * 6), frame: Math.floor(t * 5) % 4, flip: Math.cos(t * 1.3 + j) < 0, moving: true };
+  if (st === 'completed') { const k = (t + j * 1.9 + num) % 6; return { ...still, lift: k < 0.6 ? Math.round(Math.sin((k / 0.6) * Math.PI) * 7) : 0 }; }
+  if (st !== 'idle') return still;
+  // idle: stay, walk to a spot, linger, walk back
+  const away = (j + num) % 3 === 0 ? 226 : Math.max(16, Math.min(226, home + ((j + num) % 2 ? 30 : -30)));
+  const per = 15 + ((j * 7 + num * 3) % 6), k = ((t + j * 4.3 + num * 2.1) % per) / per;
+  const go = (f: number) => home + (away - home) * f;
+  const walking = (f: number, back: boolean) => ({ ...still, u: go(back ? 1 - f : f), frame: Math.floor(t * 7 + j) % 4, flip: (away > home) !== back, moving: true });
+  if (k < 0.35) return still;
+  if (k < 0.5) return walking((k - 0.35) / 0.15, false);
+  if (k < 0.82) return { ...still, u: away, mug: away === 226, flip: away > home };
+  if (k < 0.97) return walking((k - 0.82) / 0.15, true);
+  return still;
+}
 export function floorFacade(px: Pix, L: Lights, t: number, d: Dept, T: number, shift: number, num: number, bk: Bakery, o: { faceA: number; hover: boolean; sel: boolean; flash: number; flashCol: string; shimmer: number; power: number; agents: FaceAgent[] }) {
   const P = faceP(T, shift);
   const blackout = o.power < 0.05;
@@ -205,14 +227,25 @@ export function floorFacade(px: Pix, L: Lights, t: number, d: Dept, T: number, s
   const LF = (a: number, h: number) => P(a, 0, h), RF = (b: number, h: number) => P(240, b, h);
   px.push(o.faceA);
   bk.draw(px, bk.get(`fb|${look}|${em}`, (q) => facadeBack(q, look, em)), shift, T);
-  o.agents.slice(0, 5).forEach((ag, j) => {
-    const a = [36, 84, 120, 156, 192][j] + 8, foot = LF(a, 7);
-    if (ag.ghost) { const g = ghostSprite(); px.sprite(g.img, null, foot[0] - AX, foot[1] - AY, false, 0.8); pip(px, 'awaiting', foot[0], foot[1] - 38); return; }
-    const run = ag.st === 'running', bob = run && Math.sin(t * 8 + j) > 0.4 ? 1 : 0;
-    const s = getSprite(ag.look, { dir: 'f', frame: run ? Math.floor(t * 6 + j) % 4 : 0, seated: false, type: 0 });
-    px.push(ag.st === 'disconnected' ? 0.45 : 1); px.sprite(s.img, s.sil, foot[0] - AX, foot[1] - AY - bob, j % 2 === 1); px.pop();
-    pip(px, ag.st, foot[0], foot[1] - 39);
-  });
+  const crew = o.agents.slice(0, 5).map((ag, j) => ({ ag, j, ...behave(ag.st, j, t, num) }));
+  for (const { ag, j, u, lift, dir, seated, frame, flip, mug } of crew) {
+    const foot = LF(u, 7);
+    if (ag.ghost) { const g = ghostSprite(); px.sprite(g.img, null, foot[0] - AX, foot[1] - AY, false, 0.8); pip(px, 'awaiting', foot[0], foot[1] - 38); continue; }
+    const sp = getSprite(ag.look, { dir, frame, seated, type: seated ? Math.floor(t * 7 + j) % 2 : 0 });
+    px.push(ag.st === 'disconnected' ? 0.45 : 1); px.sprite(sp.img, sp.sil, foot[0] - AX, foot[1] - AY - lift, flip); px.pop();
+    if (mug) { px.rect(Math.round(foot[0]) + 5, Math.round(foot[1]) - 15 - lift, 2, 3, '#F4EEFF'); px.dot(Math.round(foot[0]) + 7, Math.round(foot[1]) - 14 - lift, '#F4EEFF'); }
+    // a finished job: a hop and a pop of confetti
+    if (lift > 1) for (let k = 0; k < 4; k++) px.dot(Math.round(foot[0] - 6 + k * 4), Math.round(foot[1] - 44 - lift - (k % 2) * 3), [C.pink, C.cyan, C.gold, C.mint][k], 1, 1);
+    // typing: a few bright pixels float up off the screen
+    if (seated && ag.st === 'running') { const k = (t * 1.4 + j * 0.37) % 1; px.push(1 - k); px.dot(Math.round(foot[0] - 2 + j), Math.round(foot[1] - 30 - k * 12), C.cyan, 1, 1); px.pop(); }
+    pip(px, ag.st, foot[0], foot[1] - 39 - lift + (seated ? 3 : 0));
+  }
+  // two idle agents standing together chat: a speech bubble takes turns over their heads
+  for (const x of crew) for (const y of crew) {
+    if (x.j >= y.j || x.moving || y.moving || x.seated || y.seated || Math.abs(x.u - y.u) > 26) continue;
+    const who = Math.floor(t / 1.6 + x.j) % 2 ? x : y, q = LF(who.u, 7), bx = Math.round(q[0]) + 3, by = Math.round(q[1]) - 52;
+    px.rect(bx, by, 11, 7, '#F4EEFF'); px.dot(bx + 1, by + 7, '#F4EEFF'); for (let k = 0; k < 3; k++) if (Math.floor(t * 4) % 4 > k) px.dot(bx + 2 + k * 3, by + 3, '#2A2244');
+  }
   bk.draw(px, bk.get(`ff|${look}|${em}|${num}|${o.power}`, (q) => facadeFront(q, look, em, num, o.power)), shift, T);
   // drifting reflections on the glass
   px.push(0.12);
@@ -236,14 +269,63 @@ export function floorFacade(px: Pix, L: Lights, t: number, d: Dept, T: number, s
   if (em > 0.05) L.add(...P(120, -14, 26), 130, G.slit === C.cyan ? '#5AB8FF' : G.slit, 0.22 * em * o.faceA, 0.6);
   if (o.power > 0.3) L.add(...P(120, -6, 56), 120, C.pink, 0.12 * o.faceA, 0.4);
 }
-export function ghostFloor(px: Pix, t: number, T: number, a: number, hover: boolean) {
-  const hex = HEX(T);
+/** The next floor, under construction: bare concrete slabs and columns, scaffolding, hazard tape, work lamps and a
+ *  hologram "+" where the next department goes. Solid, so the tower never looks cut in half. */
+export function ghostFloor(px: Pix, L: Lights, t: number, T: number, a: number, hover: boolean, bk: Bakery) {
+  const P = faceP(T);
+  const LF = (u: number, h: number) => P(u, 0, h), RF = (b: number, h: number) => P(240, b, h);
   px.push(a);
-  px.push(hover ? 0.14 : 0.06); px.poly(hex, C.cyan, 0.3); px.pop();
-  for (let i = 0; i < 6; i++) px.line(hex[i], hex[(i + 1) % 6], C.cyan, 1, hover ? 1 : 0.7, [5, 4], Math.floor(t * 6));
-  px.line([240, T + 120], [240, T + 176], C.cyan, 1, 0.4, [3, 4]);
-  px.rect(109, T + 87, 22, 2, C.cyan, 1); px.rect(119, T + 77, 2, 22, C.cyan, 1);
+  bk.draw(px, bk.get('ghost', (q) => ghostStatic(q)), 0, Math.round(T));
+  // the hologram plus, breathing; brighter on hover
+  const k = hover ? 1 : 0.65 + 0.25 * Math.sin(t * 2.4);
+  const c = LF(120, 28);
+  px.push(k);
+  px.rect(c[0] - 13, c[1] - 1, 26, 3, C.cyan, 1); px.rect(c[0] - 1, c[1] - 13, 3, 26, C.cyan, 1);
+  px.rect(c[0] - 11, c[1], 22, 1, '#E8FDFF', 1); px.rect(c[0], c[1] - 11, 1, 22, '#E8FDFF', 1);
   px.pop();
+  // scan line sweeping the plus
+  const sy = c[1] - 14 + ((t * 18) % 30);
+  px.push(0.35 * k); px.rect(c[0] - 16, Math.round(sy), 33, 1, C.cyan, 1); px.pop();
+  // the work lamps blink their warning lights out of step
+  for (const [u, ph] of [[46, 0], [194, 1.7]] as const) if (Math.sin(t * 3 + ph) > 0.2) { const q = LF(u, 47); px.rect(Math.round(q[0]) - 1, Math.round(q[1]) - 1, 3, 2, C.amber, 1); }
+  if (hover) { const hex = HEX(T); for (let i = 0; i < 6; i++) px.line(hex[i], hex[(i + 1) % 6], C.cyan, 2, 1); }
+  px.pop();
+  L.add(...LF(120, 28), 90, C.cyan, (hover ? 0.5 : 0.3) * a, 0.8);
+  L.add(...LF(46, 40), 60, '#FFB46B', 0.25 * a, 0.7); L.add(...LF(194, 40), 60, '#FFB46B', 0.25 * a, 0.7);
+  void RF;
+}
+function ghostStatic(px: Pix) {
+  const P = faceP(0);
+  const LF = (u: number, h: number) => P(u, 0, h), RF = (b: number, h: number) => P(240, b, h);
+  // the shell: an open interior between two slabs, warm where the work lamps hang
+  px.poly([LF(0, 0), LF(240, 0), LF(240, 56), LF(0, 56)], '#1E1922');
+  px.poly([RF(0, 0), RF(140, 0), RF(140, 56), RF(0, 56)], '#2A2430');
+  px.poly([LF(4, 8), LF(236, 8), LF(236, 26), LF(4, 26)], '#2A2228');
+  for (const u of [46, 194]) { px.dither([LF(u - 30, 8), LF(u + 30, 8), LF(u + 22, 40), LF(u - 22, 40)], '#5A3E2C', 0.5); px.poly([LF(u - 16, 8), LF(u + 16, 8), LF(u + 10, 30), LF(u - 10, 30)], '#4A3426'); }
+  // materials inside: a pallet of blocks and a cement mixer
+  px.poly([LF(150, 8), LF(178, 8), LF(178, 15), LF(150, 15)], '#6E6672'); px.poly([LF(152, 15), LF(174, 15), LF(174, 20), LF(152, 20)], '#857C88');
+  px.line(LF(150, 11), LF(178, 11), '#4A4450'); px.line(LF(164, 8), LF(164, 20), '#4A4450');
+  const m = LF(84, 15).map(Math.round) as Pt; px.ellipse(m[0], m[1], 7, 6, '#C2643A'); px.ellipse(m[0] - 2, m[1] - 2, 3, 2, '#E08A54'); px.rect(m[0] - 1, m[1] + 5, 2, 4, '#3A3440');
+  // slabs: thick raw concrete with a lit lip and form-work marks
+  px.poly([LF(0, 0), LF(240, 0), LF(240, 8), LF(0, 8)], '#77707E'); px.line(LF(0, 8), LF(240, 8), '#A39CA8'); px.line(LF(0, 1), LF(240, 1), '#4E4856');
+  px.poly([LF(0, 48), LF(240, 48), LF(240, 56), LF(0, 56)], '#6A6372'); px.line(LF(0, 48), LF(240, 48), '#3A3440'); px.line(LF(0, 55), LF(240, 55), '#8E8796');
+  for (let u = 12; u < 240; u += 24) { px.line(LF(u, 1), LF(u, 7), '#625B6A'); px.line(LF(u, 49), LF(u, 55), '#5A5362'); }
+  px.poly([RF(0, 0), RF(140, 0), RF(140, 8), RF(0, 8)], '#5E5866'); px.poly([RF(0, 48), RF(140, 48), RF(140, 56), RF(0, 56)], '#544E5C');
+  // columns
+  for (const u of [0, 60, 120, 180, 233]) { px.poly([LF(u, 8), LF(u + 7, 8), LF(u + 7, 48), LF(u, 48)], '#77707E'); px.line(LF(u, 8), LF(u, 48), '#A39CA8'); px.line(LF(u + 7, 8), LF(u + 7, 48), '#4E4856'); }
+  for (const b of [44, 92, 133]) px.poly([RF(b, 8), RF(b + 7, 8), RF(b + 7, 48), RF(b, 48)], '#5E5866');
+  // scaffolding in front of the left face: two-pixel poles, plank decks, braces
+  for (const u of [14, 74, 134, 194]) { px.line(LF(u, 0), LF(u, 56), '#E0A84A', 2); px.line(LF(u + 1, 0), LF(u + 1, 56), '#8A5E22', 1); }
+  for (const h of [24, 40]) { px.poly([LF(10, h), LF(230, h), LF(230, h + 3), LF(10, h + 3)], '#9A6A34'); px.line(LF(10, h + 3), LF(230, h + 3), '#C88E4A'); }
+  for (const u of [14, 134]) { px.line(LF(u, 8), LF(u + 60, 24), '#B88A3A', 1); px.line(LF(u + 60, 27), LF(u, 40), '#B88A3A', 1); }
+  // hazard tape across the open edge: yellow and black
+  px.line(LF(6, 12), LF(234, 12), '#F0C23C', 3); px.line(LF(6, 12), LF(234, 12), '#1A1418', 3, 0, [5, 5]);
+  // work lamps on the ceiling slab
+  for (const u of [46, 194]) { const q = LF(u, 47).map(Math.round) as Pt; px.line(LF(u, 48), LF(u, 45), '#3A3440'); px.rect(q[0] - 3, q[1] + 2, 7, 3, '#FFE2B0', 1); }
+  // right face: a crane hook on its cable and the stencil
+  px.line(RF(112, 56), RF(112, 30), '#A39CA8', 1); px.rect(...(RF(112, 30).map(Math.round) as Pt), 3, 4, '#F0C23C');
+  px.text('NEXT', (a, b) => RF(14 + a, 36 - b), 2, '#A39CA8', 0);
+  px.line(LF(240, 0), LF(240, 56), '#A39CA8');
 }
 
 /* ------------------------------------------------------------------ penthouse */

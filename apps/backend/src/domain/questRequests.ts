@@ -88,8 +88,8 @@ export class QuestRequestService {
     const id = randomUUID();
     const base = { id, from: from.id, to: to?.id ?? null, label: to?.name ?? input.department, title: input.title, objective: input.objective, reason: input.reason };
     if (!to) return this.insert(base, 'rejected', `There is no department called "${input.department}".`);
-    if (to.id === from.id) return this.insert(base, 'rejected', 'A department cannot request a quest from itself. Plan the work on your own board.');
-    if (to.state !== 'ready') return this.insert(base, 'rejected', `${to.name} is not ready to take quests (${to.state}).`);
+    if (to.id === from.id) return this.insert(base, 'rejected', 'A department cannot request a job from itself. Plan the work on your own board.');
+    if (to.state !== 'ready') return this.insert(base, 'rejected', `${to.name} is not ready to take jobs (${to.state}).`);
     const p = this.policy(to.id);
     if (p.allowFrom !== '*' && !p.allowFrom.includes(from.id)) return this.insert(base, 'rejected', `${to.name} does not accept work from ${from.name}. The CEO can change that in ${to.name}'s settings.`);
     if (await this.openRequestBack(to.id, from.id)) {
@@ -98,7 +98,7 @@ export class QuestRequestService {
     const since = new Date(this.now().getTime() - DAY_MS).toISOString();
     const used = (this.d.db.prepare("SELECT COUNT(*) AS n FROM quest_request WHERE from_department_id = ? AND created_at > ? AND state IN ('created', 'pending_approval')").get(from.id, since) as { n: number }).n;
     const cap = this.policy(from.id).dailyCap;
-    if (used >= cap) return this.insert(base, 'pending_approval', `${from.name} has used its ${cap} agent-made quests for today. The CEO decides on this one.`);
+    if (used >= cap) return this.insert(base, 'pending_approval', `${from.name} has used its ${cap} agent-made jobs for today. The CEO decides on this one.`);
     const row = this.insert(base, 'created', null);
     return this.create(row.id);
   }

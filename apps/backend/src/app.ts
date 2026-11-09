@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
-  CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
+  CompanyRenameSchema, CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
   InventoryPatchSchema, InventorySchema, ChatSessionIdSchema, HERMES_TASK_ID_RE, TaskAnswerSchema, TaskStepsViewSchema,
 } from '@vibe-city/shared';
 import {
@@ -165,6 +165,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   };
 
   app.get('/api/company', async () => parse(CompanyViewSchema, company.view()));
+  app.patch('/api/company', async (req) => parse(CompanyViewSchema, company.rename(CompanyRenameSchema.parse(req.body).name)));
 
   app.get('/api/departments', async (req) => {
     const q = req.query as { includeArchived?: string };

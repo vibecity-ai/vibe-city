@@ -1,7 +1,7 @@
 /* The company quest board: the player's one board. It is a view over the department boards, which belong to the
    agents (each quest is still a root task on its department's Hermes board, assigned to that department's chief).
    Pure rules only, so they are testable without a browser:
-   - a department whose quests could not be loaded is reported as missing, never shown as "no quests";
+   - a department whose quests could not be loaded is reported as missing, never shown as "no jobs";
    - only ready departments can receive a quest; a stopped gateway is a warning (the quest queues), not a block. */
 import type { QuestStatus, TaskNode } from '@vibe-city/shared';
 import type { Dept } from './types.ts';
@@ -52,8 +52,8 @@ export function missingDepts(depts: Dept[], sync: Record<string, QuestSync>, her
   for (const d of depts) {
     if (dept && d.id !== dept) continue;
     const s = sync[d.id];
-    if (s === 'not_loaded') out.push({ id: d.id, name: d.name, sync: s, text: `${d.name}: quests not loaded (${why}). Its quests are missing from this board, not zero.` });
-    else if (s === 'out_of_date') out.push({ id: d.id, name: d.name, sync: s, text: `${d.name}: showing the last quests received (${why}).` });
+    if (s === 'not_loaded') out.push({ id: d.id, name: d.name, sync: s, text: `${d.name}: jobs not loaded (${why}). Its jobs are missing from this board, not zero.` });
+    else if (s === 'out_of_date') out.push({ id: d.id, name: d.name, sync: s, text: `${d.name}: showing the last jobs received (${why}).` });
   }
   return out;
 }
@@ -78,7 +78,7 @@ export function defaultTarget(options: DeptOption[], wanted: string | null): str
   return ok.length === 1 ? ok[0]!.id : null;
 }
 
-export const GATEWAY_WARNING = 'The Hermes gateway is not running: the quest will be created and wait in Queued until the gateway starts. Nothing runs before that.';
+export const GATEWAY_WARNING = 'The Hermes gateway is not running: the job will be created and wait in Queued until the gateway starts. Nothing runs before that.';
 
 /** Badge for the top bar: quests in the Needs attention column (from data actually loaded). */
 export const attentionCount = (quests: QuestItem[]) => quests.filter((q) => columnOf(q.summary.status) === 'attention').length;
@@ -144,4 +144,47 @@ export function crewOf(tasks: readonly TaskNode[] | undefined): string[] {
 /** Swimlanes: one per floor that has a quest in `list`, top floor first (the order of `depts`). */
 export function lanes(depts: Dept[], list: BoardQuest[]): { dept: Dept; floor: string; quests: BoardQuest[] }[] {
   return depts.map((d, i) => ({ dept: d, floor: 'F' + (depts.length - i), quests: list.filter((q) => q.deptId === d.id) })).filter((l) => l.quests.length > 0);
+}
+
+export interface TickerItem { tone: 'bad' | 'run' | 'ok'; text: string }
+/** The top bar's ticker, built only from what the boards say now: what needs the CEO first, then which floors are at
+ *  work, then the last three quests that finished. Empty when nothing is happening (the bar then says so). */
+export function tickerItems(depts: Dept[], quests: QuestItem[]): TickerItem[] {
+  const name = (id: string) => depts.find((d) => d.id === id)?.name ?? 'A floor';
+  const out: TickerItem[] = [];
+  for (const q of quests) if (columnOf(q.summary.status) === 'attention') out.push({ tone: 'bad', text: `${q.summary.title}: ${name(q.deptId)} needs you` });
+  for (const d of depts) {
+    const n = (d.chief?.status === 'running' ? 1 : 0) + d.workers.filter((w) => w.status === 'running').length;
+    if (n) out.push({ tone: 'run', text: `${d.name} · ${n} agent${n === 1 ? '' : 's'} at work` });
+  }
+  const done = quests.filter((q) => q.summary.status === 'completed' && q.summary.completedAt)
+    .sort((a, b) => b.summary.completedAt!.localeCompare(a.summary.completedAt!)).slice(0, 3);
+  for (const q of done) out.push({ tone: 'ok', text: `${q.summary.title} · done by ${name(q.deptId)}` });
+  return out;
+}
+
+/** DISPATCH-1 (the Ops board as a kitchen ticket rail): each column is a rail with a kitchen name; the plain name and
+ *  hint stay under it. */
+export const RAIL_NAME: Record<ColumnKey, string> = { queued: 'Order in', active: 'On the line', attention: 'Your call', finished: 'Served' };
+
+/** The rubber stamp on a quest's ticket: what the CEO must do, or how it ended. Fresh and cooking tickets have none. */
+export function ticketStamp(s: QuestStatus): { text: string; tone: 'bad' | 'warn' | 'ok' | 'void' } | null {
+  switch (s) {
+    case 'failed': return { text: 'Failed', tone: 'bad' };
+    case 'awaiting_input': return { text: 'Needs you', tone: 'warn' };
+    case 'in_review': return { text: 'Review', tone: 'warn' };
+    case 'completed': return { text: 'Done', tone: 'ok' };
+    case 'cancelled': return { text: 'Void', tone: 'void' };
+    default: return null;
+  }
+}
+
+/** A quest's objective as the CEO reads it: the planner often opens with a markdown heading that repeats the title
+ *  ("# Quest: Referral programme copy"); that line goes, and stray heading marks on the first line go with it. */
+export function objectiveText(objective: string, title: string): string {
+  const lines = objective.replace(/\r/g, '').split('\n');
+  const first = (lines[0] ?? '').replace(/^#+\s*/, '').replace(/^quest:\s*/i, '').trim();
+  if (first.toLowerCase() === title.trim().toLowerCase()) lines.shift();
+  else lines[0] = (lines[0] ?? '').replace(/^#+\s*/, '');
+  return lines.join('\n').trim();
 }

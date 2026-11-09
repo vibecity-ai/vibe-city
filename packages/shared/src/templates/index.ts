@@ -9,5 +9,7 @@ import { redTeam } from './red-team.ts';
 import { blueTeam } from './blue-team.ts';
 import { marketplaceAgency } from './marketplace-agency.ts';
 
+export { TEMPLATE_BASE_TOOLSETS } from './helpers.ts';
+
 export const TEMPLATES: readonly Template[] = [software, marketplaceAgency, treasuryOps, tradingDesk, tokenTreasury, predictionDesk, redTeam, blueTeam];
 export const templateById = (id: string) => TEMPLATES.find((t) => t.id === id) ?? null;

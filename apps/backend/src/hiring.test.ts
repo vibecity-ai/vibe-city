@@ -28,7 +28,7 @@ test('AR rings when a one-agent floor has quests piling up, and only once', asyn
   const call = (await app.inject('/api/hiring/current')).json().request;
   assert.equal(call.state, 'ringing');
   assert.equal(call.trigger.kind, 'no_workers');
-  assert.match(call.trigger.reason, /Research has \d+ quests on the board and one agent doing everything alone/);
+  assert.match(call.trigger.reason, /Research has \d+ jobs on the board and one agent doing everything alone/);
   // Declining closes it; the same reason does not ring again right away.
   await app.inject({ method: 'POST', url: `/api/hiring/requests/${call.id}/decline` });
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);

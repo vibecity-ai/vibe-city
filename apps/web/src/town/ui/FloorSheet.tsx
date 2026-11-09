@@ -4,11 +4,12 @@
    - The station (a template's own object): what the team works with, who on the team uses it, what the game reads
      from its results, and its recent quests. The Marketplace Agency's Job board lists its market.near.ai jobs instead:
      the ones delivered (submitted) or completed (accepted), as the backend's poller last saw them. */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { Inventory, MarketJob } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon, useDialog } from './kit';
+import { Icon } from './kit';
+import { DeskSheet } from './Desk';
 import { stationFor, toolsReport, type ToolLine } from '../data/floor';
 import { SkillBadge } from './Skills';
 import { JOB_LABEL } from './QuestLog';
@@ -36,11 +37,9 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
   const d = useStore((s) => s.depts.find((x) => x.id === deptId));
   const allQuests = useStore((s) => s.quests);
   const quests = useMemo(() => allQuests.filter((q) => q.deptId === deptId), [allQuests, deptId]);
-  const ref = useRef<HTMLDivElement>(null);
   const [inv, setInv] = useState<Inventory | null>(null);
   const [error, setError] = useState<string | null>(null);
   const close = () => useStore.getState().ui$({ floorSheet: null });
-  useDialog(ref, true, close);
   useEffect(() => { api.inventory(deptId).then(setInv).catch((e: ApiError) => setError(e.message)); }, [deptId]);
   const market = kind === 'station' && d?.view.templateId === 'marketplace-agency';
   const [jobs, setJobs] = useState<MarketJob[] | null>(null);
@@ -50,6 +49,7 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
   if (!d) return null;
   const templateId = d.view.templateId;
   const st = stationFor(templateId);
+  const sheetTitle = kind === 'tools' ? 'Tools & access' : st?.name ?? 'Station';
   const report = inv ? toolsReport(templateId, inv) : null;
   const s = useStore.getState();
   const lib = (skill: string | null) => { close(); s.ui$({ skillLib: { deptId, skill } }); };
@@ -60,11 +60,9 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
   const done = quests.filter((q) => q.summary.status === 'completed').slice(0, 4);
 
   return (
-    <div className="hire-scrim" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="hire exec-modal fs" ref={ref} role="dialog" aria-modal="true" aria-labelledby="fs-t">
+    <DeskSheet title={sheetTitle} onClose={close} className="exec-modal fs">
         <header className="hire-head">
-          <div><span className="dlg-tag">{d.name}</span><h2 id="fs-t">{kind === 'tools' ? 'Tools & access' : st?.name ?? 'Station'}</h2></div>
-          <button className="dlg-icon" onClick={close} aria-label="Close"><Icon n="x" size={14} /></button>
+          <div><span className="dlg-tag">{d.name}</span><h2>{sheetTitle}</h2></div>
         </header>
         {error && <p className="err-t" role="alert">{error}</p>}
         {!report && !error && <p className="muted small" role="status">Reading the loadout…</p>}
@@ -73,7 +71,7 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
           <>
             <p className="fs-lead">{report.plain
               ? 'This floor was not hired from a template, so there is no list of what it needs. These are the tools its agents can use.'
-              : missing ? `${missing} tool${missing === 1 ? '' : 's'} this floor needs ${missing === 1 ? 'is' : 'are'} switched off: its quests will stall.`
+              : missing ? `${missing} tool${missing === 1 ? '' : 's'} this floor needs ${missing === 1 ? 'is' : 'are'} switched off: its jobs will stall.`
               : risky ? `Everything this floor needs is on. ${risky} risky tool${risky === 1 ? ' it does not need is' : 's it does not need are'} on too: switch ${risky === 1 ? 'it' : 'them'} off unless you mean it.`
               : 'Everything this floor needs is on, and nothing more.'}</p>
             {!report.plain && <section aria-labelledby="fs-need"><h3 className="sec-t" id="fs-need">What the work needs</h3><ul className="fs-tools">{report.needed.map((t) => <ToolRow key={t.id} t={t} need />)}</ul></section>}
@@ -83,7 +81,7 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
                 <ul className="fs-skills">{report.skills.map((k) => <li key={k.id} className={k.on ? 'ok' : 'missing'}><button className="fs-sk" onClick={() => lib(k.id)}><SkillBadge name={k.id} size={12} /><b>{skillMeta(k.id).label}</b></button><span>{k.on ? (users([k.id]).join(', ') || 'Equipped') : 'Not equipped'}</span></li>)}</ul>
               </section>
             )}
-            <p className="fine">Memory, to-do, Kanban, skills and past-chat search are always on: every floor needs them. Changes take effect after a Sync.</p>
+            <p className="fine">{report.plain ? 'Kanban is always on.' : 'Skills, memory, the to-do list, past-chat search and asking back come with every template; Kanban is always on.'} Changes take effect after a Sync.</p>
             <div className="fs-act"><button className="btn primary small" onClick={toLoadout}>Change the loadout</button><button className="btn secondary small" onClick={() => lib(null)}>Skill library</button></div>
           </>
         )}
@@ -112,16 +110,15 @@ function FloorSheet({ kind, deptId }: { kind: 'tools' | 'station'; deptId: strin
                     </li>))}</ul>}
               </section>
             ) : <section aria-labelledby="fs-done"><h3 className="sec-t" id="fs-done">Recently finished</h3>
-              {done.length === 0 ? <p className="muted small">Nothing finished yet. Give the floor a quest.</p>
+              {done.length === 0 ? <p className="muted small">Nothing finished yet. Give the floor a job.</p>
                 : <ul className="fs-done">{done.map((q) => <li key={q.summary.id}><button className="link" onClick={() => { close(); s.openPanel('quest', { questId: q.summary.id, questFrom: 'board' }); }}>{q.summary.title}</button></li>)}</ul>}
             </section>}
             <div className="fs-act">
-              <button className="btn primary small" onClick={() => { close(); s.openPanel('board', { composer: true, composerDept: deptId, boardDept: deptId, boardFilter: 'all' }); }}>Give it a quest</button>
+              <button className="btn primary small" onClick={() => { close(); s.openPanel('board', { composer: true, composerDept: deptId, boardDept: deptId, boardFilter: 'all' }); }}>Give it a job</button>
               <button className="btn secondary small" onClick={() => s.ui$({ floorSheet: 'tools' })}>Tools & access</button>
             </div>
           </>
         )}
-      </div>
-    </div>
+    </DeskSheet>
   );
 }

@@ -1,5 +1,7 @@
 /* Hire a department from a template (docs/briefs/01-templates.md): the first step of the create form. Picking a
    template pre-fills the form (name, purpose, capabilities, the team) so the CEO can still change anything. */
+import { BASE, TOOL_INFO } from '../data/floor';
+import { SkillBadges } from './Skills';
 import { useEffect, useState } from 'react';
 import type { TemplateList } from '@vibe-city/shared';
 import { api, ApiError } from '../../api';
@@ -29,7 +31,8 @@ export function HireGrid({ onPick, onBlank, onAssistant, questTitle }: {
                   <span className="tpl-top"><b>{t.name}</b>
                     {t.locked ? <span className="tpl-lock"><Icon n="lock" size={12} />Unlocks after {quest}</span> : t.wallet === 'company' && <span className="tpl-chip" title="Spends from the shared company wallet">Wallet</span>}</span>
                   <span id={`tpl-${t.id}`} className="tpl-seats">{t.seats.map((s) => s.title).join(' · ')}</span>
-                  <span className="tpl-row"><i>Tools</i>{t.inventory.allowedToolsets.join(', ')}</span>
+                  <span className="tpl-row"><i>Tools</i>{t.inventory.allowedToolsets.filter((x) => !BASE.includes(x)).map((x) => TOOL_INFO[x]?.label ?? x).join(', ')}</span>
+                  {t.inventory.allowedSkillIds.length > 0 && <span className="tpl-row"><i>Skills</i><SkillBadges names={t.inventory.allowedSkillIds} max={9} size={11} /></span>}
                   <span className="tpl-row"><i>Budget</i>{t.dailyBudgetCredits} credits a day{t.loop ? ' · runs on a schedule' : ''}</span>
                   {!t.locked && quest && <span className="tpl-row"><i>Unlocked by</i>{quest}</span>}
                 </button>

@@ -106,7 +106,7 @@ export class ScheduleService {
       this.d.db.prepare('UPDATE schedule SET last_run_at = ?, last_quest_id = ?, last_error = NULL WHERE id = ?').run(this.iso(), created.questId, r.id);
       return true;
     } catch (e) {
-      const msg = `Could not create the quest: ${(e as Error).message}`.slice(0, 500);
+      const msg = `Could not create the job: ${(e as Error).message}`.slice(0, 500);
       this.d.db.prepare('UPDATE schedule_fire SET error = ? WHERE schedule_id = ? AND fire_at = ?').run(msg, r.id, fireKey);
       this.d.db.prepare('UPDATE schedule SET last_run_at = ?, last_error = ? WHERE id = ?').run(this.iso(), msg, r.id);
       return false;

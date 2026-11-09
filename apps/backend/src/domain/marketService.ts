@@ -171,7 +171,7 @@ export class MarketService {
       if (r.status === 'failed' || r.status === 'cancelled') return this.set(id, 'failed', `The quest ${r.status}; nothing was submitted.`);
       if (r.status !== 'completed') return;
       const md = deliverable(r);
-      if (!md) return this.set(id, 'failed', 'The quest finished without a written result; nothing was submitted.');
+      if (!md) return this.set(id, 'failed', 'The job finished without a written result; nothing was submitted.');
       await this.call('POST', `${path}/submit`, token, { deliverableMarkdown: md });
       return this.set(id, 'submitted', null);
     }

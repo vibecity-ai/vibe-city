@@ -179,6 +179,15 @@ function pushLog(deptId: string, taskId: string, kind: string, at: string) {
 }
 
 /** Refetches one department's quests (live-event hint). */
+/** Name the company: the rooftop sign, the entrance and the top bar change at once. Returns the error to show. */
+export async function renameCompany(name: string): Promise<string | null> {
+  try {
+    const c = await api.renameCompany(name);
+    raw.companyName = c.name; useStore.setState({ company: { name: c.name } });
+    return null;
+  } catch (e) { return e instanceof ApiError ? (e.issues[0]?.message ?? e.message) : 'Could not rename the company.'; }
+}
+
 export async function refreshDept(id: string) {
   const v = raw.depts.find((d) => d.id === id);
   if (!v) return;
@@ -388,22 +397,22 @@ export async function provisionDepartment(id: string) {
 }
 
 export async function createQuest(deptId: string, input: { clientRequestId: string; title: string; objective: string; instructions?: string }) {
-  const out = await run(`quest:${deptId}`, 'Could not create the quest', () => api.createQuest(deptId, input));
+  const out = await run(`quest:${deptId}`, 'Could not create the job', () => api.createQuest(deptId, input));
   if (!out) return null;
   await refreshDept(deptId);
   for (const w of out.warnings) st().toast(w, 'warn');
   const d = st().depts.find((x) => x.id === deptId);
-  st().toast(`Quest created${d ? ` for ${d.name}` : ''} and assigned to ${(d && st().personas[`${d.id}:chief`]?.name) ?? 'its lead'}.`);
+  st().toast(`Job created${d ? ` for ${d.name}` : ''} and assigned to ${(d && st().personas[`${d.id}:chief`]?.name) ?? 'its lead'}.`);
   return out.questId;
 }
 
 export async function cancelQuest(deptId: string, questId: string) {
   const t = gate.begin(`cancel:${questId}`);
-  const out = await run(`cancel:${questId}`, 'Could not cancel the quest', () => api.cancel(deptId, questId));
+  const out = await run(`cancel:${questId}`, 'Could not cancel the job', () => api.cancel(deptId, questId));
   if (!out) return;
   if (gate.current(`cancel:${questId}`, t)) applyCancellation(questId, out);
   // 202 means "accepted", not "cancelled": only a confirmed status says nothing is running any more.
-  if (out.state === 'confirmed') st().toast('Quest cancelled. Hermes confirms nothing is running.', 'good');
+  if (out.state === 'confirmed') st().toast('Job cancelled. Hermes confirms nothing is running.', 'good');
   else { st().toast('Cancellation requested. Waiting for Hermes to confirm every task stopped.', 'warn'); pollCancellation(deptId, questId); }
   await refreshDept(deptId);
 }

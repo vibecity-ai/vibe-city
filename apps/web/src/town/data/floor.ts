@@ -1,7 +1,7 @@
 /* What a department floor holds (pure, tested): the objects every floor shares, the station each template brings,
    and which tools each kind of floor really needs. The city draws and hit-tests the objects (world/floorRoom.ts); the
    sheets that open show this data. */
-import type { Inventory, Toolset } from '@vibe-city/shared';
+import { TEMPLATE_BASE_TOOLSETS, type Inventory, type Toolset } from '@vibe-city/shared';
 
 /* ---------------- tools ---------------- */
 
@@ -26,19 +26,20 @@ export const TOOL_INFO: Partial<Record<Toolset, ToolInfo>> = {
   x_search: { label: 'X search', does: 'Search posts on X.', risky: false },
   tts: { label: 'Voice', does: 'Turn text into speech.', risky: false },
   stt: { label: 'Transcription', does: 'Turn speech into text.', risky: false },
-  memory: { label: 'Memory', does: 'Remember facts across quests.', risky: false },
+  memory: { label: 'Memory', does: 'Remember facts across jobs.', risky: false },
   session_search: { label: 'Past chats', does: 'Search its own earlier conversations.', risky: false },
   skills: { label: 'Skills', does: 'Load the skills in its loadout.', risky: false },
   todo: { label: 'To-do list', does: 'Keep a checklist while it works.', risky: false },
-  kanban: { label: 'Kanban', does: 'Take and hand out quests on the floor\'s board.', risky: false },
+  kanban: { label: 'Kanban', does: 'Take and hand out jobs on the floor\'s board.', risky: false },
   context_engine: { label: 'Context', does: 'Manage long working context.', risky: false },
   connections: { label: 'Connections', does: 'Use the accounts connected to Hermes.', risky: true },
   clarify: { label: 'Ask back', does: 'Stop and ask a question when stuck.', risky: false },
   computer_use: { label: 'Computer use', does: 'Control a desktop with mouse and keyboard.', risky: true },
 };
 
-/** Always on for every floor (the floor cannot work without them), so not listed as "needed". */
-const BASE: readonly string[] = ['memory', 'todo', 'kanban', 'skills', 'session_search', 'context_engine', 'clarify'];
+/** Every template floor gets these (TEMPLATE_BASE_TOOLSETS) and every floor gets Kanban, so they are not listed as
+    "needed" or "extra". */
+export const BASE: readonly string[] = [...TEMPLATE_BASE_TOOLSETS, 'kanban', 'context_engine'];
 
 /* ---------------- stations: one per template ---------------- */
 
@@ -107,7 +108,7 @@ export type FloorObjectId = 'board' | 'lead' | 'meeting' | 'rack' | 'clock' | 'e
 
 /** What a click opens, so the screen copy and the test agree. */
 export const FLOOR_OBJECT_HELP: Record<FloorObjectId, string> = {
-  board: 'This floor\'s quests on the Ops board',
+  board: 'This floor\'s jobs on the Ops board',
   lead: 'The lead\'s profile and chat',
   meeting: 'The loadout: skills, tools, model',
   rack: 'Tools & access: what this floor needs',

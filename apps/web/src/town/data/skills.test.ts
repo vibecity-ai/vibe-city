@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
-import { TEMPLATES } from '@vibe-city/shared';
 import { STATIONS } from './floor.ts';
 import { schoolOf, rarityOf, skillLabel, skillMeta, skillState, toggleAllowance, templateSkills } from './skills.ts';
 

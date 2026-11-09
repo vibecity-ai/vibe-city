@@ -10,7 +10,7 @@ export const STATUS: Record<QuestStatus, StatusInfo> = {
   awaiting_input: { label: 'Needs input', tone: 'warn', hint: 'A task is blocked and waiting for a person.' },
   in_review: { label: 'In review', tone: 'warn', hint: 'A task is waiting for review.' },
   failed: { label: 'Failed', tone: 'bad', hint: 'Work stopped because a task failed.' },
-  completed: { label: 'Completed', tone: 'good', hint: 'Every task in the quest is done.' },
+  completed: { label: 'Completed', tone: 'good', hint: 'Every task in the job is done.' },
   cancelling: { label: 'Cancelling', tone: 'warn', hint: 'Cancellation was requested but Hermes has not confirmed that everything stopped.' },
   cancelled: { label: 'Cancelled', tone: 'neutral', hint: 'Hermes confirms no task is active and none can be restarted.' },
 };
@@ -32,7 +32,7 @@ export function formatBytes(n: number): string {
 /** What the chief finishing means, without implying the quest is done. */
 export function planningNote(q: Pick<QuestDetail, 'flags' | 'status'>): string | null {
   if (q.flags.planningComplete && q.status !== 'completed' && q.status !== 'cancelled' && q.status !== 'cancelling') {
-    return 'The lead has finished planning. The quest is complete only when every teammate task is done.';
+    return 'The lead has finished planning. The job is complete only when every teammate task is done.';
   }
   if (q.flags.planningComplete && !q.flags.delegated && q.status === 'completed') return 'The lead finished the work itself, without handing out tasks.';
   return null;

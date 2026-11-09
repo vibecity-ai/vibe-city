@@ -86,6 +86,7 @@ const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURICompone
 
 export const api = {
   company: (): Promise<CompanyView> => request('GET', '/api/company', CompanyViewSchema),
+  renameCompany: (name: string): Promise<CompanyView> => request('PATCH', '/api/company', CompanyViewSchema, { name }),
   departments: async (): Promise<DepartmentView[]> => (await request('GET', '/api/departments', DepartmentListSchema)).departments,
   department: (dept: string): Promise<DepartmentView> => request('GET', d(dept), DepartmentViewSchema),
   createDepartment: (input: Partial<DepartmentCreate> & { name: string }): Promise<DepartmentView> => request('POST', '/api/departments', DepartmentViewSchema, input),

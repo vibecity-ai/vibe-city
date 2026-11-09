@@ -30,7 +30,7 @@ const gc = (px: Pix): IC => ({ px, L: NULL_LIGHTS, t: 0, P: G, power: 1 });
 
 /* ================================================================== model (deterministic) */
 interface Bld { u: number; v: number; du: number; dv: number; h: number; col: string; neon: string; seed: number; tall: boolean; sign?: string; roof?: string; pool?: boolean }
-interface Prop { kind: 'palm' | 'lamp'; u: number; v: number; s: number; rim: string }
+interface Prop { kind: 'palm' | 'lamp' | 'bench' | 'bin' | 'hydrant' | 'stop' | 'planter' | 'news'; u: number; v: number; s: number; rim: string; axis?: 'u' | 'v' }
 interface Lt { x: number; y: number; r: number; c: string; i: number; sy: number }
 interface Model { back: Bld[]; front: Bld[]; backProps: Prop[]; frontProps: Prop[]; lotProps: Prop[]; lights: Lt[] }
 let MODEL: Model | null = null;
@@ -46,7 +46,7 @@ function model(): Model {
     const top = G(b.u + b.du, b.v, b.h); lights.push({ x: top[0], y: top[1], r: 50, c: b.neon, i: 0.35, sy: 1 });
   };
   // blocks around the tower lot (i, j) in a 424 x 274 grid; i = -1 is the bay
-  const blocks: [number, number, string][] = [[1, 0, 'deco'], [2, 0, 'tall'], [1, -1, 'parking'], [2, -1, 'deco'], [0, -1, 'park'], [3, 0, 'tall'], [3, -1, 'deco']];
+  const blocks: [number, number, string][] = [[1, 0, 'deco'], [2, 0, 'tall'], [1, -1, 'parking'], [2, -1, 'deco'], [0, -1, 'park'], [3, 0, 'tall'], [3, -1, 'deco'], [0, -2, 'court'], [1, -2, 'deco'], [2, -2, 'tall'], [3, -2, 'deco']];
   for (const [i, j, kind] of blocks) {
     const u0 = i * BU, v0 = j * BV;
     if (kind === 'park') {
@@ -55,6 +55,12 @@ function model(): Model {
     }
     if (kind === 'parking') {
       for (const pu of [40, 180, 320]) frontProps.push({ kind: 'lamp', u: u0 + pu, v: v0 + 105, s: 1, rim: '' });
+      continue;
+    }
+    if (kind === 'court') {
+      for (const [pu, pv] of [[6, 6], [176, 6], [6, 204], [176, 204], [354, 6], [354, 204]] as Pt[]) frontProps.push({ kind: 'lamp', u: u0 + pu, v: v0 + pv, s: 1, rim: '' });
+      for (const [pu, pv] of [[196, 30], [340, 120], [210, 190]] as Pt[]) frontProps.push({ kind: 'palm', u: u0 + pu, v: v0 + pv, s: 0.6 + hash(pu, pv) * 0.2, rim: hash(pv, pu) > 0.5 ? C.pink : C.cyan });
+      streetProps(frontProps, u0, v0, i * 3 + j + 10);
       continue;
     }
     // parcels: 3 along u x 2 along v
@@ -76,6 +82,7 @@ function model(): Model {
     }
     // sidewalk props on the block's front edges
     for (let k = 0; k < 4; k++) frontProps.push({ kind: k % 2 ? 'lamp' : 'palm', u: u0 + 30 + k * 95, v: v0 - 6, s: 0.6, rim: NEON[k % NEON.length] });
+    streetProps(frontProps, u0, v0, i * 3 + j + 10);
   }
   // promenade along the bay (coast road u -52..-12, seawall at u -64)
   for (let v = -380; v < 640; v += 80) { backProps.push({ kind: 'lamp', u: -58, v, s: 1, rim: '' }); if (Math.abs(v) % 160 === 60 || v % 160 === 0) backProps.push({ kind: 'palm', u: -58, v: v + 40, s: 0.55 + hash(v, 1) * 0.15, rim: hash(v, 2) > 0.5 ? C.pink : C.cyan }); }
@@ -87,11 +94,30 @@ function model(): Model {
   lotProps.push({ kind: 'palm', u: -6, v: 60, s: 0.85, rim: C.cyan });
   for (const v of [20, 100, 180]) lotProps.push({ kind: 'lamp', u: -6, v, s: 1, rim: '' });
   for (const u of [40, 140, 240, 340]) lotProps.push({ kind: 'lamp', u, v: 216, s: 1, rim: '' });
+  lotProps.push({ kind: 'bench', u: 60, v: -7, s: 1, rim: '', axis: 'u' }, { kind: 'bin', u: 82, v: -7, s: 1, rim: '' }, { kind: 'bench', u: 300, v: -7, s: 1, rim: '', axis: 'u' });
+  lotProps.push({ kind: 'stop', u: 220, v: -7, s: 1, rim: C.cyan, axis: 'u' }, { kind: 'hydrant', u: 150, v: -4, s: 1, rim: '' });
+  lotProps.push({ kind: 'planter', u: 364, v: 70, s: 1, rim: '' }, { kind: 'news', u: 364, v: 92, s: 1, rim: C.pink }, { kind: 'bench', u: 366, v: 128, s: 1, rim: '', axis: 'v' });
+  for (const p of [...backProps, ...frontProps, ...lotProps]) if (p.kind === 'stop') { const g = G(p.u, p.v, 14); lights.push({ x: g[0], y: g[1], r: 40, c: p.rim, i: 0.5, sy: 0.6 }); }
   for (const p of [...backProps, ...frontProps, ...lotProps]) if (p.kind === 'lamp') { const g = G(p.u, p.v, 0); lights.push({ x: g[0] - 4, y: g[1], r: 80, c: '#FFB46B', i: 0.45, sy: 0.5 }, { x: g[0] - 7, y: g[1] - 50, r: 30, c: '#FFC88A', i: 0.5, sy: 1 }); }
   const byDepth = (a: { u: number; v: number; dv?: number }, b: { u: number; v: number; dv?: number }) => G(a.u, a.v + (a.dv ?? 0))[1] - G(b.u, b.v + (b.dv ?? 0))[1];
   back.sort(byDepth); front.sort(byDepth); backProps.sort(byDepth); frontProps.sort(byDepth); lotProps.sort(byDepth);
   MODEL = { back, front, backProps, frontProps, lotProps, lights };
   return MODEL;
+}
+
+/** Street furniture along a block's two street-facing sidewalks (the -v edge and the +u edge). */
+function streetProps(out: Prop[], u0: number, v0: number, seed: number) {
+  const kinds: Prop['kind'][] = ['bench', 'bin', 'hydrant', 'planter', 'news', 'bench'];
+  for (const [k, pu] of [75, 125, 170, 220, 265, 320].entries()) {
+    if (hash(seed, k) < 0.35) continue;
+    const kind = kinds[(k + seed) % kinds.length]!;
+    out.push({ kind, u: u0 + pu, v: v0 - (kind === 'hydrant' ? 3 : 7), s: 1, rim: NEON[(k + seed) % NEON.length], axis: 'u' });
+  }
+  if (hash(seed, 9) > 0.4) out.push({ kind: 'stop', u: u0 + 140, v: v0 - 7, s: 1, rim: NEON[seed % NEON.length], axis: 'u' });
+  for (const [k, pv] of [20, 70, 110, 150, 190].entries()) {
+    const kind: Prop['kind'] = k % 2 ? 'lamp' : hash(seed, k + 20) > 0.5 ? 'palm' : (['bench', 'planter', 'bin'] as const)[(k + seed) % 3]!;
+    out.push({ kind, u: u0 + 366, v: v0 + pv, s: kind === 'palm' ? 0.55 + hash(seed, k) * 0.15 : 1, rim: NEON[(k + seed + 2) % NEON.length], axis: 'v' });
+  }
 }
 
 /* ================================================================== far skyline */
@@ -200,7 +226,7 @@ export function skyLife(px: Pix, L: Lights, t: number, openA: number, bk: Bakery
   }
   // blimp with a scrolling neon screen
   const bxp = -760 + ((t * 7) % 2000), byp = -600 + Math.sin(t * 0.4) * 5;
-  const msg = Math.floor(t / 4) % 3;
+  const msg = Math.floor(t / 4) % 2;
   bk.draw(px, bk.get('blimp' + msg, (q) => blimp(q, msg)), Math.round(bxp), Math.round(byp));
   if (Math.floor(t * 2) % 2) px.rect(bxp + 36, byp + 14, 2, 2, '#FF5C7A', 1);
   // airliner blinking across, high up
@@ -220,7 +246,7 @@ function blimp(px: Pix, msg: number) {
   px.poly([[-2, 4], [8, 8], [8, 12], [-2, 16]], '#2A2048'); px.poly([[0, 10], [10, 10], [10, 11], [0, 11]], '#1E1838');
   px.rect(30, 20, 18, 5, '#1E1838'); for (let k = 0; k < 4; k++) px.rect(32 + k * 4, 22, 2, 1, '#FFC77A', 1);
   px.rect(18, 7, 44, 9, '#0B0616');
-  const word = ['VIBE CITY', 'AGENTCORP', 'NEAR AI'][msg];
+  const word = ['VIBE CITY', 'NEAR AI'][msg];
   px.text(word, (a, b) => [18 + (44 - textWidth(word, 1)) / 2 + a, 9 + b], 1, msg === 1 ? C.cyan : C.pink, 1);
 }
 /** Puffy pixel clouds lit from below by the sun. */
@@ -322,25 +348,38 @@ export function ground(px: Pix) {
   for (let v = -1400; v < 280; v += 8) { const a = G(-70, v, 0), b = G(-70, v, 5); if (a[1] > HZ + 6) px.line(a, b, '#8C84B8'); }
   for (let u = -70; u < 2400; u += 8) { const a = G(u, 280, 0), b = G(u, 280, 5); if (a[1] > HZ + 6) px.line(a, b, '#8C84B8'); }
   px.line(G(-70, -1400, 5), G(-70, 280, 5), '#B8B0E0'); px.line(G(-70, 280, 5), G(2400, 280, 5), '#B8B0E0');
-  // street grid: roads every 424 (u) and 274 (v), sidewalks 12 wide
-  const ROADS_U = [-52, 372, 796, 1220], ROADS_V = [-326, -52, 222];
-  for (const ru of ROADS_U) road(px, true, ru);
-  for (const rv of ROADS_V) road(px, false, rv);
-  // crosswalks at intersections
-  for (const ru of ROADS_U) for (const rv of ROADS_V) {
-    for (let k = 0; k < 6; k++) { px.poly(quad(ru + 4 + k * 6, rv - 10, ru + 7 + k * 6, rv - 2), '#6A6298'); px.poly(quad(ru + 4 + k * 6, rv + 42, ru + 7 + k * 6, rv + 50), '#6A6298'); }
-    for (let k = 0; k < 6; k++) { px.poly(quad(ru - 10, rv + 4 + k * 6, ru - 2, rv + 7 + k * 6), '#6A6298'); px.poly(quad(ru + 42, rv + 4 + k * 6, ru + 50, rv + 7 + k * 6), '#6A6298'); }
-  }
-  // blocks
+  // street grid: roads every 424 (u) and 274 (v), sidewalks 12 wide. Block bases first, then the streets over
+  // them (paved sidewalks, asphalt, markings), then what is inside each block.
+  const ROADS_U = [-52, 372, 796, 1220], ROADS_V = [-600, -326, -52, 222];
+  const blocks: { u0: number; v0: number; kind: string }[] = [];
   for (let i = 0; i <= 3; i++) for (let j = -2; j <= 0; j++) {
     if (i === 0 && j === 0) continue;
     const u0 = i * BU, v0 = j * BV;
-    const kind = i === 0 && j === -1 ? 'park' : i === 1 && j === -1 ? 'parking' : 'lot';
+    blocks.push({ u0, v0, kind: i === 0 && j === -1 ? 'park' : i === 1 && j === -1 ? 'parking' : i === 0 && j === -2 ? 'court' : 'lot' });
     px.poly(quad(u0 - 12, v0 - 12, u0 + 372, v0 + 222), '#3A3062');
-    px.line(G(u0 - 12, v0 - 12), G(u0 + 372, v0 - 12), '#5A5090'); px.line(G(u0 + 372, v0 - 12), G(u0 + 372, v0 + 222), '#4A4280');
-    if (kind === 'park') park(c, u0, v0);
-    else if (kind === 'parking') parking(c, u0, v0);
-    else px.poly(quad(u0, v0, u0 + 360, v0 + 210), '#2A2248');
+  }
+  for (const ru of ROADS_U) sidewalks(px, true, ru, ROADS_V);
+  for (const rv of ROADS_V) sidewalks(px, false, rv, ROADS_U);
+  for (const ru of ROADS_U) asphalt(px, true, ru);
+  for (const rv of ROADS_V) asphalt(px, false, rv);
+  for (const ru of ROADS_U) markings(px, true, ru, ROADS_V);
+  for (const rv of ROADS_V) markings(px, false, rv, ROADS_U);
+  // zebra crossings and stop bars at every intersection
+  for (const ru of ROADS_U) for (const rv of ROADS_V) {
+    for (let k = 0; k < 7; k++) {
+      px.poly(quad(ru + 3 + k * 5.4, rv - 10, ru + 6 + k * 5.4, rv - 2), '#C8C0EC', 0.06); px.poly(quad(ru + 3 + k * 5.4, rv + 42, ru + 6 + k * 5.4, rv + 50), '#C8C0EC', 0.06);
+      px.poly(quad(ru - 10, rv + 3 + k * 5.4, ru - 2, rv + 6 + k * 5.4), '#C8C0EC', 0.06); px.poly(quad(ru + 42, rv + 3 + k * 5.4, ru + 50, rv + 6 + k * 5.4), '#C8C0EC', 0.06);
+    }
+    px.poly(quad(ru + 20, rv - 14, ru + 39, rv - 12.5), '#E8E0FF'); px.poly(quad(ru + 1, rv + 52.5, ru + 20, rv + 54), '#E8E0FF');
+    px.poly(quad(ru - 14, rv + 1, ru - 12.5, rv + 20), '#E8E0FF'); px.poly(quad(ru + 52.5, rv + 20, ru + 54, rv + 39), '#E8E0FF');
+  }
+  for (const b of blocks) {
+    const { u0, v0 } = b;
+    px.line(G(u0 - 12, v0 - 12), G(u0 + 372, v0 - 12), '#6A62A0'); px.line(G(u0 + 372, v0 - 12), G(u0 + 372, v0 + 222), '#554C8A');
+    if (b.kind === 'park') park(c, u0, v0);
+    else if (b.kind === 'parking') parking(c, u0, v0);
+    else if (b.kind === 'court') court(c, u0, v0);
+    else courtyard(px, u0, v0);
   }
   plaza(px);
   marina(c, 'v', 280, [60, 150, 250, 340, 460, 560, 680, 800]);
@@ -373,15 +412,113 @@ function marina(c: IC, side: 'u' | 'v', at: number, spots: number[]) {
     }
   }
 }
-function road(px: Pix, alongV: boolean, at: number) {
-  const R = (a0: number, a1: number, b0: number, b1: number) => (alongV ? quad(a0, b0, a1, b1) : quad(b0, a0, b1, a1));
-  const b0 = alongV ? -1400 : -52, b1 = alongV ? (at === -52 ? 262 : 262) : 2400;
-  px.poly(R(at - 12, at + 52, b0, b1), '#3A3062');
-  px.poly(R(at, at + 40, b0, b1), '#16112A');
-  const L2 = (a: number, b: number): Pt => (alongV ? G(a, b) : G(b, a));
-  px.line(L2(at, b0), L2(at, b1), '#5A5090'); px.line(L2(at + 40, b0), L2(at + 40, b1), '#5A5090');
-  for (let b = b0; b < b1 - 9; b += 20) px.line(L2(at + 19.5, b), L2(at + 19.5, b + 9), '#B8A050', 1, 0.25);
-  for (let b = b0; b < b1 - 6; b += 40) { const k = hash(b, at); if (k > 0.75) px.poly(R(at + 3 + k * 20, at + 9 + k * 20, b, b + 6), '#1E1834'); }
+/** The stretches of a road between the roads that cross it (cut out where the crossing's asphalt is, widened by pad). */
+function stretches(b0: number, b1: number, cross: readonly number[], pad: number): [number, number][] {
+  const out: [number, number][] = []; let a = b0;
+  for (const c of [...cross].sort((x, y) => x - y)) { if (c + 40 + pad <= a || c - pad >= b1) continue; if (c - pad > a) out.push([a, c - pad]); a = Math.max(a, c + 40 + pad); }
+  if (a < b1) out.push([a, b1]);
+  return out;
+}
+const roadSpan = (alongV: boolean): [number, number] => (alongV ? [-1400, 262] : [-52, 2400]);
+const along = (alongV: boolean) => (a: number, b: number): Pt => (alongV ? G(a, b) : G(b, a));
+const strip = (alongV: boolean, a0: number, a1: number, b0: number, b1: number) => (alongV ? quad(a0, b0, a1, b1) : quad(b0, a0, b1, a1));
+/** Paved sidewalks either side of a road: square slabs, a few darker ones, and a bright curb lip with a gutter. */
+function sidewalks(px: Pix, alongV: boolean, at: number, cross: readonly number[]) {
+  const [b0, b1] = roadSpan(alongV), L2 = along(alongV);
+  for (const [s0, s1] of stretches(b0, b1, cross, 0)) for (const [a0, a1] of [[at - 12, at], [at + 40, at + 52]] as Pt[]) {
+    px.poly(strip(alongV, a0, a1, s0, s1), '#3C3266');
+    for (let b = Math.ceil(s0 / 6) * 6; b < s1 - 6; b += 6) {
+      const k = hash(b, at + a0);
+      if (k > 0.86) px.poly(strip(alongV, a0 + 0.5, a1 - 0.5, b + 0.5, b + 5.5), k > 0.95 ? '#463C74' : '#342A5C');
+      px.line(L2(a0, b), L2(a1, b), '#30285A');
+    }
+    px.line(L2((a0 + a1) / 2, s0), L2((a0 + a1) / 2, s1), '#30285A');
+    const lip = a0 < at ? at - 1.5 : at + 40;
+    px.poly(strip(alongV, lip, lip + 1.5, s0, s1), '#7A72B0');
+  }
+}
+/** The roadway itself: dark asphalt with grit, patched seams, manholes and the city's neon smeared on the wet surface. */
+function asphalt(px: Pix, alongV: boolean, at: number) {
+  const [b0, b1] = roadSpan(alongV), L2 = along(alongV);
+  px.poly(strip(alongV, at, at + 40, b0, b1), '#18122C');
+  for (let b = b0; b < b1; b += 4) for (let k = 0; k < 3; k++) {
+    const h = hash(b * 3 + k, at);
+    if (h < 0.5) continue;
+    const p = L2(at + 1 + hash(b, k + at) * 38, b + hash(k, b) * 4);
+    px.dot(Math.floor(p[0]), Math.floor(p[1]), h > 0.85 ? '#251D42' : '#100B20');
+  }
+  for (let b = b0; b < b1; b += 90) { const k = hash(b, at + 3); if (k > 0.55) px.poly(strip(alongV, at + 2 + k * 14, at + 14 + k * 14, b, b + 10 + k * 12), '#1D1634'); }
+  px.line(L2(at + 0.5, b0), L2(at + 0.5, b1), '#0E0A1C'); px.line(L2(at + 39.5, b0), L2(at + 39.5, b1), '#0E0A1C');
+  for (let b = b0 + 50; b < b1; b += 140) {
+    const p = L2(at + (hash(b, at) > 0.5 ? 30 : 10), b);
+    px.ellipse(p[0], p[1], 4, 2, '#0C0818'); px.ellipse(p[0], p[1] - 0.5, 3, 1.4, '#2E2650'); px.line([p[0] - 2, p[1] - 0.5], [p[0] + 2, p[1] - 0.5], '#1A1430');
+  }
+  for (let b = b0; b < b1; b += 6) {
+    const h = hash(b, at * 2 + 1);
+    if (h < 0.8) continue;
+    const a = at + 4 + hash(at, b) * 32, col = h > 0.93 ? '#FF5FB0' : h > 0.87 ? '#4FD8E8' : '#FFC77A';
+    px.line(L2(a, b), L2(a + 0.5, b + 3 + h * 8), col, 1, 0.2);
+  }
+}
+/** Lane markings, kept off the intersections: white edge lines, a double yellow centre, arrows before each crossing. */
+function markings(px: Pix, alongV: boolean, at: number, cross: readonly number[]) {
+  const [b0, b1] = roadSpan(alongV), L2 = along(alongV);
+  for (const [s0, s1] of stretches(b0, b1, cross, 16)) {
+    px.line(L2(at + 3, s0), L2(at + 3, s1), '#A8A0D4', 1, 0.12); px.line(L2(at + 37, s0), L2(at + 37, s1), '#A8A0D4', 1, 0.12);
+    px.line(L2(at + 19.3, s0), L2(at + 19.3, s1), '#E8B850', 1, 0.3); px.line(L2(at + 20.7, s0), L2(at + 20.7, s1), '#E8B850', 1, 0.3);
+    for (const [lane, end, dir] of [[at + 11, s1, -1], [at + 29, s0, 1]] as [number, number, number][]) {
+      if (end === b0 || end === b1) continue;
+      const tip = end + dir * 6, tail = end + dir * 16;
+      px.line(L2(lane, tip), L2(lane, tail), '#E8E0FF', 1, 0.1);
+      px.line(L2(lane, tip), L2(lane - 2.5, tip + dir * 4), '#E8E0FF', 1, 0.1); px.line(L2(lane, tip), L2(lane + 2.5, tip + dir * 4), '#E8E0FF', 1, 0.1);
+    }
+  }
+}
+/** A block's inner courtyard, between the buildings: pavers, a few planted squares. */
+function courtyard(px: Pix, u0: number, v0: number) {
+  px.poly(quad(u0, v0, u0 + 360, v0 + 210), '#2A2248');
+  for (let a = 15; a < 360; a += 15) px.line(G(u0 + a, v0), G(u0 + a, v0 + 210), '#302852');
+  for (let b = 15; b < 210; b += 15) px.line(G(u0, v0 + b), G(u0 + 360, v0 + b), '#302852');
+  for (let k = 0; k < 10; k++) {
+    const a = 20 + Math.floor(hash(k, u0 + v0) * 22) * 15, b = 20 + Math.floor(hash(u0 - v0, k) * 12) * 15;
+    px.poly(quad(u0 + a, v0 + b, u0 + a + 13, v0 + b + 13), '#1E4A3E');
+    for (let n = 0; n < 4; n++) { const p = G(u0 + a + 2 + hash(k, n) * 9, v0 + b + 2 + hash(n, k) * 9); px.ellipse(p[0], p[1] - 2, 3, 2.4, n % 2 ? '#2E7A4E' : '#1E5A3A'); }
+  }
+}
+/** Neon-lit sports block: two basketball courts and a skate bowl behind a glowing fence. */
+function court(c: IC, u0: number, v0: number) {
+  const { px } = c;
+  px.poly(quad(u0, v0, u0 + 360, v0 + 210), '#24304E');
+  for (const [cu, col, key] of [[12, '#2B4C8C', '#C8503A'], [96, '#3A2B7A', '#2EB8A0']] as [number, string, string][]) {
+    const a = u0 + cu, b0 = v0 + 14, b1 = v0 + 196;
+    px.poly(quad(a, b0, a + 72, b1), col);
+    px.poly(quad(a + 22, b0, a + 50, b0 + 34), key); px.poly(quad(a + 22, b1 - 34, a + 50, b1), key);
+    for (const [p, q] of [[[a + 3, b0 + 3], [a + 69, b0 + 3]], [[a + 69, b0 + 3], [a + 69, b1 - 3]], [[a + 69, b1 - 3], [a + 3, b1 - 3]], [[a + 3, b1 - 3], [a + 3, b0 + 3]], [[a + 3, (b0 + b1) / 2], [a + 69, (b0 + b1) / 2]]] as [Pt, Pt][]) px.line(G(...p), G(...q), '#F4EEFF', 1, 0.15);
+    const mc = G(a + 36, (b0 + b1) / 2); px.ring(mc[0], mc[1], 12, 6, '#F4EEFF', 1, 0.15);
+    for (const hv of [b0 + 4, b1 - 4]) {
+      box(c, a + 35, hv, 0, 2, 2, 16, '#8C84B8');
+      box(c, a + 30, hv + (hv < b0 + 10 ? 1 : -2), 16, 12, 1, 8, '#F4EEFF', { em: 0.2 });
+      const r = G(a + 36, hv + (hv < b0 + 10 ? 4 : -4), 15); px.ring(r[0], r[1], 3, 1.5, '#FF7A3A', 1, 1);
+    }
+  }
+  // skate bowl and a quarter pipe
+  const bc = G(u0 + 270, v0 + 105);
+  px.ellipse(bc[0], bc[1], 62, 31, '#5A6A9A'); px.ellipse(bc[0], bc[1] + 2, 56, 27, '#3A4672'); px.ellipse(bc[0], bc[1] + 5, 44, 20, '#2A3458'); px.ellipse(bc[0], bc[1] + 7, 26, 11, '#222A48');
+  px.ring(bc[0], bc[1], 62, 31, '#E8E0FF', 1, 0.3); px.ring(bc[0], bc[1], 61, 30, C.pink, 1, 0.6);
+  box(c, u0 + 196, v0 + 160, 0, 40, 28, 4, '#6A7AAA', { top: '#8A9ACA' }); box(c, u0 + 196, v0 + 176, 4, 40, 12, 8, '#5A6A9A', { top: '#7A8ABA' });
+  for (const [t, col] of [['SKATE', C.pink], ['HOOPS', C.cyan]] as [string, string][]) {
+    const u1 = t === 'SKATE' ? u0 + 236 : u0 + 40;
+    box(c, u1, v0 + 1, 0, textWidth(t, 2) + 6, 2, 14, '#0E0820', { edge: false });
+    px.text(t, (a, bb) => G(u1 + 3 + a, v0 + 1, 11 - bb), 2, col, 1);
+  }
+  // chain-link fence with a neon top rail
+  const fence = (p: Pt, q: Pt) => {
+    const n = Math.max(2, Math.round(Math.hypot(q[0] - p[0], q[1] - p[1]) / 6));
+    for (let k = 0; k <= n; k++) { const u = p[0] + ((q[0] - p[0]) * k) / n, v = p[1] + ((q[1] - p[1]) * k) / n; px.line(G(u, v, 0), G(u, v, 10), '#5A5490', 1); }
+    px.dither([G(...p, 0), G(...q, 0), G(...q, 10), G(...p, 10)], '#8C84B8', 0.25);
+    px.line(G(...p, 10), G(...q, 10), C.cyan, 1, 0.8);
+  };
+  fence([u0 + 2, v0 + 2], [u0 + 180, v0 + 2]); fence([u0 + 180, v0 + 2], [u0 + 180, v0 + 208]);
 }
 function park(c: IC, u0: number, v0: number) {
   const { px } = c;
@@ -402,10 +539,10 @@ function park(c: IC, u0: number, v0: number) {
   for (let k = 0; k < 9; k++) {
     const tu = u0 + 20 + hash(k, 71) * 140, tv = v0 + (k % 2 ? 10 + hash(k, 72) * 70 : 120 + hash(k, 73) * 80);
     if (tu > 150 && tu < 200) continue;
-    const g = G(tu, tv); px.shadeEllipse(g[0] + 6, g[1], 12, 4, 0.4);
-    px.rect(g[0] - 1, g[1] - 12, 3, 12, '#3A2234');
-    px.ellipse(g[0], g[1] - 18, 10, 9, '#1E5A3A'); px.ellipse(g[0] - 2, g[1] - 21, 7, 6, '#2E7A4E'); px.ellipse(g[0] - 4, g[1] - 23, 3, 3, '#5ABA72');
+    const g = G(tu, tv); roundTree(px, g[0], g[1], 0.9 + hash(k, 74) * 0.4, k % 3 ? C.cyan : C.pink, k);
   }
+  // hedges along the paths
+  for (const [a, b, l] of [[0, 88, 160], [200, 88, 160], [0, 116, 160], [200, 116, 160]] as [number, number, number][]) for (let k = 0; k < l; k += 8) { const p = G(u0 + a + k + 4, v0 + b + 2); px.ellipse(p[0], p[1] - 3, 5, 3.5, '#1E5A3A'); px.ellipse(p[0] - 1, p[1] - 4.5, 3, 2, '#2E7A4E'); }
   for (const [bu, bv] of [[150, 60], [200, 150], [120, 120]] as Pt[]) box(c, u0 + bu, v0 + bv, 2, 10, 3, 2, '#8A5A40', { top: '#B07A58', edge: false });
   for (let k = 0; k < 5; k++) px.poly(quad(u0 + 40 + k * 8, v0 + 130, u0 + 44 + k * 8, v0 + 160, 12.2), '#F4EEFF');
 }
@@ -515,40 +652,97 @@ function carShape(c: IC, u: number, v: number, axis: 'u' | 'v', col: string) {
   for (const [a, bb] of axis === 'u' ? [[-6, -4.5], [6, -4.5]] : [[4.5, -6], [4.5, 6]]) { const p = G(u + a, v + bb, 0); px.rect(p[0] - 1, p[1] - 2, 3, 2, '#0B0716'); }
 }
 function propDraw(c: IC, p: Prop) {
-  if (p.kind === 'lamp') {
-    const { px } = c; const g = G(p.u, p.v, 0);
-    px.shadeEllipse(g[0] + 2, g[1], 7, 3, 0.4);
-    px.rect(g[0], g[1] - 52, 2, 52, '#2A2448'); px.rect(g[0], g[1] - 52, 1, 52, '#4A4478');
-    px.rect(g[0] - 8, g[1] - 54, 10, 2, '#2A2448'); px.rect(g[0] - 10, g[1] - 53, 5, 3, '#FFE7B0', 1);
-    px.rect(g[0] - 2, g[1] - 3, 6, 3, '#1E1A34');
-  } else {
-    const g = G(p.u, p.v, 0);
-    palmAt(c.px, g[0], g[1], p.s, p.rim, 0);
-  }
-}
-export function palmAt(px: Pix, x: number, y: number, s: number, rim: string, frame: number) {
-  const n = 22, Ht = 124 * s, bend = 26 * s;
-  px.shadeEllipse(x + 30 * s, y, 26 * s, 6 * s, 0.35);
-  let cx = x, cy = y;
-  for (let k = 0; k < n; k++) {
-    const f = k / n, nx = x + bend * f * f, ny = y - Ht * f, w = (7 - 3 * f) * s;
-    px.rect(nx - w / 2, ny - Ht / n - 1, w, Ht / n + 1, k % 2 ? '#3A2234' : '#4A2E3E');
-    px.rect(nx - w / 2, ny - Ht / n - 1, 1, Ht / n + 1, shade(rim, -0.35), 0.4);
-    cx = nx; cy = ny;
-  }
-  const sway = Math.sin((frame / 8) * Math.PI * 2) * 3 * s;
-  const fr: [number, number][] = [[-1, 0.15], [-0.75, -0.55], [-0.2, -1], [0.35, -0.9], [0.85, -0.45], [1, 0.2], [0.2, 0.55]];
-  for (const [dx, dy] of fr) {
-    const len = 62 * s; let px0 = cx, py0 = cy - 2;
-    for (let k = 1; k <= 8; k++) {
-      const f = k / 8, nx = cx + dx * len * f + sway * f, ny = cy - 2 + dy * len * f * 0.6 + 26 * s * f * f;
-      px.line([px0, py0], [nx, ny], '#1A2A2A', Math.max(1, 3 * s * (1 - f * 0.6)));
-      px.line([px0, py0 - 1.5 * s], [nx, ny - 1.5 * s], rim, 1, 0.75);
-      if (k % 2 === 0) px.line([nx, ny], [nx + dx * 5 * s, ny + 7 * s], '#16262A', 1);
-      px0 = nx; py0 = ny;
+  const { px } = c, g = G(p.u, p.v, 0), au = p.axis !== 'v';
+  switch (p.kind) {
+    case 'lamp':
+      px.shadeEllipse(g[0] + 2, g[1], 7, 3, 0.4);
+      px.rect(g[0] - 2, g[1] - 4, 6, 4, '#1E1A34'); px.rect(g[0] - 1, g[1] - 5, 4, 1, '#3A3466');
+      px.rect(g[0], g[1] - 52, 2, 52, '#2A2448'); px.rect(g[0], g[1] - 52, 1, 52, '#4A4478');
+      px.rect(g[0] - 8, g[1] - 54, 10, 2, '#2A2448'); px.rect(g[0] - 10, g[1] - 53, 5, 3, '#FFE7B0', 1); px.rect(g[0] - 9, g[1] - 50, 3, 1, '#FFF6DE', 1);
+      return;
+    case 'palm': palmAt(px, g[0], g[1], p.s, p.rim, 0); return;
+    case 'bench': {
+      const [du, dv] = au ? [12, 3] : [3, 12];
+      px.shadeEllipse(g[0] + 1, g[1], 8, 3, 0.35);
+      for (const k of [1, au ? 10 : 1]) for (const m of [1, au ? 1 : 10]) box(c, p.u - du / 2 + (au ? k : 0.5), p.v - dv / 2 + (au ? 0.5 : m), 0, 1, 1, 3, '#2A2448', { edge: false });
+      box(c, p.u - du / 2, p.v - dv / 2, 3, du, dv, 1, '#8A5A40', { top: '#B07A58', edge: false });
+      box(c, p.u - du / 2 + (au ? 0 : dv - 1), p.v - dv / 2 + (au ? dv - 1 : 0), 4, au ? du : 1, au ? 1 : dv, 4, '#7A4E38', { top: '#A0704E', edge: false });
+      return;
+    }
+    case 'bin': box(c, p.u - 1.5, p.v - 1.5, 0, 3, 3, 5, '#3A4A6A', { top: '#1A2030', edge: false }); px.line(G(p.u - 1.5, p.v - 1.5, 4), G(p.u + 1.5, p.v - 1.5, 4), '#7A8AB0'); return;
+    case 'hydrant':
+      box(c, p.u - 1, p.v - 1, 0, 2, 2, 4, '#D83A4A', { top: '#FF6A70', edge: false });
+      px.rect(g[0] - 2, g[1] - 3, 5, 1, '#B02A3A'); px.rect(g[0], g[1] - 6, 1, 1, '#FF8A90');
+      return;
+    case 'news': box(c, p.u - 1.5, p.v - 2, 0, 3, 4, 6, '#2A3A7A', { top: '#4A5AA0', edge: false }); px.line(G(p.u - 1.5, p.v - 1, 4), G(p.u - 1.5, p.v + 1, 4), p.rim, 1, 0.8); return;
+    case 'planter': {
+      box(c, p.u - 3, p.v - 3, 0, 6, 6, 3, '#6A5E8E', { top: '#2A1E1A' });
+      for (const [dx, dy, r, col] of [[0, -6, 5, '#1E5A3A'], [-1.5, -7.5, 3.5, '#2E7A4E'], [-2.5, -8.5, 1.5, '#5ABA72']] as [number, number, number, string][]) px.ellipse(g[0] + 3 + dx, g[1] + dy, r, r * 0.8, col);
+      px.dot(g[0] + 5, g[1] - 8, '#FF8FC8', 0.6);
+      return;
+    }
+    case 'stop': {
+      const [du, dv] = au ? [16, 5] : [5, 16];
+      px.shadeEllipse(g[0] + 2, g[1], 12, 4, 0.35);
+      box(c, p.u - du / 2, p.v - dv / 2 + (au ? dv - 1 : 0), 0, au ? du : 1, au ? 1 : dv, 14, '#8FD8F0', { em: 0.15 });
+      px.dither(au ? [G(p.u - du / 2, p.v + dv / 2, 0), G(p.u + du / 2, p.v + dv / 2, 0), G(p.u + du / 2, p.v + dv / 2, 14), G(p.u - du / 2, p.v + dv / 2, 14)] : [G(p.u + du / 2, p.v - dv / 2, 0), G(p.u + du / 2, p.v + dv / 2, 0), G(p.u + du / 2, p.v + dv / 2, 14), G(p.u + du / 2, p.v - dv / 2, 14)], '#B8F0FF', 0.3, 0.2);
+      // the lit ad panel at the end and the roof
+      box(c, au ? p.u + du / 2 - 1 : p.u - du / 2, au ? p.v - dv / 2 : p.v + dv / 2 - 1, 1, au ? 1 : du, au ? dv : 1, 12, p.rim, { em: 0.9 });
+      box(c, p.u - du / 2 - 1, p.v - dv / 2 - 1, 14, du + 2, dv + 2, 1, '#2A2448', { top: '#4A4478' });
+      box(c, p.u - du / 2 + 2, p.v - dv / 2 + 1, 3, au ? du - 6 : 2, au ? 2 : dv - 6, 1, '#5A4E80', { edge: false });
+      return;
     }
   }
-  px.ellipse(cx, cy, 5 * s, 4 * s, '#3A2234');
+}
+/** A round park tree: trunk, a canopy of overlapping clumps shaded dark below and lit on top, a neon rim. */
+export function roundTree(px: Pix, x: number, y: number, s: number, rim: string, seed: number) {
+  px.shadeEllipse(x + 8 * s, y, 13 * s, 4.5 * s, 0.4);
+  px.rect(x - 1.5 * s, y - 14 * s, 3 * s, 14 * s, '#3A2234'); px.rect(x - 1.5 * s, y - 14 * s, 1, 14 * s, '#5A3A4A');
+  px.line([x, y - 10 * s], [x + 4 * s, y - 15 * s], '#3A2234', 1);
+  const clumps: [number, number, number][] = [[0, -20, 10], [-6, -16, 7], [6, -16, 7], [-4, -25, 7], [5, -24, 6], [0, -29, 5]];
+  for (const [dx, dy, r] of clumps) px.ellipse(x + dx * s, y + dy * s, r * s, r * 0.85 * s, '#16452E');
+  for (const [dx, dy, r] of clumps) px.ellipse(x + (dx - 1) * s, y + (dy - 1.5) * s, r * 0.75 * s, r * 0.6 * s, '#22603C');
+  for (const [dx, dy, r] of clumps.slice(3)) px.ellipse(x + (dx - 2) * s, y + (dy - 2.5) * s, r * 0.4 * s, r * 0.32 * s, '#3E8A56');
+  for (let k = 0; k < 7; k++) { const a = Math.PI * (0.9 + 0.8 * hash(seed, k)); px.dot(Math.floor(x + Math.cos(a) * 10 * s), Math.floor(y - 20 * s + Math.sin(a) * 9 * s), rim, 0.5); }
+  for (let k = 0; k < 4; k++) px.dot(Math.floor(x + (hash(k, seed) - 0.5) * 12 * s), Math.floor(y - 18 * s + hash(seed, k + 3) * 6 * s), '#0E2E1E');
+}
+/** A palm: a curved, ringed trunk and a crown of feathery fronds, each a spine with leaflets drooping off both
+    sides. The back fronds are darker; the front ones catch the neon on their upper edge. */
+export function palmAt(px: Pix, x: number, y: number, s: number, rim: string, frame: number) {
+  const n = 24, Ht = 124 * s, bend = 26 * s;
+  px.shadeEllipse(x + 30 * s, y, 28 * s, 7 * s, 0.35);
+  let cx = x, cy = y;
+  for (let k = 0; k < n; k++) {
+    const f = k / n, nx = x + bend * f * f, ny = y - Ht * f, w = Math.max(2, (8 - 3.5 * f) * s), sh = Ht / n + 1;
+    px.rect(nx - w / 2, ny - sh, w, sh, '#4A2E3E');
+    px.rect(nx + w / 2 - Math.max(1, w * 0.35), ny - sh, Math.max(1, w * 0.35), sh, '#2E1A2A');
+    px.rect(nx - w / 2, ny - sh, 1, sh, shade(rim, -0.3), 0.45);
+    if (k % 2 === 0) px.rect(nx - w / 2, ny - sh, w, 1, '#2A1824');
+    cx = nx; cy = ny;
+  }
+  // the bulge where the fronds start, and coconuts
+  px.ellipse(cx, cy + 1, 5 * s, 4 * s, '#3E2634');
+  const sway = Math.sin((frame / 8) * Math.PI * 2) * 3 * s;
+  // a frond seen from the side: an arching spine with its leaflets hanging below it as one serrated green band,
+  // lighter along the top where the light lands, cut into leaflets by darker strokes
+  const frond = (dx: number, dy: number, len: number, dark: boolean) => {
+    const [base, top, cut, spine] = dark ? ['#0F2A28', '#163A34', '#081A1A', '#0A1E1E'] : ['#1D5444', '#2F7A5A', '#0E2E26', '#45885C'];
+    const sp: Pt[] = [], lo: Pt[] = [], mid: Pt[] = [];
+    const N = 12;
+    for (let k = 0; k <= N; k++) {
+      const f = k / N, x0 = cx + dx * len * f + sway * f, y0 = cy - 3 * s + dy * len * f * 0.6 + 30 * s * f * f;
+      const hang = (2 + 11 * Math.sin(Math.PI * Math.min(1, f * 1.1))) * s * (k % 2 ? 0.72 : 1) * (1 - 0.25 * Math.abs(dx));
+      sp.push([x0, y0]); lo.push([x0 + dx * 2.5 * s * f, y0 + hang]); mid.push([x0, y0 + hang * 0.42]);
+    }
+    px.poly([...sp, ...lo.slice().reverse()], base);
+    px.poly([...sp, ...mid.slice().reverse()], top);
+    for (let k = 1; k < N; k += 1) px.line(sp[k]!, lo[k]!, cut, 1);
+    for (let k = 1; k <= N; k++) px.line(sp[k - 1]!, sp[k]!, spine, Math.max(1, 2 * s * (1 - (k / N) * 0.6)));
+    if (!dark) for (let k = 1; k <= N; k++) px.line([sp[k - 1]![0], sp[k - 1]![1] - 1], [sp[k]![0], sp[k]![1] - 1], rim, 1, k < N - 2 ? 0.75 : 0.4);
+  };
+  for (const [dx, dy] of [[-0.55, -1], [0.1, -1.05], [0.65, -0.85], [-0.95, -0.5]] as Pt[]) frond(dx, dy, 52 * s, true);
+  for (const [k, dx] of [-0.5, 0.3, 1.0].entries()) px.ellipse(cx + dx * 4 * s, cy + (2 + (k % 2)) * s, 2.2 * s, 2 * s, k % 2 ? '#6A4A2A' : '#4A3220');
+  for (const [dx, dy] of [[-1, 0.2], [-0.8, -0.55], [-0.25, -0.95], [0.4, -0.8], [0.95, -0.35], [1, 0.3], [0.3, 0.6], [-0.45, 0.55]] as Pt[]) frond(dx, dy, 60 * s, false);
 }
 
 /* ================================================================== traffic */
@@ -559,22 +753,29 @@ const LANES: Lane[] = [
   { axis: 'v', at: -22, dir: 1, front: false }, { axis: 'v', at: -42, dir: -1, front: false },
   { axis: 'u', at: 232, dir: 1, front: false }, { axis: 'u', at: 252, dir: -1, front: false },
 ];
-interface Car { u: number; v: number; axis: 'u' | 'v'; dir: 1 | -1; col: string; key: number }
+interface Car { u: number; v: number; axis: 'u' | 'v'; dir: 1 | -1; col: string; key: number; a: number }
+/** Where each axis' roads run on land: u roads stop at the coast road's far edge, v roads at the promenade. */
+const LAND = { u: [-52, 1460], v: [-1240, 262] } as const;
 function cars(t: number, front: boolean): Car[] {
   const out: Car[] = [];
   LANES.forEach((ln, li) => {
     if (ln.front !== front) return;
+    const [lo, hi] = LAND[ln.axis], range = hi - lo;
     for (let k = 0; k < 3; k++) {
-      const sp = 38 + hash(li, k) * 30, range = 1500, off = hash(k, li) * range;
-      const s = ((t * sp + off) % range) - 500, pos = ln.dir > 0 ? s : 1000 - s;
+      const sp = 38 + hash(li, k) * 30, off = hash(k, li) * range;
+      const s = (t * sp + off) % range, pos = ln.dir > 0 ? lo + s : hi - s;
       const u = ln.axis === 'u' ? pos : ln.at, v = ln.axis === 'v' ? pos : ln.at;
       if (G(u, v)[1] < HZ + 6) continue;
-      out.push({ u, v, axis: ln.axis, dir: ln.dir, col: PAINT[(li * 3 + k) % PAINT.length], key: li * 10 + k });
+      // a car fades in and out where its road meets the water, so none ever drives onto the bay
+      const edge = ln.axis === 'u' ? pos - lo : hi - pos;
+      out.push({ u, v, axis: ln.axis, dir: ln.dir, col: PAINT[(li * 3 + k) % PAINT.length], key: li * 10 + k, a: Math.max(0, Math.min(1, (edge - 6) / 24)) });
     }
   });
   return out;
 }
 function drawCar(px: Pix, L: Lights, car: Car, bk: Bakery) {
+  if (car.a <= 0) return;
+  px.push(car.a);
   bk.draw(px, bk.get(`car${car.axis}${car.col}`, (q) => carShape(gc(q), 0, 0, car.axis, car.col)), ...(G(car.u, car.v).map((x, i) => x - (i ? 51 : -95)) as Pt));
   // lamps on the visible ends: headlights face -u/-v ... the drawn faces are the +u and -v ends
   const d = car.dir, ax = car.axis;
@@ -584,8 +785,9 @@ function drawCar(px: Pix, L: Lights, car: Car, bk: Bakery) {
   if (visibleFront) { px.rect(end[0] - 2, end[1] - 1, 2, 1, '#FFFFFF', 1); px.rect(end[0] + 1, end[1] - 2, 2, 1, '#FFFFFF', 1); }
   else { const b = front(-9.5); px.rect(b[0] - 2, b[1] - 1, 2, 1, '#FF3A5A', 1); px.rect(b[0] + 1, b[1] - 2, 2, 1, '#FF3A5A', 1); }
   const beam = ax === 'u' ? G(car.u + d * 34, car.v, 0) : G(car.u, car.v + d * 34, 0);
-  L.add(beam[0], beam[1], 34, '#FFF1D0', 0.5, 0.5);
-  const tail = front(-10); L.add(tail[0], tail[1], 16, '#FF3A5A', 0.45, 0.6);
+  L.add(beam[0], beam[1], 34, '#FFF1D0', 0.5 * car.a, 0.5);
+  const tail = front(-10); L.add(tail[0], tail[1], 16, '#FF3A5A', 0.45 * car.a, 0.6);
+  px.pop();
 }
 
 /* ================================================================== passes */

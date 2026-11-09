@@ -10,6 +10,8 @@ test('every template parses and has a lead plus teammates with distinct titles',
     assert.ok(t.seats.length >= 3, `${t.id} is a team`);
     assert.equal(new Set(t.seats.map((s) => s.title)).size, t.seats.length, `${t.id} titles are distinct`);
     assert.equal(t.inventory.limits.dailyBudgetCredits, t.dailyBudgetCredits);
+    // without the skills toolset the agents could not load the skills the template names
+    for (const ts of ['skills', 'memory', 'todo']) assert.ok(t.inventory.allowedToolsets.includes(ts as never), `${t.id} has ${ts}`);
   }
   assert.deepEqual(TEMPLATES.map((t) => t.id), ['software', 'marketplace-agency', 'treasury-ops', 'trading-desk', 'token-treasury', 'prediction-desk', 'red-team', 'blue-team']);
 });
@@ -23,7 +25,7 @@ test('hiring the Software Department creates four agents with their titles and n
   assert.match(d.purpose, /pr url=/, 'the template purpose is copied');
   assert.equal(d.templateId, 'software', 'the floor knows its template (its station and screens)');
   const inv = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
-  assert.deepEqual(inv.allowedToolsets, ['terminal', 'file', 'code_execution', 'web']);
+  assert.deepEqual(inv.allowedToolsets, ['terminal', 'file', 'code_execution', 'web', 'skills', 'memory', 'todo', 'session_search', 'clarify']);
   assert.equal(inv.limits.dailyBudgetCredits, 1000);
   assert.equal((db.prepare('SELECT template_id FROM department WHERE id = ?').get(d.id) as { template_id: string }).template_id, 'software');
   assert.equal((await app.inject(`/api/schedules?departmentId=${d.id}`)).json().schedules.length, 0);

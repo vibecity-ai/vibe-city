@@ -22,7 +22,7 @@ async function load(first: boolean) {
     if (first || seen === undefined && !x.lastRunAt) continue;
     if (x.lastRunAt && x.lastRunAt !== seen && x.lastQuestId && !x.lastError) {
       s.emit({ k: 'standup', dept: x.departmentId });
-      s.toast(`Schedule “${x.name}” put a quest on the board.`);
+      s.toast(`Schedule “${x.name}” put a job on the board.`);
       void refreshOne(x.departmentId);
     }
   }

@@ -382,7 +382,7 @@ export class City {
       anchors.push({ id: d.id, kind: 'floor', x: 382, y: fa.y + 77 - fa.pull * 3, visible: fa.alpha * (1 - openA) * clamp(1 - Math.abs(fa.vy) / 160, 0, 1) * clamp(1 - (Math.abs(fa.y - fa.target) - 12) / 30, 0, 1), z: 0 });
     }
     const ghostTop = this.ph.y + PH_H;
-    if (this.ghostA > 0.02) ghostFloor(px, this.t, ghostTop, this.ghostA * this.intro, this.hover === 'ghost');
+    if (this.ghostA > 0.02) ghostFloor(px, L, this.t, ghostTop, this.ghostA * this.intro, this.hover === 'ghost', this.bk);
     anchors.push({ id: 'ghost', kind: 'ghost', x: 382, y: ghostTop + 77, visible: this.ghostA * Math.min(1, this.intro * 1.5), z: 0 });
     const phA = (open ? 1 - 0.9 * openA : 1) * (1 - 0.97 * this.execOpen) * Math.min(1, this.intro * 1.6);
     if (phA > 0.01) penthouse(px, L, this.t, this.ph.y, phA, (s.company?.name ?? 'VIBE CITY'), s.ui.panel === 'exec' && s.ui.view === 'tower', this.bk);

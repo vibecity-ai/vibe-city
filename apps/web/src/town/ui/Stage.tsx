@@ -154,16 +154,6 @@ export function StageOverlay({ city }: { city: City | null }) {
           <span className="kbd">Esc</span>
         </div>
       )}
-      {/* top-left: HQ card or breadcrumb */}
-      {wide && ui.view === 'tower' && !ui.execRoom && (
-        <div className="hq">
-          <div className="hq-row">
-            <b className="hq-n" data-t={n + 1}>{n + 1}</b>
-            <span className="hq-t"><b>floors tall</b><span>Executive office and {n} departments</span></span>
-          </div>
-          <button className="btn primary block" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add department</button>
-        </div>
-      )}
       {ui.view === 'floor' && openDept && (
         <div className="crumb">
           <button className="btn tertiary" onClick={closeFloor}><Icon n="back" />Tower</button>
@@ -175,13 +165,14 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* floor rail */}
       {wide && (
         <nav className="rail" aria-label="Floors">
-          <div className="rail-disp" aria-live="polite"><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? 'F' + (n - depts.indexOf(openDept)) : ui.execRoom ? 'PH' : 'TW'}</div>
+          <div className="rail-disp" aria-live="polite" title={`${n + 1} floors: the Executive office and ${n} departments`}><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? n - depts.indexOf(openDept) : ui.execRoom ? 'PH' : n + 1}</div>
           <button className={`rail-b ph${ui.execRoom ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} title="Executive office" aria-label="PH Executive office: go inside">PH</button>
           {depts.map((d, i) => (
             <button key={d.id} className={`rail-b${ui.floorId === d.id ? ' sel' : ''}`} onClick={() => openFloor(d.id)} title={d.name} aria-label={`F${n - i} ${d.name}`}>
-              F{n - i}<i style={{ background: statusColor(deptStatus(d.state).k), color: statusColor(deptStatus(d.state).k) }} />
+              {n - i}<i style={{ background: statusColor(deptStatus(d.state).k), color: statusColor(deptStatus(d.state).k) }} />
             </button>
           ))}
+          <span className="lift-plate" aria-hidden="true">Lift</span>
         </nav>
       )}
 
@@ -211,7 +202,7 @@ export function StageOverlay({ city }: { city: City | null }) {
         </div>
       ) : !conn.hermes ? (
         <div className="stage-alert">
-          <Glyph k="failed" /><span><b>Can’t reach Hermes.</b> Floors show their last known state; quests can’t be created or changed.</span>
+          <Glyph k="failed" /><span><b>Can’t reach Hermes.</b> Floors show their last known state; jobs can’t be created or changed.</span>
           <button className="btn destructive" onClick={() => void refreshAll()}>Retry now</button>
         </div>
       ) : !conn.gateway && depts.some((d) => d.provisioning === 'ready') ? (

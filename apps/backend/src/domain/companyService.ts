@@ -24,6 +24,11 @@ export class CompanyService {
     return this.db.prepare('SELECT id, name, created_at FROM company WHERE singleton = 1').get() as unknown as CompanyRow;
   }
 
+  rename(name: string): CompanyView {
+    this.db.prepare('UPDATE company SET name = ? WHERE singleton = 1').run(name.replace(/\s+/g, ' '));
+    return this.view();
+  }
+
   view(): CompanyView {
     const c = this.row();
     const depts = this.db

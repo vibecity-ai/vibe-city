@@ -24,6 +24,20 @@ test('fresh install has exactly one company and the Executive Office on top', as
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM company').get() as { n: number }).n, 1);
 });
 
+test('the CEO names the company; the sign only takes what it can draw', async () => {
+  const { app } = memApp();
+  const ok = await app.inject({ method: 'PATCH', url: '/api/company', payload: { name: '  Neon   Labs & Co. ' } });
+  assert.equal(ok.statusCode, 200);
+  assert.equal(ok.json().name, 'Neon Labs & Co.');
+  assert.equal((await app.inject('/api/company')).json().name, 'Neon Labs & Co.');
+  for (const name of ['', 'x'.repeat(25), 'Café', '<b>']) {
+    const bad = await app.inject({ method: 'PATCH', url: '/api/company', payload: { name } });
+    assert.equal(bad.statusCode, 400, name);
+  }
+  assert.equal((await app.inject({ method: 'PATCH', url: '/api/company', payload: { name: 'A', id: 'x' } })).statusCode, 400);
+  assert.equal((await app.inject('/api/company')).json().name, 'Neon Labs & Co.');
+});
+
 test('Executive Office is not a department and cannot be deleted or modified', async () => {
   const { app } = memApp();
   for (const method of ['DELETE', 'PATCH', 'GET'] as const) {

@@ -7,10 +7,15 @@ export const seat = (title: string, opts: { skills?: string[]; toolsets?: Toolse
   title, model: opts.abliterated ? ABLITERATED : null, skills: opts.skills ?? [], toolsets: opts.toolsets ?? [],
 });
 
-/** A template: the department inventory carries the toolsets of every seat and the daily budget. */
+/** Every template floor gets these on top of its own toolsets: without `skills` its agents could not load the skills
+    the template names, and memory, the to-do list, past-chat search and asking back are how any Hermes agent works.
+    (Kanban is added for every floor by the backend.) */
+export const TEMPLATE_BASE_TOOLSETS: readonly Toolset[] = ['skills', 'memory', 'todo', 'session_search', 'clarify'];
+
+/** A template: the department inventory carries the base toolsets, the toolsets of every seat and the daily budget. */
 export function template(t: Omit<Template, 'inventory' | 'hidden'> & { toolsets: Toolset[]; hidden?: boolean }): Template {
   const { toolsets, ...rest } = t;
-  const all = [...new Set([...toolsets, ...t.seats.flatMap((s) => s.toolsets as Toolset[])])];
+  const all = [...new Set([...toolsets, ...t.seats.flatMap((s) => s.toolsets as Toolset[]), ...TEMPLATE_BASE_TOOLSETS])];
   return {
     ...rest,
     // OutLayer's skills say $API_KEY; tell the agents where the company wallet's key is (written by the backend)

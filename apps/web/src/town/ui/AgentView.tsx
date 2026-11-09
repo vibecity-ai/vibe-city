@@ -131,7 +131,7 @@ export function ChatTranscript({ deptId, agentKey, sessions, sessionsError }: { 
           <li key={m.id} className={m.from}>
             <span className="who">{m.from === 'user' ? 'You' : ch?.name ?? 'Agent'}<span className="mono muted"> · {formatTime(m.at)}</span></span>
             <p>{m.text}</p>
-            {m.proposal && <span className="tr-prop"><Glyph k="awaiting" /> Proposed quest: <b>{m.proposal.title}</b></span>}
+            {m.proposal && <span className="tr-prop"><Glyph k="awaiting" /> Proposed job: <b>{m.proposal.title}</b></span>}
           </li>
         ))}
       </ol>
@@ -186,17 +186,17 @@ export function AgentRecord({ d, agentKey }: { d: Dept; agentKey: string }) {
   const wDone = workerTasks.filter((t) => t.status === 'done').length, wFailed = workerTasks.filter((t) => t.failed).length;
   const rate = (f: number, ok: number) => (f + ok ? `${Math.round((100 * f) / (f + ok))}%` : '—');
   const rows: [string, string][] = lead
-    ? [['Quests on this floor', String(mine.length)], ['Completed', String(done.length)], ['Failed', String(failed.length)], ['Failure rate', rate(failed.length, done.length)], ['Average time to complete', avg != null ? fmt(avg) : '—']]
+    ? [['Jobs on this floor', String(mine.length)], ['Completed', String(done.length)], ['Failed', String(failed.length)], ['Failure rate', rate(failed.length, done.length)], ['Average time to complete', avg != null ? fmt(avg) : '—']]
     : [['Tasks seen', String(workerTasks.length)], ['Done', String(wDone)], ['Failed', String(wFailed)], ['Failure rate', rate(wFailed, wDone)]];
   return (
     <section className="pane-sec">
       <h3 className="sec-t">Record</h3>
-      <p className="fine">{lead ? 'From the quests on this floor’s Hermes board.' : 'From the tasks assigned to this agent’s own Hermes profile, in the quests loaded for this floor.'}</p>
+      <p className="fine">{lead ? 'From the jobs on this floor’s Hermes board.' : 'From the tasks assigned to this agent’s own Hermes profile, in the jobs loaded for this floor.'}</p>
       <dl className="record">{rows.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
       {!lead && workerTasks.length > 0 && (
         <ul className="stack tight">{workerTasks.slice(-6).reverse().map((t) => { const v = taskStatusView(t); return <li key={t.id}><Glyph k={v.k} /> {t.title} <span className="muted small">· {v.label}</span></li>; })}</ul>
       )}
-      <p className="muted small">Cost per quest needs usage records (spec 6.3) and review grades come with AR reviews (spec 7.2): neither is tracked yet, so they are not shown.</p>
+      <p className="muted small">Cost per job needs usage records (spec 6.3) and review grades come with AR reviews (spec 7.2): neither is tracked yet, so they are not shown.</p>
     </section>
   );
 }

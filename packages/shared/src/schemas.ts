@@ -163,6 +163,13 @@ export const CompanyViewSchema = z.object({
   ])),
 }).strict();
 export type CompanyView = z.infer<typeof CompanyViewSchema>;
+/** The company's name, as painted on the rooftop sign and over the front entrance: the characters the sign can
+ *  draw (letters, digits, spaces, & . -), at most 24 so it fits on two lines of neon. */
+export const CompanyRenameSchema = z.object({
+  name: z.string().trim().min(1, 'Give the company a name.').max(24, 'Keep it to 24 characters so it fits on the sign.')
+    .regex(/^[A-Za-z0-9 &.-]+$/, 'The sign can only show letters, digits, spaces and & . -'),
+}).strict();
+export type CompanyRename = z.infer<typeof CompanyRenameSchema>;
 
 export const DEPARTMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const boardSlugForDepartment = (id: string) => `vc-${id}`;

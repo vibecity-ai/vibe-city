@@ -96,15 +96,15 @@ export class QuestService {
 
   /** The id must be a Hermes task id on THIS department's board, top-level and assigned to the department's lead. */
   private async resolveRoot(ctx: Ctx, questId: string): Promise<TaskDetail> {
-    if (!HERMES_TASK_ID_RE.test(questId)) throw new NotFoundError('quest not found');
+    if (!HERMES_TASK_ID_RE.test(questId)) throw new NotFoundError('job not found');
     let d: TaskDetail;
     try {
       d = await this.kanban.getTask(ctx.board, questId);
     } catch (e) {
-      if (e instanceof HermesNotFoundError) throw new NotFoundError('quest not found');
+      if (e instanceof HermesNotFoundError) throw new NotFoundError('job not found');
       throw e;
     }
-    if (d.links.parents.length > 0 || d.task.assignee !== ctx.lead) throw new NotFoundError('quest not found');
+    if (d.links.parents.length > 0 || d.task.assignee !== ctx.lead) throw new NotFoundError('job not found');
     return d;
   }
 
@@ -253,7 +253,7 @@ export class QuestService {
     const ctx = this.ctx(departmentId);
     const tree = await this.loadTree(ctx, await this.resolveRoot(ctx, questId));
     const t = tree.details.get(taskId);
-    if (!t) throw new NotFoundError('task not found in this quest');
+    if (!t) throw new NotFoundError('task not found in this job');
     if (t.task.status !== 'blocked') throw new ConflictError('this task is not waiting for input any more');
     await this.kanban.addComment(ctx.board, taskId, ANSWER_AUTHOR, message);
     await this.kanban.unblockTask(ctx.board, taskId);
@@ -393,7 +393,7 @@ export class QuestService {
     let tree = await this.loadTree(ctx, root);
     const hasMarker = root.comments.some((c) => c.author === MARKER_AUTHOR && c.body.startsWith(CANCEL_MARKER));
     const unfinished = (t: Tree) => [...t.details.values()].filter((d) => !isTerminal(d.task.status) || d.runs.some((r) => r.ended_at === null));
-    if (!hasMarker && unfinished(tree).length === 0) throw new ConflictError('quest has already finished; nothing to cancel');
+    if (!hasMarker && unfinished(tree).length === 0) throw new ConflictError('job has already finished; nothing to cancel');
 
     if (!hasMarker) await this.kanban.addComment(ctx.board, questId, MARKER_AUTHOR, `${CANCEL_MARKER} (department ${ctx.deptName})`);
 

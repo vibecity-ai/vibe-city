@@ -1,13 +1,11 @@
 /* All fonts are bundled (no Google Fonts request), so the city renders the same offline and under a strict CSP. */
-/* Jersey 10: sporty pixel face for anything you press or count. Built on a 10px grid, so it is set at
-   20 / 30 / 50 / 70px and one weight to stay crisp. */
+/* IBM Plex Sans for the interface, IBM Plex Mono for numbers, ids and the ticker. Jersey 10 (a pixel face on a 10px
+   grid, set at 20 / 30 / 50 / 70px) only on device screens and signs in the world. */
 @font-face { font-family: 'Jersey 10'; font-style: normal; font-weight: 400; font-display: swap; src: url(@fontsource/jersey-10/files/jersey-10-latin-400-normal.woff2) format('woff2'); }
-@font-face { font-family: 'Bungee'; font-style: normal; font-weight: 400; font-display: swap; src: url(@fontsource/bungee/files/bungee-latin-400-normal.woff2) format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 400; font-display: swap; src: url(@fontsource/manrope/files/manrope-latin-400-normal.woff2) format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 500; font-display: swap; src: url(@fontsource/manrope/files/manrope-latin-500-normal.woff2) format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 600; font-display: swap; src: url(@fontsource/manrope/files/manrope-latin-600-normal.woff2) format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 700; font-display: swap; src: url(@fontsource/manrope/files/manrope-latin-700-normal.woff2) format('woff2'); }
-@font-face { font-family: 'Manrope'; font-style: normal; font-weight: 800; font-display: swap; src: url(@fontsource/manrope/files/manrope-latin-800-normal.woff2) format('woff2'); }
-@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url(@fontsource/jetbrains-mono/files/jetbrains-mono-latin-400-normal.woff2) format('woff2'); }
-@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url(@fontsource/jetbrains-mono/files/jetbrains-mono-latin-500-normal.woff2) format('woff2'); }
-@font-face { font-family: 'JetBrains Mono'; font-style: normal; font-weight: 700; font-display: swap; src: url(@fontsource/jetbrains-mono/files/jetbrains-mono-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 400; font-display: swap; src: url(@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 500; font-display: swap; src: url(@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 600; font-display: swap; src: url(@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-600-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Sans'; font-style: normal; font-weight: 700; font-display: swap; src: url(@fontsource/ibm-plex-sans/files/ibm-plex-sans-latin-700-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 400; font-display: swap; src: url(@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 500; font-display: swap; src: url(@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2) format('woff2'); }
+@font-face { font-family: 'IBM Plex Mono'; font-style: normal; font-weight: 600; font-display: swap; src: url(@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2) format('woff2'); }

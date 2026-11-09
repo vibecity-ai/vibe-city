@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import type { WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon, PixelSelect } from './kit';
+import { Device, Grille, Key, Screen } from './Device';
 
 const NEW_WALLET_URL = 'https://app.outlayer.ai/wallet/new';
 /** Native USDC on NEAR (what the trading connectors settle in, through Intents). */
@@ -17,6 +17,8 @@ const errText = (e: unknown) => (e instanceof ApiError ? e.message : e instanceo
 /** A raw token amount in human units, up to 4 decimals. */
 const human = (raw: string, d: number) => (d >= 4 ? Number(BigInt(raw) / 10n ** BigInt(d - 4)) / 1e4 : Number(raw) / 10 ** d).toLocaleString(undefined, { maximumFractionDigits: 4 });
 const usd = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
+/** LCD digits with their unlit segments behind: every digit's ghost is an 8. */
+const Digits = ({ value, md }: { value: string; md?: boolean }) => <span className={`lcd-seg${md ? ' md' : ''}`} data-ghost={value.replace(/[0-9]/g, '8')}>{value}</span>;
 const refreshGame = () => void api.game().then((game) => useStore.setState({ game })).catch(() => undefined);
 
 export function MoneyScreen() {
@@ -31,15 +33,8 @@ export function MoneyScreen() {
   const done = (x: WalletState) => { setW(x); refreshGame(); };
   return (
     <div className="money">
-      <div className="money-bar">
-        <span className="muted small">OutLayer company wallet · keys stay in OutLayer's TEE</span>
-        <button className="btn small" onClick={() => void load()}><Icon n="refresh" size={12} />Refresh</button>
-      </div>
-      {error && <p className="field-err" role="alert">{error}</p>}
-      {w.registered
-        ? <WalletCard w={w} onReplaced={done} />
-        : <PasteKey onDone={done} />}
-      <p className="fine">Vibe City keeps the wallet's agent key on its server and gives it only to the floors that trade (Trading Desk, Prediction Desk, Token &amp; Treasury). Spending limits are yours to set in OutLayer; Vibe City cannot read them back.</p>
+      <WalletPager w={w} loadError={error} onChange={done} onRefresh={() => void load()} />
+      <p className="fine">Vibe City keeps the wallet's agent key on its server and gives it only to the floors that trade (Trading Desk, Prediction Desk, Token &amp; Treasury, Treasury Ops). Spending limits are yours to set in OutLayer; Vibe City cannot read them back.</p>
     </div>
   );
 }
@@ -53,89 +48,89 @@ function SafeDial() {
   );
 }
 
-/** inline: just the steps and the field, for the connected wallet's "use a different wallet". */
-function PasteKey({ onDone, inline = false }: { onDone: (w: WalletState) => void; inline?: boolean }) {
+/** SAFE-2, the wallet pager: a reflective LCD and four keys. The keys change with the mode: viewing the balances,
+    funding the wallet, or pasting an agent key. */
+function WalletPager({ w, loadError, onChange, onRefresh }: { w: WalletState; loadError: string | null; onChange: (w: WalletState) => void; onRefresh: () => void }) {
+  const [mode, setMode] = useState<'view' | 'fund' | 'key'>(w.registered ? 'view' : 'key');
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
-  const save = async () => {
-    setBusy(true); setErr(null);
-    try { onDone(await api.walletKey(key.trim())); setKey(''); } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
-  };
-  const body = (
-    <>
-      <ol className="fine steps">
-        <li><a href={NEW_WALLET_URL} target="_blank" rel="noreferrer">Create a wallet on OutLayer</a> and set its spending policy there.</li>
-        <li>Copy its agent API key (<code>wk_…</code>, shown once) and paste it here.</li>
-      </ol>
-      <form className="row" onSubmit={(e) => { e.preventDefault(); if (key.trim()) void save(); }}>
-        <input className="input mono" type="password" autoComplete="off" spellCheck={false} placeholder="wk_…" aria-label="OutLayer agent API key" value={key} onChange={(e) => setKey(e.target.value)} />
-        <button className="btn primary small" type="submit" disabled={busy || !key.trim()}>Connect</button>
-      </form>
-      {err && <p className="field-err" role="alert">{err}</p>}
-    </>
-  );
-  return inline ? body : <section className="pot"><h3 className="pot-h"><Icon n="shield" size={14} />Paste an agent key</h3>{body}</section>;
-}
-
-function WalletCard({ w, onReplaced }: { w: WalletState; onReplaced: (w: WalletState) => void }) {
-  const b = w.binding;
-  return (
-    <section className="pot">
-      <h3 className="pot-h"><Icon n="shield" size={14} />Company wallet</h3>
-      <div className="wallet"><span className="muted small">Wallet account</span><b className="mono">{w.accountId ?? '…'}</b></div>
-      {b.status === 'active' && <p className="fine">Acting as <b className="mono">{b.accountId}</b>, under that account's policy.</p>}
-      {w.error && <p className="field-err" role="alert">{w.error}</p>}
-      <Portfolio w={w} />
-      {w.accountId && <Fund to={w.accountId} />}
-      <div className="row"><a className="btn small" href={OUTLAYER_APP} target="_blank" rel="noreferrer">Spending policy</a></div>
-      <details className="fine">
-        <summary>Use a different wallet (paste its agent key)</summary>
-        <PasteKey onDone={onReplaced} inline />
-      </details>
-    </section>
-  );
-}
-
-/** Every non-zero holding (the backend drops zeros), largest USD value first, with the total on top. */
-function Portfolio({ w }: { w: WalletState }) {
-  if (!w.balances.length) return w.error ? null : <p className="fine">Nothing here yet. Fund the wallet below.</p>;
-  const total = w.balances.reduce((t, x) => t + (x.usd ?? 0), 0);
-  return (
-    <>
-      <div className="wallet"><span className="muted small">Portfolio</span><div className="amt">{usd(total)}</div></div>
-      <ul className="pot-list">
-        {w.balances.map((x) => (
-          <li key={`${x.source}-${x.chain}-${x.token}`} className="holding">
-            {x.logo ? <img className="coin" src={x.logo} alt="" loading="lazy" /> : <span className="coin" aria-hidden>{x.token.slice(0, 1)}</span>}
-            <div className="grow">
-              <b>{x.token}</b>
-              <span className="muted small">{x.source === 'bound' ? `${w.binding.accountId} (bound)` : x.source === 'intents' ? `Intents · ${x.chain}` : 'Wallet account (gas)'}</span>
-            </div>
-            <div className="num">
-              <b>{human(x.amount, x.decimals)}</b>
-              <span className="muted small">{x.usd === null ? '–' : usd(x.usd)}</span>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </>
-  );
-}
-
-/** OutLayer's fund page needs `to` and a human `amount`. NEAR lands on the wallet account (gas); USDC goes straight to
-   its Intents balance (dest=intents, FT only), which swaps and the trading connectors spend from. */
-function Fund({ to }: { to: string }) {
   const [amount, setAmount] = useState('');
-  const [token, setToken] = useState<'near' | 'usdc'>('usdc');
-  const ok = Number(amount) > 0;
-  const url = `${OUTLAYER_APP}/fund?${new URLSearchParams({ to, amount, ...(token === 'usdc' ? { token: USDC, dest: 'intents' } : { token: 'near' }), msg: 'Fund the Vibe City company wallet' })}`;
+  const [token, setToken] = useState<'usdc' | 'near'>('usdc');
+  const total = w.balances.reduce((t, x) => t + (x.usd ?? 0), 0);
+  const connect = async () => {
+    if (!key.trim()) return;
+    setBusy(true); setErr(null);
+    try { const x = await api.walletKey(key.trim()); setKey(''); onChange(x); setMode('view'); } catch (e) { setErr(errText(e)); } finally { setBusy(false); }
+  };
+  const fundOk = Number(amount) > 0 && !!w.accountId;
+  const fundUrl = w.accountId ? `${OUTLAYER_APP}/fund?${new URLSearchParams({ to: w.accountId, amount, ...(token === 'usdc' ? { token: USDC, dest: 'intents' } : { token: 'near' }), msg: 'Fund the Vibe City company wallet' })}` : '';
+  const short = (a: string) => (a.length > 26 ? `${a.slice(0, 12)}…${a.slice(-10)}` : a);
+  const problem = err ?? w.error ?? loadError;
+
   return (
-    <form className="row" onSubmit={(e) => { e.preventDefault(); if (ok) window.open(url, '_blank', 'noreferrer'); }}>
-      <input className="input mono" inputMode="decimal" placeholder="Amount" aria-label="Amount to fund" value={amount} onChange={(e) => setAmount(e.target.value.trim())} />
-      <PixelSelect aria-label="Token" value={token} onChange={(v) => setToken(v as 'near' | 'usdc')}
-        options={[{ value: 'usdc', label: 'USDC (trading, to Intents)' }, { value: 'near', label: 'NEAR (gas)' }]} />
-      <button className="btn small" type="submit" disabled={!ok}>Fund</button>
-    </form>
+    <Device model="SAFE-2" name="wallet pager" shell="graphite" led={w.registered ? 'green' : 'amber'} className="safe-dev">
+      <div className="safe-body">
+        <Screen kind="lcd" className="safe-lcd" label="Wallet display">
+          <div className="scr-row"><span>OutLayer custody</span><span>{w.registered ? '● Linked' : '○ No wallet'}</span></div>
+          {mode === 'view' && w.registered && (
+            <>
+              <div className="scr-mono safe-acct" title={w.accountId ?? ''}>{w.accountId ? short(w.accountId) : '…'}</div>
+              <div className="scr-row safe-lbl"><span>Portfolio · every token held</span>{w.binding.status === 'active' && <span>Acting as {w.binding.accountId}</span>}</div>
+              <div><Digits value={usd(total)} /></div>
+              {w.balances.length === 0 && !w.error && <p className="scr-mono safe-hint">Nothing here yet. Press Fund.</p>}
+              {/* every non-zero holding, largest USD value first (the backend sorts and drops zeros) */}
+              <ul className="safe-holdings">
+                {w.balances.map((x) => (
+                  <li key={`${x.source}-${x.chain}-${x.token}`} className="scr-row">
+                    <span>{x.logo ? <img className="coin" src={x.logo} alt="" loading="lazy" /> : <i className="coin" aria-hidden="true">{x.token.slice(0, 1)}</i>}{x.token} · {x.source === 'bound' ? `${w.binding.accountId} (bound)` : x.source === 'intents' ? `Intents${x.chain ? ` · ${x.chain}` : ''}` : 'wallet (gas)'}</span>
+                    <span>{human(x.amount, x.decimals)}{x.usd !== null && <small> · {usd(x.usd)}</small>}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {mode === 'fund' && (
+            <form onSubmit={(e) => { e.preventDefault(); if (fundOk) window.open(fundUrl, '_blank', 'noreferrer'); }}>
+              <div className="scr-row safe-lbl"><span>Fund · {token === 'usdc' ? 'USDC to Intents' : 'NEAR for gas'}</span></div>
+              <input className="scr-input lcd-seg" inputMode="decimal" autoFocus placeholder="0.00" aria-label="Amount to fund" value={amount} onChange={(e) => setAmount(e.target.value.trim())} />
+              <p className="scr-mono safe-hint">{token === 'usdc' ? 'Lands on the Intents balance that swaps and the trading floors spend from.' : 'Lands on the wallet account and pays for transactions.'} OutLayer's page opens; you pay from your own wallet.</p>
+            </form>
+          )}
+          {mode === 'key' && (
+            <form onSubmit={(e) => { e.preventDefault(); void connect(); }}>
+              <div className="scr-row safe-lbl"><span>{w.registered ? 'Replace the agent key' : 'Link the company wallet'}</span></div>
+              <ol className="scr-mono safe-steps">
+                <li><a href={NEW_WALLET_URL} target="_blank" rel="noreferrer">Create a wallet on OutLayer</a> and set its spending policy there.</li>
+                <li>Copy its agent key (<b>wk_…</b>, shown once) and paste it below.</li>
+              </ol>
+              <input className="scr-input scr-mono" type="password" autoComplete="off" spellCheck={false} placeholder="wk_…" aria-label="OutLayer agent API key" value={key} onChange={(e) => setKey(e.target.value)} />
+            </form>
+          )}
+          {problem && <p className="scr-mono safe-err" role="alert">! {problem}</p>}
+          <div className="scr-row safe-foot"><span>Keys stay in OutLayer's TEE</span><span>Policy: set in OutLayer</span></div>
+        </Screen>
+        <div className="safe-keys" role="group" aria-label="Safe keys">
+          {mode === 'view' && <>
+            <Key hot onClick={() => setMode('fund')} disabled={!w.registered}>Fund</Key>
+            <Key href={OUTLAYER_APP} title="Set the spending policy on OutLayer">Policy</Key>
+            <Key onClick={() => { setErr(null); setMode('key'); }}>New key</Key>
+            <Key onClick={onRefresh}>Refresh</Key>
+          </>}
+          {mode === 'fund' && <>
+            <Key hot disabled={!fundOk} href={fundOk ? fundUrl : undefined}>Open ▸</Key>
+            <Key lit={token === 'usdc'} pressed={token === 'usdc'} onClick={() => setToken('usdc')}>USDC</Key>
+            <Key lit={token === 'near'} pressed={token === 'near'} onClick={() => setToken('near')}>NEAR</Key>
+            <Key onClick={() => setMode('view')}>Back</Key>
+          </>}
+          {mode === 'key' && <>
+            <Key hot disabled={busy || !key.trim()} onClick={() => void connect()}>{busy ? 'Checking' : 'Connect'}</Key>
+            <Key href={NEW_WALLET_URL} title="Create a wallet on OutLayer">New wallet</Key>
+            {w.registered && <Key onClick={() => setMode('view')}>Back</Key>}
+          </>}
+          <Grille className="safe-grille" />
+        </div>
+      </div>
+    </Device>
   );
 }

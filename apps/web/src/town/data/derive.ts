@@ -88,7 +88,7 @@ export function deriveDept(i: DeriveInput): Dept {
     else if (quests.some((q) => q.flags.planningComplete && q.status !== 'cancelling')) {
       const q = quests.find((x) => x.flags.planningComplete)!;
       chief = { ...base, status: 'idle', activity: `Planning finished · “${q.title}”`, since: hhmm(q.tasks.find((t) => t.depth === 0)?.completedAt ?? null) };
-    } else chief = { ...base, status: 'idle', activity: quests.length ? `Queued: “${quests[0]!.title}”` : 'Waiting for a quest', since: hhmm(v.updatedAt) };
+    } else chief = { ...base, status: 'idle', activity: quests.length ? `Queued: “${quests[0]!.title}”` : 'Waiting for a job', since: hhmm(v.updatedAt) };
   }
 
   let state: DeptState;

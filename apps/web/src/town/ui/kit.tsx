@@ -59,7 +59,7 @@ export const questStatus = (s: QuestStatus): StatusKey => ({
 } as const)[s];
 
 const P: Record<string, ReactNode> = {
-  plus: <path d="M12 4v16M4 12h16" />, x: <path d="M6 6l12 12M18 6L6 18" />, chev: <path d="M9 6l6 6-6 6" />, back: <path d="M15 6l-6 6 6 6" />,
+  plus: <path d="M12 4v16M4 12h16" />, pencil: <path d="M4 20h4L19 9l-4-4L4 16zM13 7l4 4" />, check: <path d="M5 12l5 5 9-10" />, x: <path d="M6 6l12 12M18 6L6 18" />, chev: <path d="M9 6l6 6-6 6" />, back: <path d="M15 6l-6 6 6 6" />,
   sliders: <><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></>,
   sparkle: <path d="M12 3l2.2 6.8L21 12l-6.8 2.2L12 21l-2.2-6.8L3 12l6.8-2.2z" />, plug: <path d="M9 3v5M15 3v5M7 8h10v4a5 5 0 01-10 0zM12 17v4" />,
   chip: <><rect x="7" y="7" width="10" height="10" rx="1" /><path d="M10 3v4M14 3v4M10 17v4M14 17v4M3 10h4M3 14h4M17 10h4M17 14h4" /></>,

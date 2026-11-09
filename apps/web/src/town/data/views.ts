@@ -64,9 +64,9 @@ export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoar
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
     'Vibe City keeps the department record, its loadout and settings.',
     hermes.length
-      ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every quest, result and attachment stay there.`
+      ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every job, result and attachment stay there.`
       : 'It was never synced, so it has no Hermes resources.',
-    'This is not Hermes resource deletion, and there is no restore in this version. Running Hermes tasks are not stopped: cancel active quests first.',
+    'This is not Hermes resource deletion, and there is no restore in this version. Running Hermes tasks are not stopped: cancel active jobs first.',
   ];
 }
 
@@ -77,7 +77,7 @@ export const archivedNotice = (name: string, retained: boolean) =>
 
 export const LIMIT_COPY = {
   teammates: 'Every agent is its own Hermes profile, so teammates work in parallel. Each runs up to Hermes\' host-wide per-profile cap at once.',
-  maxTaskRuntimeSeconds: 'Applies to the quest task the lead receives. It does not propagate automatically to the tasks the lead hands to teammates.',
+  maxTaskRuntimeSeconds: 'Applies to the job task the lead receives. It does not propagate automatically to the tasks the lead hands to teammates.',
   maxDelegationDepth: 'Fixed at 1: agents are told to do handed-over tasks themselves. Hermes cannot enforce it.',
 } as const;
 
@@ -157,9 +157,9 @@ export interface CancellationView {
 }
 
 export const CANCEL_CONFIRM = [
-  'Unfinished tasks are archived in Hermes. Archived tasks cannot be dispatched again: to redo the work, create a new quest.',
+  'Unfinished tasks are archived in Hermes. Archived tasks cannot be dispatched again: to redo the work, create a new job.',
   'Tasks that already finished are left untouched; their summaries and files stay available.',
-  'A task that is running right now may take a moment to stop. The quest shows “Cancelled” only after Hermes confirms nothing is active.',
+  'A task that is running right now may take a moment to stop. The job shows “Cancelled” only after Hermes confirms nothing is active.',
 ];
 
 export function cancellationView(c: CancellationStatus, tasks: Pick<TaskNode, 'id' | 'title'>[]): CancellationView | null {

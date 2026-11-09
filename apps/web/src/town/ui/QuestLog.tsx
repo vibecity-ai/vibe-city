@@ -2,11 +2,12 @@
    - CurrentQuestCard: the one quest to do next, in the Executive Office panel, with its button.
    - QuestLogWindow: the whole journey in three acts and the floors each quest unlocks. Opened from the top bar, the
      current-quest card and the Executive Office's trophy shelf. */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MARKET_CATEGORIES, type CeoQuest, type GameState, type ListingDraft, type MarketRegister, type MarketView, type TemplateList } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon, PixelSelect, useDialog } from './kit';
+import { Icon, PixelSelect } from './kit';
+import { DeskSheet } from './Desk';
 import { acts, nextQuest, progressLabel, questTarget } from '../data/game';
 
 const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
@@ -199,7 +200,7 @@ function MarketQuest() {
 export const JOB_LABEL: Record<MarketView['jobs'][number]['state'], string> = { working: 'In progress', submitted: 'Delivered', accepted: 'Paid', failed: 'Failed', closed: 'Closed' };
 
 /** The button (or note) that takes the CEO where the quest is done; the mapping lives in data/game.ts. */
-function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
+export function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
   const s = useStore.getState();
   const go = (fn: () => void) => () => { onGo?.(); fn(); };
   const t = questTarget(q.id);
@@ -216,7 +217,7 @@ function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
   }
 }
 
-function Pips({ g }: { g: GameState }) {
+export function Pips({ g }: { g: GameState }) {
   const next = nextQuest(g);
   return (
     <span className="ql-pips" aria-hidden="true">
@@ -261,73 +262,57 @@ export function QuestLogWindow() {
 
 function QuestLog() {
   const game = useStore((s) => s.game);
-  const ref = useRef<HTMLDivElement>(null);
   const [floors, setFloors] = useState<TemplateList | null>(null);
   const close = () => useStore.getState().ui$({ questLog: false });
-  useDialog(ref, true, close);
   useEffect(() => {
     api.templates().then(setFloors).catch(() => undefined);
     api.game().then((g) => useStore.setState({ game: g })).catch(() => undefined);
   }, []);
   if (!game) return null;
   const next = nextQuest(game);
-  const titleOf = (id: string | null) => (id ? game.quests.find((q) => q.id === id)?.title ?? id : null);
+  const nextAct = acts(game).findIndex((a) => a.quests.some((q) => q === next));
+  /** What a quest unlocks, with the floor's crew size when it is a floor. */
+  const unlock = (label: string, on: boolean) => label.split(', ').map((part) => {
+    const f = floors?.find((t) => t.name.toLowerCase() === part.toLowerCase() || t.name.toLowerCase() === `${part.toLowerCase()} department`);
+    return (
+      <span key={part} className={`ql-chip${on ? ' on' : ''}${f ? ' floor' : ''}`}>
+        <Icon n={f ? 'building' : on ? 'sparkle' : 'lock'} size={11} />{part}{f && <small>{f.seats.length} agents</small>}
+      </span>
+    );
+  });
   return (
-    <div className="hire-scrim" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="hire exec-modal ql" ref={ref} role="dialog" aria-modal="true" aria-labelledby="ql-t">
-        <header className="hire-head">
-          <div><span className="dlg-tag">Executive office</span><h2 id="ql-t">Quest log</h2></div>
-          <button className="dlg-icon" onClick={close} aria-label="Close"><Icon n="x" size={14} /></button>
+    <DeskSheet title="Quest log" onClose={close} className="exec-modal ql">
+        <header className="ql-head">
+          <div><span className="dlg-tag">Your quests</span><h2>Build the company</h2></div>
+          <div className="ql-progress"><Pips g={game} /><span>{progressLabel(game)}</span></div>
         </header>
-        <div className="ql-progress"><Pips g={game} /><span>{progressLabel(game)}</span></div>
-
-        <div className="ql-cols">
-          <div className="ql-main">
-            {next && (
-              <section className="ql-hero" aria-labelledby="ql-now">
-                <span className="ql-tag">Now</span>
-                <h3 id="ql-now">{next.title}</h3>
-                <p>{next.hint}</p>
-                <div className="ql-card-act"><QuestAction q={next} onGo={close} />{next.unlocks && <span className="ql-unl"><Icon n="lock" size={11} />Unlocks {next.unlocks}</span>}</div>
-              </section>
-            )}
-            {acts(game).map((a, ai) => {
-              const done = a.quests.filter((q) => q.done).length;
-              return (
-                <section key={a.title} className="ql-act" aria-label={a.title}>
-                  <h3 className="ql-act-t"><span className="ql-act-n">Act {ai + 1}</span>{a.title}<span className="ql-act-c">{done}/{a.quests.length}</span></h3>
-                  <p className="ql-act-b">{a.blurb}</p>
-                  <ol className="ql-list">
-                    {a.quests.map((q) => (
-                      <li key={q.id} className={`ql-row ${q.done ? 'done' : q === next ? 'now' : 'later'}`}>
-                        <span className="ql-mark" aria-hidden="true">{q.done ? <Icon n="sparkle" size={11} /> : q === next ? <i /> : null}</span>
-                        <span className="ql-row-t">{q.title}<span className="sr">{q.done ? ', done' : q === next ? ', next' : ''}</span></span>
-                        {q.unlocks && <span className={`ql-chip${q.done ? ' on' : ''}`}>{q.done ? 'Unlocked' : 'Unlocks'} {q.unlocks}</span>}
-                      </li>
-                    ))}
-                  </ol>
-                </section>
-              );
-            })}
-          </div>
-
-          <aside className="ql-side" aria-labelledby="ql-floors">
-            <h3 className="ql-act-t" id="ql-floors">Floors you can hire</h3>
-            <p className="ql-act-b">Each quest opens a floor. Hire one from the Chief of Staff or Add department.</p>
-            {!floors && <p className="muted small">Loading…</p>}
-            <ul className="ql-floors">
-              {floors?.map((t) => (
-                <li key={t.id} className={t.locked ? 'locked' : 'open'}>
-                  <span className="ql-floor-n">{t.locked ? <Icon n="lock" size={12} /> : <Icon n="building" size={12} />}{t.name}</span>
-                  <span className="ql-floor-s">{t.seats.length} agents · {t.seats.map((x) => x.title).slice(0, 2).join(', ')}{t.seats.length > 2 ? '…' : ''}</span>
-                  <span className="ql-floor-u">{t.locked ? `After: ${titleOf(t.unlocks)}` : 'Ready to hire'}</span>
-                </li>
-              ))}
-            </ul>
-            {floors?.some((t) => !t.locked) && <button className="btn secondary small block" onClick={() => { close(); useStore.getState().ui$({ modal: 'create' }); }}>Hire a department</button>}
-          </aside>
-        </div>
-      </div>
-    </div>
+        <p className="ql-intro">Quests are yours: each one you finish opens new floors. Your agents' work is on the Ops board, as jobs.</p>
+        {acts(game).map((a, ai) => {
+          const done = a.quests.filter((q) => q.done).length;
+          const state = done === a.quests.length ? 'past' : nextAct === -1 || ai <= nextAct ? 'current' : 'future';
+          return (
+            <section key={a.title} className={`ql-act ${state}`} aria-label={a.title}>
+              <h3 className="ql-act-t"><span className="ql-act-n">Act {ai + 1}</span>{a.title}<span className="ql-act-c">{done}/{a.quests.length}</span></h3>
+              {state !== 'past' && <p className="ql-act-b">{a.blurb}</p>}
+              <ol className="ql-list">
+                {a.quests.map((q) => q === next ? (
+                  <li key={q.id} className="ql-row now">
+                    <div className="ql-now-top"><span className="ql-mark" aria-hidden="true"><i /></span><span className="ql-row-t">{q.title}<span className="sr">, next</span></span><span className="ql-tag">Now</span></div>
+                    <p className="ql-now-h">{q.hint}</p>
+                    <div className="ql-now-act"><QuestAction q={q} onGo={close} />{q.unlocks && <span className="ql-unlocks">Unlocks {unlock(q.unlocks, false)}</span>}</div>
+                  </li>
+                ) : (
+                  <li key={q.id} className={`ql-row ${q.done ? 'done' : 'later'}`}>
+                    <span className="ql-mark" aria-hidden="true">{q.done && <Icon n="check" size={11} sw={3} />}</span>
+                    <span className="ql-row-t">{q.title}<span className="sr">{q.done ? ', done' : ''}</span></span>
+                    {q.unlocks && <span className="ql-unlocks">{unlock(q.unlocks, q.done)}</span>}
+                  </li>
+                ))}
+              </ol>
+            </section>
+          );
+        })}
+        {!next && <p className="ql-intro">Every quest is done. The company is public.</p>}
+    </DeskSheet>
   );
 }

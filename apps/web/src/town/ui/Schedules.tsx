@@ -61,7 +61,7 @@ export function SchedulesView({ deptId }: { deptId: string | null }) {
   const name = (id: string) => depts.find((d) => d.id === id)?.name ?? 'archived floor';
   return (
     <div className="sched">
-      <p className="fine">Vibe City creates these quests on the floor's board at the set time, like you would. Agents cannot schedule work themselves (Hermes cron jobs stay off).</p>
+      <p className="fine">Vibe City creates these jobs on the floor's board at the set time, like you would. Agents cannot schedule work themselves (Hermes cron jobs stay off).</p>
       {error && <p className="field-err" role="alert">{error}</p>}
       {list.length === 0 && !adding && <p className="muted">No schedules yet{deptId ? ` for ${name(deptId)}` : ''}.</p>}
       <ul className="sched-list">
@@ -108,7 +108,7 @@ function ScheduleForm({ deptId, onDone }: { deptId: string | null; onDone: () =>
       {!deptId && <label className="field"><span className="lbl">Floor</span><PixelSelect value={dept} onChange={setDept} options={depts.map((d) => ({ value: d.id, label: `F${floorNum(depts, d.id)} · ${d.name}`, disabled: d.provisioning !== 'ready', ...(d.provisioning !== 'ready' ? { note: 'not ready' } : {}) }))} /></label>}
       <label className="field"><span className="lbl">When</span><PixelSelect value={preset} onChange={setPreset} options={[...PRESETS.map((p) => ({ value: p.cron, label: p.label })), { value: 'custom', label: 'Custom (cron)…' }]} /></label>
       {preset === 'custom' && <label className="field"><span className="lbl">Cron: minute hour day month weekday</span><input className="input mono" value={custom} onChange={(e) => setCustom(e.target.value)} /></label>}
-      <label className="field"><span className="lbl">Quest title</span><input className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} placeholder="Morning digest" /></label>
+      <label className="field"><span className="lbl">Job title</span><input className="input" value={title} maxLength={200} onChange={(e) => setTitle(e.target.value)} placeholder="Morning digest" /></label>
       <label className="field"><span className="lbl">Objective</span><textarea className="input" rows={2} maxLength={8000} value={objective} onChange={(e) => setObjective(e.target.value)} placeholder="What the floor should deliver each time" /></label>
       <p className="fine">Times are in your time zone ({tzLocal}). {describeCron(cron)}.</p>
       {error && <p className="field-err" role="alert">{error}</p>}

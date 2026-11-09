@@ -65,17 +65,21 @@ export default function App() {
           {panel === 'quest' && <QuestDetail />}
           {panel === 'agent' && <AgentPanel />}
         </aside>
+        {/* the desk: every tool opens here, stacked over the panel (ui/Desk.tsx); later ones lie on top */}
+        <div className="desk-layer">
+          <ExecRoomModal />
+          <FloorSheetWindow />
+          <QuestLogWindow />
+          <CreateDeptModal />
+          <NewDeptWindow />
+          <HiringLayer />
+          <SkillLibraryWindow />
+        </div>
       </main>
-      <CreateDeptModal />
-      <ArchiveModal />
+      {/* a conversation is a scene over the whole city, not a tool on the desk */}
       <DialogueWindow />
-      <HiringLayer />
-      <NewDeptWindow />
+      <ArchiveModal />
       <RequestsPoll />
-      <ExecRoomModal />
-      <QuestLogWindow />
-      <FloorSheetWindow />
-      <SkillLibraryWindow />
     </div>
   );
 }

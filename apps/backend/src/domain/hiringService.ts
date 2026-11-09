@@ -243,7 +243,7 @@ export class HiringService {
       const sum = (k: keyof QuestSummary['counts']) => active.reduce((n, q) => n + q.counts[k], 0);
       const failed = quests.reduce((n, q) => n + q.counts.failed, 0);
       let t: HiringTrigger | null = null;
-      if (agents === 1 && active.length >= 2) t = { kind: 'no_workers', departmentId: dept.id, reason: `${dept.name} has ${active.length} quests on the board and one agent doing everything alone.` };
+      if (agents === 1 && active.length >= 2) t = { kind: 'no_workers', departmentId: dept.id, reason: `${dept.name} has ${active.length} jobs on the board and one agent doing everything alone.` };
       else if (agents > 1 && sum('pending') >= 3 && sum('running') >= agents) t = { kind: 'queue', departmentId: dept.id, reason: `${dept.name} is drowning: ${sum('pending')} tasks waiting and all ${agents} agents busy.` };
       else if (failed >= 2) t = { kind: 'failures', departmentId: dept.id, reason: `${dept.name} has ${failed} failed tasks. Maybe they need someone with different skills.` };
       if (t && !this.recentlyCalled(t)) return t;
@@ -293,7 +293,7 @@ export class HiringService {
     const budget = Math.round(Number(b.budgetPerDay ?? b.budget ?? 150));
     const parsed = HiringBriefSchema.safeParse({
       departmentId: dept.id, departmentName: dept.name,
-      focus: String(b.focus ?? '').slice(0, 200) || `Help ${dept.name} with its quests`,
+      focus: String(b.focus ?? '').slice(0, 200) || `Help ${dept.name} with its jobs`,
       skills: Array.isArray(b.skills) ? b.skills.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 100)).slice(0, 10) : [],
       budgetPerDay: Number.isFinite(budget) ? Math.min(100_000, Math.max(1, budget)) : 150,
       notes: String(b.notes ?? '').slice(0, 500),
@@ -368,7 +368,7 @@ export class HiringService {
       const overBudget = s.cost > brief.budgetPerDay;
       return CandidateSchema.parse({
         id: randomUUID(), serious: true, character: ch, gag: null,
-        pitch: p?.pitch ?? (s.label === 'premium' ? `Bigger model, more skills. I'll take the hard ${brief.departmentName} quests and get them right the first time.` : `Reliable and affordable. I'll keep ${brief.departmentName}'s queue moving without burning the budget.`),
+        pitch: p?.pitch ?? (s.label === 'premium' ? `Bigger model, more skills. I'll take the hard ${brief.departmentName} jobs and get them right the first time.` : `Reliable and affordable. I'll keep ${brief.departmentName}'s queue moving without burning the budget.`),
         loadout: { model: s.model, skills: s.skills, toolsets: [] }, tier: s.tier, costPerDay: s.cost, fitScore: s.fit,
         note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the ${brief.budgetPerDay} credit budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}${price(s.model) ? ` NEAR AI price: ${priceNote(price(s.model)!)}.` : ' Price unknown, cost guessed from the model name.'}`,
       });

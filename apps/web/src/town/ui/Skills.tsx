@@ -4,11 +4,12 @@
    - SkillLibraryWindow: every skill Hermes has, by school; inspect one and equip it on a floor.
    Equipping saves the floor's loadout; Hermes gets it at the next sync, and a card only says "Equipped" once Hermes
    reports it on. */
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { TEMPLATES, type Inventory } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api } from '../../api';
-import { Icon, FloorKey, useDialog } from './kit';
+import { Icon, FloorKey } from './kit';
+import { DeskSheet } from './Desk';
 import { loadAgent, loadHermesDefaults, patchInventory, provisionDepartment } from '../data/live';
 import { SCHOOLS, RARITY_LABEL, STATE_LABEL, bySchool, skillMeta, skillState, templateSkills, toggleAllowance, type School, type SkillState } from '../data/skills';
 
@@ -66,15 +67,15 @@ export function SkillBadges({ names, max = 4, size = 12 }: { names: string[]; ma
 
 const STATE_TONE: Record<SkillState, string> = { active: 'ok', 'pending-on': 'pend', 'pending-off': 'pend', off: 'idle', missing: 'bad' };
 
-export function SkillCard({ name, essential, state, own, compact, selected, onClick, action, note }: {
-  name: string; essential?: boolean; state?: SkillState; own?: boolean; compact?: boolean; selected?: boolean;
+export function SkillCard({ name, essential, state, own, compact, selected, pressed, onClick, action, note }: {
+  name: string; essential?: boolean; state?: SkillState; own?: boolean; compact?: boolean; selected?: boolean; /** For a toggle card: equipped or not. */ pressed?: boolean;
   onClick?: () => void; action?: ReactNode; note?: ReactNode;
 }) {
   const m = skillMeta(name, essential);
   const s = SCHOOLS[m.school];
   const body = (
     <>
-      <span className="sk-top"><span className="sk-school">{s.label}</span>{m.wallet && m.school !== 'wallet' && <span className="sk-flag" title="Spends from the company wallet, inside the wallet policy"><Icon n="lock" size={10} />Wallet</span>}<span className={`sk-gem r-${m.rarity}`} title={RARITY_LABEL[m.rarity]} /></span>
+      <span className="sk-top">{pressed !== undefined && <span className={`sk-tick${pressed ? ' on' : ''}`} aria-hidden="true">{pressed && <Icon n="check" size={10} sw={3.5} />}</span>}<span className="sk-school">{s.label}</span>{m.wallet && m.school !== 'wallet' && <span className="sk-flag" title="Spends from the company wallet, inside the wallet policy"><Icon n="lock" size={10} />Wallet</span>}<span className={`sk-gem r-${m.rarity}`} title={RARITY_LABEL[m.rarity]} /></span>
       <span className="sk-mid">
         <span className="sk-tile"><SkillGlyph school={m.school} size={compact ? 22 : 30} /></span>
         <span className="sk-name"><b>{m.label}</b><code>{m.name}</code></span>
@@ -89,11 +90,11 @@ export function SkillCard({ name, essential, state, own, compact, selected, onCl
       )}
     </>
   );
-  const cls = `sk-card r-${m.rarity}${compact ? ' compact' : ''}${selected ? ' sel' : ''}${state && STATE_TONE[state] === 'idle' ? ' idle' : ''}`;
+  const cls = `sk-card r-${m.rarity}${compact ? ' compact' : ''}${selected ? ' sel' : ''}${pressed === false ? ' unpicked' : ''}${state && STATE_TONE[state] === 'idle' ? ' idle' : ''}`;
   const style = { ['--sk' as string]: s.color, ['--skd' as string]: s.deep };
   return (
     <div className={cls} style={style}>
-      {onClick ? <button type="button" className="sk-hit" onClick={onClick} aria-pressed={selected}>{body}</button> : <div className="sk-hit">{body}</div>}
+      {onClick ? <button type="button" className="sk-hit" onClick={onClick} aria-pressed={pressed ?? selected}>{body}</button> : <div className="sk-hit">{body}</div>}
       {action && <div className="sk-act">{action}</div>}
     </div>
   );
@@ -130,9 +131,7 @@ function SkillLibrary({ deptId, first }: { deptId: string | null; first: string 
   const agents = useStore((s) => s.agents);
   const busy = useStore((s) => s.busy);
   const hermesUp = useStore((s) => s.conn.hermes);
-  const ref = useRef<HTMLDivElement>(null);
   const close = () => useStore.getState().ui$({ skillLib: null });
-  useDialog(ref, true, close);
   const lib = useInstalledSkills();
   const [invs, setInvs] = useState<Record<string, Inventory>>({});
   const [school, setSchool] = useState<School | 'all'>('all');
@@ -172,11 +171,9 @@ function SkillLibrary({ deptId, first }: { deptId: string | null; first: string 
   const floors = [...ready].sort((a, b) => Number(b.id === deptId) - Number(a.id === deptId));
 
   return (
-    <div className="hire-scrim" onClick={(e) => { if (e.target === e.currentTarget) close(); }}>
-      <div className="hire exec-modal lib" ref={ref} role="dialog" aria-modal="true" aria-labelledby="lib-t">
+    <DeskSheet title="Skill library" wide onClose={close} className="exec-modal lib">
         <header className="hire-head">
-          <div><span className="dlg-tag">Hermes · {inHermes.size} skill{inHermes.size === 1 ? '' : 's'} installed</span><h2 id="lib-t">Skill library</h2></div>
-          <button className="dlg-icon" onClick={close} aria-label="Close"><Icon n="x" size={14} /></button>
+          <div><span className="dlg-tag">Hermes · {inHermes.size} skill{inHermes.size === 1 ? '' : 's'} installed</span><h2>Skill library</h2></div>
         </header>
         <p className="lib-lead">Every skill your Hermes has. Pick one to see who uses it, and equip it on a floor: it reaches the agents at the floor’s next sync.</p>
         <div className="lib-tools" role="toolbar" aria-label="Filter skills">
@@ -246,8 +243,7 @@ function SkillLibrary({ deptId, first }: { deptId: string | null; first: string 
             </aside>
           )}
         </div>
-      </div>
-    </div>
+    </DeskSheet>
   );
 }
 

@@ -60,8 +60,8 @@ export const CEO_QUESTS: readonly QuestDef[] = [
     hint: 'Go live on market.near.ai, hire the Marketplace Agency, and a buyer accepts its first delivery.' },
   { id: 'first-ship', title: 'First code shipped', unlocks: 'Red Team, Blue Team', done: (x) => x.textOf(['software']).some((t) => PR.test(t)),
     hint: 'The Software Department opens a pull request on GitHub.' },
-  { id: 'ipo', title: 'IPO', unlocks: 'IPO button', done: (x) => x.earnedCents > 0 && x.ready >= 3,
-    hint: 'Earn at least once and have three departments ready. Then the IPO button lights up.' },
+  { id: 'ipo', title: 'IPO', unlocks: 'the opening bell', done: (x) => x.earnedCents > 0 && x.ready >= 3,
+    hint: 'Earn at least once and have three departments ready. Then you ring the opening bell.' },
 ];
 
 export function deriveGame(i: GameInput): GameState & { locked: Record<string, boolean> } {

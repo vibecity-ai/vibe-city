@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TaskNode } from '@vibe-city/shared';
-import { age, attentionReason, cardLines, crewOf, lanes, searchSort, type BoardQuest } from './company.ts';
+import { COLUMNS, RAIL_NAME, age, attentionReason, cardLines, crewOf, lanes, objectiveText, searchSort, tickerItems, ticketStamp, type BoardQuest } from './company.ts';
 import type { Dept } from './types.ts';
 
 const q = (title: string, dept: string, createdAt: string): BoardQuest => ({
@@ -57,4 +57,41 @@ test('attention cards say why; crew is lead first, from the task tree; lanes kee
   const depts = [{ id: 'a' }, { id: 'b' }, { id: 'c' }] as unknown as Dept[];
   const list = [{ ...q('x', 'c', ''), deptId: 'c' }, { ...q('y', 'a', ''), deptId: 'a' }] as BoardQuest[];
   assert.deepEqual(lanes(depts, list).map((l) => [l.dept.id, l.floor, l.quests.length]), [['a', 'F3', 1], ['c', 'F1', 1]]);
+});
+
+test('the ticker leads with what needs the CEO, then floors at work, then the last three finished quests', () => {
+  const quest = (title: string, dept: string, status: string, completedAt: string | null = null) =>
+    ({ deptId: dept, summary: { ...q(title, dept, '2026-11-01T00:00:00Z').summary, status, completedAt } }) as unknown as BoardQuest;
+  const depts = [
+    { id: 'a', name: 'Growth', chief: { status: 'running' }, workers: [{ status: 'running' }, { status: 'idle' }] },
+    { id: 'b', name: 'Research', chief: { status: 'idle' }, workers: [] },
+  ] as unknown as Dept[];
+  const items = tickerItems(depts, [
+    quest('Old', 'b', 'completed', '2026-11-01T00:00:00Z'), quest('Newer', 'a', 'completed', '2026-11-03T00:00:00Z'),
+    quest('Mid', 'b', 'completed', '2026-11-02T00:00:00Z'), quest('Oldest', 'a', 'completed', '2026-10-01T00:00:00Z'),
+    quest('Stuck', 'b', 'failed'), quest('Busy', 'a', 'running'),
+  ]);
+  assert.deepEqual(items, [
+    { tone: 'bad', text: 'Stuck: Research needs you' },
+    { tone: 'run', text: 'Growth · 2 agents at work' },
+    { tone: 'ok', text: 'Newer · done by Growth' }, { tone: 'ok', text: 'Mid · done by Research' }, { tone: 'ok', text: 'Old · done by Research' },
+  ]);
+  assert.deepEqual(tickerItems([], []), []);
+});
+
+test('every quest that needs the CEO or has ended carries a stamp; fresh and running tickets do not', () => {
+  const all = ['queued', 'planning', 'running', 'cancelling', 'awaiting_input', 'in_review', 'failed', 'completed', 'cancelled'] as const;
+  for (const s of all) {
+    const col = COLUMNS.find((c) => c.has(s))!.key;
+    assert.equal(!!ticketStamp(s), col === 'attention' || col === 'finished', s);
+  }
+  assert.equal(ticketStamp('failed')!.tone, 'bad');
+  assert.deepEqual(Object.keys(RAIL_NAME).sort(), COLUMNS.map((c) => c.key).sort());
+});
+
+test('an objective drops a heading that only repeats the title', () => {
+  assert.equal(objectiveText('# Quest: Referral programme copy\n\nWrite the emails.', 'Referral programme copy'), 'Write the emails.');
+  assert.equal(objectiveText('## Referral programme copy', 'Referral programme copy'), '');
+  assert.equal(objectiveText('# Plan the launch\nThen ship it.', 'Something else'), 'Plan the launch\nThen ship it.');
+  assert.equal(objectiveText('Plain text.', 'T'), 'Plain text.');
 });

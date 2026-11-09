@@ -149,12 +149,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
     <div className="dlg" role="dialog" aria-modal="true" aria-label={`Talking to ${who?.name ?? 'agent'}`} style={{ ['--who' as string]: color }}>
       <div className="dlg-bar top" />
       <div className="dlg-band" onClick={advance}>
-        <div className="dlg-side" style={{ background: `linear-gradient(160deg, ${color} 0%, ${color} 30%, #3a1240 100%)` }}>
+        <div className="dlg-side">
           <PortraitCanvas look={look} mood={mood} talking={typing} size={384} gag={gag} />
-          <div className="dlg-name"><b>{who?.name ?? '…'}</b><span>{who?.title ?? ''}</span></div>
         </div>
       </div>
       <div className="dlg-bar bottom">
+        <div className="dlg-plate"><b>{who?.name ?? '…'}</b><span>{who?.title ?? ''}</span></div>
         <div className="dlg-text" onClick={advance} aria-live="polite">
           <span className="sr">{waiting ? status ?? 'Thinking' : speech}</span>
           <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className={`dlg-caret${lastPage ? '' : ' more'}`}>{lastPage ? '■' : '▼'}</span>}</p>
@@ -290,14 +290,14 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
             </div>
           );
         }
-        if (proposalDone[last.id] === 'started') return <p className="dlg-note">Quest sent to the board. Watch the Kanban wall.</p>;
+        if (proposalDone[last.id] === 'started') return <p className="dlg-note">Job sent to the board. Watch the Kanban wall.</p>;
         if (!last.proposal || proposalDone[last.id]) return null;
         const p = last.proposal;
         return (
           <div className="dlg-prop">
-            <div><span className="dlg-tag">Quest proposal</span><b>{p.title}</b><span>{p.objective}</span></div>
+            <div><span className="dlg-tag">Job proposal</span><b>{p.title}</b><span>{p.objective}</span></div>
             <div className="dlg-prop-act">
-              <button className="btn primary small" onClick={() => void startQuest(last.id, p)}>Start quest</button>
+              <button className="btn primary small" onClick={() => void startQuest(last.id, p)}>Start job</button>
               <button className="btn small" onClick={() => setProposalDone((x) => ({ ...x, [last.id]: 'dismissed' }))}>Not now</button>
             </div>
           </div>
