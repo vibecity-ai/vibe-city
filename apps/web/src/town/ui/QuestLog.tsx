@@ -196,7 +196,7 @@ function MarketQuest() {
   );
 }
 
-const JOB_LABEL: Record<MarketView['jobs'][number]['state'], string> = { working: 'In progress', submitted: 'Delivered', accepted: 'Paid', failed: 'Failed', closed: 'Closed' };
+export const JOB_LABEL: Record<MarketView['jobs'][number]['state'], string> = { working: 'In progress', submitted: 'Delivered', accepted: 'Paid', failed: 'Failed', closed: 'Closed' };
 
 /** The button (or note) that takes the CEO where the quest is done; the mapping lives in data/game.ts. */
 function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
