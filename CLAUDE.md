@@ -1,3 +1,7 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
 # Vibe City: working notes for agents
 
 Vibe City is a city UI over Hermes (Nous Research's agent runtime): a department is a floor, an agent is a Hermes
@@ -12,16 +16,29 @@ npm run typecheck        # tsc for every workspace
 npm test                 # backend (FakeHermes, no live Hermes) + web unit tests; must stay green
 npm run build            # web app
 npm run dev              # Hermes in Docker + backend :4100 + Vite :4200 (needs .env, see DEPLOYMENT.md)
+
+# one test file (no build step; Node runs TS directly via --experimental-strip-types)
+cd apps/backend && node --experimental-strip-types --test src/quests.test.ts
+cd apps/web && node --experimental-strip-types --test src/town/data/derive.test.ts
+# add --test-name-pattern="<regex>" to run a single test
+
+# offline demo with the fakes, no Docker or API keys
+npm run build && WEB_DIST=../web/dist PORT=4199 npm run demo -w @vibe-city/backend   # http://127.0.0.1:4199
 ```
 
-CI runs typecheck, test and build on every PR. A PR that turns any of them red is not done.
+Node 26 (what CI uses). No transpile step for backend or tests, so TS must stay strip-types compatible (no enums,
+no namespaces, no parameter properties). CI runs typecheck, test and build on every PR. A PR that turns any of them red is not done.
 
 ## Layout
 
 ```
 packages/shared/src/schemas.ts   every API body and response, zod; the contract between backend and web
 apps/backend/src/app.ts          route registration + error mapping (keep it a hub; new routes go in src/routes/)
-apps/backend/src/domain/         services (company, department, provisioning, quests, chat, hiring, schedules, money)
+apps/backend/src/routes/         route modules (company, market, wallet, game, ipo, templates, ai)
+apps/backend/src/domain/         services (company, department, provisioning, quests, chat, hiring, schedules, money,
+                                 market, wallet, game)
+apps/backend/src/live/           Hermes Kanban WebSocket per board -> refresh hints on /api/live
+apps/backend/src/near/, model/   NEAR RPC, NEAR AI chat model + prices
 apps/backend/src/hermes/         ports.ts = HermesRuntime interface; realRuntime.ts = dashboard REST + `hermes` CLI
 apps/backend/src/mcp/            the MCP server Hermes agents call back into
 apps/backend/src/db/db.ts        MIGRATIONS (append-only) + openDb
