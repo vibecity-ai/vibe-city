@@ -13,7 +13,7 @@ import { PortraitCanvas } from './Dialogue';
 import { lookFor, quirkProp } from '../world/sprites';
 import { SkillBadges } from './Skills';
 
-/* DOM layer over the canvas: floor signs, the floor rail, HQ card, legend, zoom and toasts.
+/* DOM layer over the canvas: floor signs, the floor rail, HQ card, zoom and toasts.
    Positions come from the renderer's anchors every frame and are written straight to style,
    so React never re-renders per frame. */
 export function StageOverlay({ city }: { city: City | null }) {
@@ -176,17 +176,7 @@ export function StageOverlay({ city }: { city: City | null }) {
         </nav>
       )}
 
-      {/* bottom: legend + camera */}
-      {wide && (
-        <div className="legend">
-          <div className="legend-t">Agent states</div>
-          <div className="legend-row">
-            {(['running', 'idle', 'completed', 'failed', 'disconnected', 'awaiting'] as StatusKey[]).map((k) => (
-              <span key={k}><Glyph k={k} />{k === 'awaiting' ? 'Awaiting config' : k[0].toUpperCase() + k.slice(1)}</span>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* bottom: camera */}
       {wide && ui.view === 'tower' && (
         <div className="zoom">
           <button className="zb" onClick={() => city?.zoomBy(0.85)} aria-label="Zoom out"><Icon n="minus" /></button>

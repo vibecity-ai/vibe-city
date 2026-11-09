@@ -58,7 +58,7 @@ button { font: inherit; color: inherit; }
 :focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
 
 /* ---------- pixel frames ---------- */
-.btn, .hq, .legend, .rail, .zoom, .crumb-label, .sign, .stage-alert, .toast, .tile, .attn, .chief-card, .qmini, .inv-sum,
+.btn, .hq, .rail, .zoom, .crumb-label, .sign, .stage-alert, .toast, .tile, .attn, .chief-card, .qmini, .inv-sum,
 .radio, .input, .seg, .slot-card, .model, .kv-card, .qcard, .composer, .box-p, .trow, .file, .modal, .x.boxed, .preview-f {
   border: 1px solid var(--sb, var(--sb-panel)); background: var(--sf, var(--sf-panel)); border-radius: 8px;
 }
@@ -138,10 +138,6 @@ button { font: inherit; color: inherit; }
 
 
 
-.legend { --sf: rgba(12,11,10,.72); --sb: var(--line); position: absolute; left: 16px; bottom: 16px; padding: 7px 12px 8px; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-.legend-t { font: 500 10px var(--f-mono); color: var(--ink-mute); text-transform: uppercase; letter-spacing: .1em; }
-.legend-row { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 4px; font-size: 12px; color: var(--ink-dim); }
-.legend-row span { display: inline-flex; align-items: center; gap: 6px; }
 .zoom { --sf: rgba(12,11,10,.8); --sb: var(--line2); position: absolute; right: 16px; bottom: 16px; display: flex; padding: 0; overflow: hidden; backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .zb { height: 40px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 0 12px; background: none; border: 0; cursor: pointer; font: 600 13px var(--f-ui); color: var(--ink-dim); }
 .zb + .zb { box-shadow: inset 1px 0 0 var(--line2); }
@@ -378,7 +374,7 @@ select.input { cursor: pointer; }
   .stage { height: 62svh; min-height: 360px; }
   .stage canvas { touch-action: pan-y; }
   .panel { border-left: 0; scroll-margin-top: 56px; }
-  .signs, .legend, .zoom, .crumb .kbd { display: none; }
+  .signs, .zoom, .crumb .kbd { display: none; }
   /* floors become a swipeable strip of elevator keys along the bottom of the stage */
   .rail { top: auto; bottom: 10px; left: 10px; right: 10px; width: auto; flex-direction: row; align-items: center; overflow-x: auto; scrollbar-width: none; padding: 6px; gap: 6px; }
   .rail::-webkit-scrollbar { display: none; }
@@ -1536,7 +1532,6 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 @media (min-width: 1100px) { .main:has(.desk-sheet.devhost) { --panel-w: 600px; } }
 /* a narrow city (the desk is wide): keep the world, drop the chrome */
 @media (min-width: 901px) {
-  @container (max-width: 620px) { .legend { display: none; } }
   @container (max-width: 900px) { .rail { display: none; } }
   @container (max-width: 460px) { .zoom { display: none; } .crumb .kbd { display: none; } }
 }
