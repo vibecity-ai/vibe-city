@@ -6,8 +6,13 @@ import type { ExecObjectId } from './world/execRoom';
 import type { FloorObjectId } from './data/floor';
 import { callAr } from './ui/Hiring';
 
+/** A click on something in the world starts from a clear desk, so the tool it opens is the one you see (a tool
+    opened from inside another sheet stacks on it instead). Conversations and calls are scenes, not desk tools. */
+const CLEAR_DESK = { execModal: null, scheduleDept: null, floorSheet: null, questLog: false, modal: null, skillLib: null, boardQuest: null } as const;
+
 export function execAction(id: ExecObjectId) {
   const s = useStore.getState();
+  s.ui$(CLEAR_DESK);
   switch (id) {
     case 'desk': s.openPanel('board', { composer: true, composerDept: null, boardDept: null, boardQuest: null }); break;
     case 'table': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
@@ -36,6 +41,7 @@ export function execAction(id: ExecObjectId) {
 /** What each control on a department floor opens (the canvas click and the DOM label share it). */
 export function floorAction(id: FloorObjectId, deptId: string) {
   const s = useStore.getState();
+  s.ui$(CLEAR_DESK);
   const d = s.depts.find((x) => x.id === deptId);
   switch (id) {
     case 'board': s.openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); break;
