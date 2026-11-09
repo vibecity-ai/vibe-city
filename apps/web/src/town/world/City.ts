@@ -6,13 +6,13 @@ import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
 import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
 import {
-  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast, meetingStatic,
+  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
 import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, type ExecObjectId } from './execRoom';
 import { execAction, floorAction } from '../execActions';
 import { stationFor, type FloorObjectId } from '../data/floor';
-import { STATION_BOX, clockLive, floorObjects, stationLive, stationStatic } from './floorRoom';
+import { STATION_BOX, archiveStatic, clockLive, floorObjects, keyCabinet, stationLive, stationStatic } from './floorRoom';
 import { hull } from './interior';
 
 /** The Executive Office uses the department shell with its own (warmer, darker) floor. */
@@ -441,6 +441,7 @@ export class City {
     const elevOpen = et < 0.4 ? easeOut(et / 0.4) : et < 1.7 ? 1 : et < 2.1 ? 1 - easeOut((et - 1.7) / 0.4) : 0;
     wallLive(c, d, s.quests.filter((q) => q.deptId === d.id).map((q) => q.summary.status), floorNo, elevOpen, lit);
     clockLive(c, lit, new Date());
+    keyCabinet(c, lit);
     const station = stationFor(d.view.templateId) ? d.view.templateId! : null;
 
     // cast shadows first, so everything stands in them
@@ -479,9 +480,9 @@ export class City {
       for (const lp of LOUNGE_PROPS) items.push({ y: P(lp.y[0], lp.y[1])[1], draw: () => { prop(lp.key, lp.draw); loungeLive(c, lit, lp.key); } });
       cast(c, 204, 12, 14, 16, 6, 0.22); cast(c, 224, 6, 14, 34, 12, 0.25);
     }
-    cast(c, 30, 13, 18, 18, 12, 0.22); cast(c, 64, 8, 2, 28, 34, 0.18);
-    items.push({ y: P(30, 36)[1], draw: () => prop('meet', (q) => meetingStatic(q)) });
-    for (const [u, v, big, seed] of [[84, 132, true, 7], [12, 8, true, 11], [232, 112, false, 5], [100, 10, false, 9], [70, 60, false, 13]] as [number, number, boolean, number][]) items.push({ y: P(u + 4, v - 4)[1], draw: () => prop(`plant${u}${v}`, (q) => plant(q, u, v, big, seed)) });
+    cast(c, 28, 8, 12, 29, 22, 0.22);
+    items.push({ y: P(40, 37)[1], draw: () => prop('archive', (q) => archiveStatic(q)) });
+    for (const [u, v, big, seed] of [[84, 132, true, 7], [232, 112, false, 5], [100, 10, false, 9], [70, 60, false, 13]] as [number, number, boolean, number][]) items.push({ y: P(u + 4, v - 4)[1], draw: () => prop(`plant${u}${v}`, (q) => plant(q, u, v, big, seed)) });
     // people
     const actors = this.actors.get(d.id);
     if (actors) for (const ac of actors.values()) {
@@ -551,7 +552,7 @@ export class City {
     cast(c, 14, 118, 36, 14, 14, 0.24); cast(c, 0, 70, 16, 18, 20, 0.22); cast(c, 30, 13, 18, 18, 12, 0.2);
     bake('furniture', (q) => execFurniture(q));
     chiefDeskLive(c, 'running', lit);
-    if (lit) { L.add(...P(20, 122, 18), 26, '#FF5C8A', 0.5); L.add(...P(4, 128, 46), 30, C.gold, 0.6); L.add(...P(0, 64, 46), 28, '#7CF5B4', 0.5); }
+    if (lit) { L.add(...P(28, 121, 18), 26, '#FF5C8A', 0.5); L.add(...P(4, 128, 46), 30, C.gold, 0.6); L.add(...P(0, 64, 46), 28, '#7CF5B4', 0.5); }
     // the assistant stands by the desk, waiting for you
     const g = P(ASSISTANT_SPOT[0], ASSISTANT_SPOT[1]);
     px.shadeEllipse(g[0] + 2, g[1], 8, 3.5, 0.45);
@@ -655,8 +656,7 @@ export class City {
       cv.style.cursor = h ? 'pointer' : useStore.getState().ui.view === 'tower' && !useStore.getState().ui.execRoom ? 'grab' : 'default';
     });
     cv.addEventListener('pointerleave', () => { this.hover = null; this.hoverAgent = null; });
-    // Long press on an agent opens the chat: the touch (and trackpad) stand-in for middle click. A gold ring fills
-    // while held; moving more than a few pixels, scrolling or lifting early cancels it.
+    // Holding an agent opens the chat (mouse, pen or touch alike). A gold ring fills while held; moving more than a few pixels, scrolling or lifting early cancels it.
     cv.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top);
@@ -700,13 +700,6 @@ export class City {
       else if (h.kind === 'obj') { if (s.ui.execRoom) execAction(h.id as ExecObjectId); else if (s.ui.floorId) floorAction(h.id as FloorObjectId, s.ui.floorId); }
       else if (h.kind === 'ghost') s.ui$({ newDept: true });
       else if (h.kind === 'agent') s.openPanel('agent', { agent: h.id });
-    });
-    // middle click on an agent opens the chat; mousedown is suppressed so the browser does not start autoscroll
-    cv.addEventListener('mousedown', (e) => { if (e.button === 1) e.preventDefault(); });
-    cv.addEventListener('auxclick', (e) => {
-      if (e.button !== 1) return;
-      const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
-      if (h?.kind === 'agent') s.ui$({ agent: h.id, talk: { deptId: s.ui.floorId!, agentKey: h.id } });
     });
   }
 }

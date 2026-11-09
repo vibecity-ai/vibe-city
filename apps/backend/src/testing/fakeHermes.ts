@@ -188,6 +188,13 @@ export class FakeHermes implements HermesRuntime {
     this.profile(profile);
     this.env.set(profile, { ...(this.env.get(profile) ?? {}), ...vars });
   }
+  async unsetProfileEnv(profile: string, names: string[]): Promise<void> {
+    this.enter('unsetProfileEnv', [profile]);
+    this.profile(profile);
+    const env = { ...(this.env.get(profile) ?? {}) };
+    for (const n of names) delete env[n];
+    this.env.set(profile, env);
+  }
   async getConcurrencyCap() {
     this.enter('getConcurrencyCap');
     return this.concurrencyCap;

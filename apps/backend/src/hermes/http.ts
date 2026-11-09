@@ -15,7 +15,8 @@ export class HermesHttp {
   }
 
   /** Returns an OK response (body unread) or throws a classified Hermes error. */
-  async raw(method: string, path: string, opts: { auth?: boolean; body?: unknown; timeoutMs?: number } = {}): Promise<Response> {
+  /** `form` sends multipart (fetch sets the boundary header); `body` sends JSON. */
+  async raw(method: string, path: string, opts: { auth?: boolean; body?: unknown; form?: FormData; timeoutMs?: number } = {}): Promise<Response> {
     const url = new URL(path, this.o.baseUrl);
     let res: Response | undefined;
     const attempts = method === 'GET' ? 2 : 1; // reads are idempotent; writes are never retried automatically
@@ -28,7 +29,7 @@ export class HermesHttp {
             ...(opts.auth === false ? {} : { 'X-Hermes-Session-Token': this.o.sessionToken }),
             ...(opts.body ? { 'content-type': 'application/json' } : {}),
           },
-          body: opts.body ? JSON.stringify(opts.body) : undefined,
+          body: opts.form ?? (opts.body ? JSON.stringify(opts.body) : undefined),
         });
       } catch (e) {
         if (attempt === attempts - 1) throw new HermesUnavailableError(`Hermes dashboard unreachable (${(e as Error).name})`);

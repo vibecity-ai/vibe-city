@@ -6,7 +6,7 @@ import { decisionTarget, nextQuest, questTarget } from './game.ts';
 const fixture: GameState = {
   quests: [
     { id: 'connect-ai', title: 'Set up your Chief of Staff', done: true, hint: '', unlocks: 'Hiring', side: false },
-    { id: 'connect-github', title: 'Connect GitHub', done: false, hint: '', unlocks: 'Software Department', side: true },
+    { id: 'connect-hyperliquid', title: 'Connect Hyperliquid', done: false, hint: '', unlocks: 'Trading Desk', side: true },
     { id: 'treasury', title: 'Set up the treasury', done: false, hint: 'Create the company wallet…', unlocks: 'Treasury Ops', side: false },
     { id: 'hire', title: 'Hire your first department', done: false, hint: '', unlocks: null, side: false },
   ],
@@ -43,6 +43,6 @@ test('the quest log groups quests into three acts in order, and counts progress'
   assert.deepEqual(a.map((x) => x.title), ['Set up the company', 'Earn', 'Go public']);
   assert.deepEqual(a[0]!.quests.map((q) => q.id), ['connect-ai', 'treasury', 'hire', 'new-quest']);
   assert.deepEqual(a[2]!.quests.map((q) => q.id), ['ipo']);
-  assert.deepEqual(sideQuests(g).map((q) => q.id), ['connect-github']);
+  assert.deepEqual(sideQuests(g).map((q) => q.id), ['connect-hyperliquid']);
   assert.equal(progressLabel(g), '1 of 5 done', 'side quests do not count');
 });

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Character } from '@vibe-city/shared';
-import { agentLabel, nameProfiles } from './views.ts';
+import { agentLabel, envNameProblem, nameProfiles, pickFiles } from './views.ts';
 
 test('agents are shown by persona name, else by role, never by seat key', () => {
   assert.equal(agentLabel('W-02', { name: 'Ada' } as Character), 'Ada');
@@ -15,4 +15,22 @@ test('dialogue text names teammates instead of their Hermes profile ids', () => 
   const label = (k: string) => (k === 'W-01' ? 'Theo Moreau' : 'Ines Petrov');
   assert.equal(nameProfiles('Our analyst, vc-0e8bd7b1c040-w01, has two tasks; vc-0e8bd7b1c040-lead reviews.', agents, label),
     'Our analyst, Theo Moreau, has two tasks; Ines Petrov reviews.');
+});
+
+test('reference files keep to Hermes limits and say why one was left out', () => {
+  const f = (name: string, size = 10) => ({ name, size });
+  assert.deepEqual(pickFiles([f('a.csv')], [f('a.csv'), f('b.pdf')]), { files: [f('a.csv'), f('b.pdf')], error: null }, 'same name once');
+  const r = pickFiles([], [f('empty.txt', 0), f('huge.mov', 25 * 1024 * 1024 + 1), f('ok.md')]);
+  assert.deepEqual(r.files.map((x) => x.name), ['ok.md']);
+  assert.equal(r.error, '"empty.txt" is empty; "huge.mov" is over 25 MB.');
+  const many = pickFiles(Array.from({ length: 9 }, (_, i) => f(`${i}`)), [f('x'), f('y'), f('z')]);
+  assert.equal(many.files.length, 10);
+  assert.equal(many.error, 'a job takes at most 10 files.');
+});
+
+test('floor env names are UPPER_SNAKE and never one Vibe City or Hermes sets', () => {
+  assert.equal(envNameProblem(''), null);
+  assert.equal(envNameProblem('SERPAPI_API_KEY'), null);
+  for (const n of ['lower', 'A', '9LIVES', 'WITH-DASH']) assert.match(envNameProblem(n)!, /capitals/, n);
+  for (const n of ['NEAR_AI_API_KEY', 'MARKET_AGENT_TOKEN', 'HERMES_HOME', 'PATH']) assert.match(envNameProblem(n)!, /itself/, n);
 });

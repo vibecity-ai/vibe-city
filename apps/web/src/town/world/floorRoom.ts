@@ -1,5 +1,5 @@
-/* A department floor's controls: the objects every floor shares (Kanban wall, the lead's office, meeting table, server
-   rack, wall clock, elevator) and the station a template brings in place of the lounge. Footprints are room boxes
+/* A department floor's controls: the objects every floor shares (Kanban wall, the lead's office, file archive, server
+   rack (tools), the lead's bookshelf (skills), the key cabinet by the front corner (env variables), wall clock) and the station a template brings in place of the lounge. Footprints are room boxes
    (u, v, h, du, dv, dh), hit-tested and outlined like the Executive Office's (execRoom.ts). What each opens is in
    data/floor.ts and ui/FloorSheet.tsx. */
 import type { FloorObjectId } from '../data/floor';
@@ -13,16 +13,55 @@ export interface FloorObject { id: FloorObjectId; label: string; b: Box6 }
 const COMMON: FloorObject[] = [
   { id: 'board', label: 'Kanban wall', b: [95, 138, 4, 82, 2, 38] },
   { id: 'lead', label: 'Lead’s office', b: [12, 114, 0, 40, 20, 26] },
-  { id: 'meeting', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
-  { id: 'rack', label: 'Tools & access', b: [0, 56, 0, 14, 18, 44] },
+  { id: 'archive', label: 'File archive', b: [28, 8, 0, 12, 29, 24] },
+  { id: 'rack', label: 'Tools', b: [0, 56, 0, 14, 18, 44] },
+  { id: 'shelf', label: 'Skills', b: [0, 118, 0, 8, 20, 40] },
+  { id: 'keys', label: 'Env variables', b: [0, 3, 5, 4, 14, 20] },
   { id: 'clock', label: 'Schedules', b: [-1, 78, 24, 2, 14, 14] },
-  { id: 'elevator', label: 'Hire', b: [-1, 18, 0, 2, 34, 44] },
 ];
 /** The station stands where the lounge would be. */
 export const STATION_BOX: Box6 = [200, 8, 0, 38, 34, 30];
 
 export function floorObjects(stationName: string | null): FloorObject[] {
   return stationName ? [...COMMON, { id: 'station', label: stationName, b: STATION_BOX }] : COMMON;
+}
+
+/* ---------------- file archive (front left): every file on the floor's jobs ---------------- */
+
+export function archiveStatic(c: IC) {
+  const { P, px } = c;
+  const FOLDERS = ['#FFC75A', '#2EB8F0', '#FF7A6B', '#7CF5B4', '#9B5CFF'];
+  for (let i = 0; i < 3; i++) {
+    const v = 8 + i * 10;
+    box(c, 28, v, 0, 12, 9, 22, '#3A3458', { top: '#5A5288' });
+    // three drawers on the front face, each with a label slot and a handle
+    for (let k = 0; k < 3; k++) {
+      const h = 2 + k * 6.6;
+      const D = (dv: number, dh: number): Pt => P(40, v + dv, h + dh);
+      px.poly([D(0.8, 0), D(8.2, 0), D(8.2, 5.6), D(0.8, 5.6)], '#2A2440');
+      px.poly([D(1.4, 0.6), D(7.6, 0.6), D(7.6, 5), D(1.4, 5)], '#4A4370');
+      px.poly([D(3, 3.4), D(6, 3.4), D(6, 4.4), D(3, 4.4)], '#E8E3FA');
+      px.line(D(3.5, 1.8), D(5.5, 1.8), C.gold);
+    }
+  }
+  // folders sticking out of an open box on top
+  box(c, 30, 12, 22, 8, 7, 3, '#6B4630', { top: '#8A5A40' });
+  for (let k = 0; k < 5; k++) px.poly([P(31 + k * 1.4, 13, 25), P(32 + k * 1.4, 13, 25), P(32 + k * 1.4, 13, 28 + (k % 2)), P(31 + k * 1.4, 13, 28 + (k % 2))], FOLDERS[k]!);
+}
+
+/* ---------------- key cabinet (left wall, by the front corner): the floor's env variables ---------------- */
+
+export function keyCabinet(c: IC, lit: boolean) {
+  const { P, px, L } = c;
+  box(c, 0, 3, 5, 4, 14, 20, '#2A2348', { top: '#3E3570' });
+  // the door: a frame, a big key on it, and a row of indicator lamps
+  const F = (v: number, h: number): Pt => P(4, v, h);
+  px.poly([F(4, 6), F(16, 6), F(16, 24), F(4, 24)], '#1E1838');
+  px.poly([F(5, 7), F(15, 7), F(15, 23), F(5, 23)], '#4A3D80');
+  px.ring(...F(7.5, 17).map(Math.floor) as Pt, 2, 2, C.gold, 1);
+  px.line(F(9, 16), F(13.5, 11), C.gold); px.line(F(12, 12.5), F(13.5, 14), C.gold); px.line(F(13, 11.5), F(14.5, 13), C.gold);
+  for (let k = 0; k < 4; k++) { const on = lit && k % 2 === 0; const p = F(6.5 + k * 2.5, 9); px.dot(Math.floor(p[0]), Math.floor(p[1]), on ? C.amber : '#3A2F20', on ? 1 : 0); }
+  if (lit) L.add(...P(6, 10, 14), 20, C.amber, 0.3, 0.8);
 }
 
 /* ---------------- wall clock (left wall, above the rack's right) ---------------- */

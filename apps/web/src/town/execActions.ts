@@ -4,7 +4,6 @@ import { useStore } from './store';
 import { api } from '../api';
 import type { ExecObjectId } from './world/execRoom';
 import type { FloorObjectId } from './data/floor';
-import { callAr } from './ui/Hiring';
 
 /** A click on something in the world starts from a clear desk, so the tool it opens is the one you see (a tool
     opened from inside another sheet stacks on it instead). Conversations and calls are scenes, not desk tools. */
@@ -15,23 +14,23 @@ export function execAction(id: ExecObjectId) {
   s.ui$(CLEAR_DESK);
   switch (id) {
     case 'desk': s.openPanel('board', { composer: true, composerDept: null, boardDept: null, boardQuest: null }); break;
+    // the meeting table: the Ops board, every floor's jobs
     case 'table': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
     case 'trophy': s.ui$({ questLog: true }); break;
     case 'org': case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
-    case 'assistant': s.ui$({ newDept: true }); break;
+    case 'assistant': {
+      // the Chief of Staff runs hiring too: an open shortlist or a scout's call comes first
+      const h = s.hiring;
+      if (h && h.state === 'shortlist') s.ui$({ call: { mode: 'shortlist', reqId: h.id } });
+      else if (h && (h.state === 'scouting' || h.state === 'intake')) s.ui$({ call: { mode: 'ar', reqId: h.id } });
+      else s.ui$({ newDept: true });
+      break;
+    }
     case 'library': s.ui$({ skillLib: { deptId: null, skill: null } }); break;
     case 'phone': {
       // The phone rings for incoming calls (AR); otherwise it reaches the assistant.
       const h = s.hiring;
       if (h && h.state === 'ringing') void api.hiringAnswer(h.id).then((v) => { s.hiring$(v); s.ui$({ call: { mode: 'ar', reqId: v.id } }); }).catch(() => undefined);
-      else s.ui$({ newDept: true });
-      break;
-    }
-    case 'ar': {
-      const h = s.hiring;
-      // the hiring office: an open shortlist or call first, otherwise the Chief of Staff
-      if (h && h.state === 'shortlist') s.ui$({ call: { mode: 'shortlist', reqId: h.id } });
-      else if (h && (h.state === 'scouting' || h.state === 'intake')) s.ui$({ call: { mode: 'ar', reqId: h.id } });
       else s.ui$({ newDept: true });
       break;
     }
@@ -46,10 +45,12 @@ export function floorAction(id: FloorObjectId, deptId: string) {
   switch (id) {
     case 'board': s.openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); break;
     case 'lead': if (d?.chief) s.openPanel('agent', { agent: 'chief' }); else s.openPanel('dept', { deptTab: 'overview' }); break;
-    case 'meeting': s.openPanel('dept', { deptTab: 'loadout', agent: null }); break;
-    case 'rack': s.ui$({ floorSheet: 'tools' }); break;
+    case 'archive': s.ui$({ floorSheet: 'archive' }); break;
+    // the floor's gear, each where it lives: tools in the rack, skills on the bookshelf, keys in the cabinet
+    case 'rack': s.openPanel('dept', { deptTab: 'tools', agent: null }); break;
+    case 'shelf': s.openPanel('dept', { deptTab: 'skills', agent: null }); break;
+    case 'keys': s.openPanel('dept', { deptTab: 'env', agent: null }); break;
     case 'station': s.ui$({ floorSheet: 'station' }); break;
     case 'clock': s.ui$({ execModal: 'calendar', scheduleDept: deptId }); break;
-    case 'elevator': void callAr(deptId); break;
   }
 }

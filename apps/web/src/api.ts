@@ -2,7 +2,7 @@ import {
   AgentViewSchema, DepartmentAgentSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
   CharacterSchema, ChatHistorySchema, ChatProgressSchema, ChatReplySchema, type Character, type ChatHistory, type ChatProgress, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
-  QuestDetailSchema, QuestListSchema, QuestResultsSchema, QuestTasksSchema, SyncCheckSchema,
+  QuestDetailSchema, QuestFileAddedSchema, QuestListSchema, type AttachmentView, QuestResultsSchema, QuestTasksSchema, SyncCheckSchema,
   type ActivityEvent, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
   type AgentPatch, type DepartmentAgent, type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
   type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
@@ -16,6 +16,7 @@ import {
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
   TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
+import { DepartmentEnvSchema, DepartmentFilesSchema, type DepartmentEnv, type DepartmentFiles } from '@vibe-city/shared';
 import { AiUsageSummarySchema, CompanySettingsSchema, ConnectorCheckReplySchema, type ConnectorCheckReply, type ConnectorName, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
 import {
   ListingDraftSchema, MarketViewSchema, type ListingDraft, type MarketRegister, type MarketView,
@@ -111,6 +112,29 @@ export const api = {
   hermesModels: (): Promise<HermesModelsView> => request('GET', '/api/runtime/models', HermesModelsViewSchema),
   quests: async (dept: string): Promise<QuestSummary[]> => (await request('GET', `${d(dept)}/quests`, QuestListSchema)).quests,
   createQuest: (dept: string, input: QuestCreate): Promise<QuestCreated> => request('POST', `${d(dept)}/quests`, QuestCreatedSchema, input),
+  /** The floor's file archive: every file on its jobs. */
+  departmentFiles: (dept: string): Promise<DepartmentFiles> => request('GET', `${d(dept)}/files`, DepartmentFilesSchema),
+  /** A floor's env variables: names and whether the agents have them (values are write-only). */
+  deptEnv: (dept: string): Promise<DepartmentEnv> => request('GET', `${d(dept)}/env`, DepartmentEnvSchema),
+  setDeptEnv: (dept: string, name: string, value: string): Promise<DepartmentEnv> => request('PUT', `${d(dept)}/env/${encodeURIComponent(name)}`, DepartmentEnvSchema, { value }),
+  removeDeptEnv: (dept: string, name: string): Promise<DepartmentEnv> => request('DELETE', `${d(dept)}/env/${encodeURIComponent(name)}`, DepartmentEnvSchema),
+  /** One reference file for a job, sent as raw bytes (Hermes keeps it on the quest's root task). */
+  addQuestFile: async (dept: string, quest: string, file: File): Promise<AttachmentView> => {
+    let res: Response;
+    try {
+      res = await fetch(`${q(dept, quest)}/files`, {
+        method: 'POST', body: file,
+        headers: { 'content-type': 'application/octet-stream', 'x-filename': encodeURIComponent(file.name), ...(file.type ? { 'x-content-type': file.type } : {}) },
+      });
+    } catch {
+      throw new ApiError(0, 'backend_unreachable', 'The Vibe City backend is not reachable.');
+    }
+    const json: unknown = await res.json().catch(() => undefined);
+    if (!res.ok) throw errorFrom(res.status, json);
+    const parsed = QuestFileAddedSchema.safeParse(json);
+    if (!parsed.success) throw new ApiError(res.status, 'invalid_response', 'The backend sent a response this app does not understand.');
+    return parsed.data.attachment;
+  },
   quest: (dept: string, quest: string): Promise<QuestDetail> => request('GET', q(dept, quest), QuestDetailSchema),
   /** Same task tree as `quest()` (which the UI uses); kept for callers that only need the tree. */
   tasks: (dept: string, quest: string): Promise<QuestTasks> => request('GET', `${q(dept, quest)}/tasks`, QuestTasksSchema),

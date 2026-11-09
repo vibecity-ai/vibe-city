@@ -1183,10 +1183,11 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .tool-tile.on.risky .tt-sw i { box-shadow: 0 0 8px var(--amber); }
 .tt-tags { grid-column: 2 / span 2; display: flex; gap: 6px; flex-wrap: wrap; }
 .tt-tags:empty { display: none; }
-.tt-risk, .tt-def, .tt-pend { font: 500 10px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; }
+.tt-risk, .tt-def, .tt-pend, .tt-need { font: 500 10px/1 var(--f-mono); letter-spacing: .06em; text-transform: uppercase; padding: 4px 6px; border-radius: 4px; }
 .tt-risk { color: var(--amber); background: rgba(240,165,60,.1); }
 .tt-def { color: var(--ink-mute); box-shadow: inset 0 0 0 1px var(--line2); }
 .tt-pend { color: #1A1206; background: var(--amber); }
+.tt-need { color: var(--cyan); box-shadow: inset 0 0 0 1px currentColor; }
 .skill-picker .lib-tools { margin-bottom: 0; }
 .sp-acts { display: flex; gap: 12px; margin-left: auto; }
 .sp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 8px; max-height: 420px; overflow: auto; padding: 2px 4px 4px 2px; }
@@ -1508,6 +1509,23 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .printer-paper .input:focus { --sb: var(--ink-p); box-shadow: 0 0 0 2px rgba(34,32,28,.12); }
 .printer-paper .gold-n { color: #8A5A10; }
 .printer-paper .field-err { color: #B3261E; }
+/* reference files: a dashed drop tray on the paper, clipped chips for what is attached */
+.attach { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 8px; border: 1.5px dashed rgba(34,32,28,.32); border-radius: 6px; transition: background .12s, border-color .12s; }
+.attach.over { border-color: var(--ink-p); background: rgba(255,255,255,.3); }
+.attach-btn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border-radius: 4px; border: 1px solid rgba(34,32,28,.35); background: rgba(255,255,255,.4); color: var(--ink-p); font: 600 12px var(--f-mono); cursor: pointer; }
+.attach-btn:hover:not(:disabled) { background: rgba(255,255,255,.65); }
+.attach-btn:disabled { opacity: .5; cursor: not-allowed; }
+.attach-or { font: 12px var(--f-mono); color: var(--ink-p2); }
+.clips { list-style: none; margin: 2px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.clip { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 4px 3px 8px; border-radius: 4px; background: rgba(255,255,255,.5); box-shadow: inset 0 0 0 1px rgba(34,32,28,.22); color: var(--ink-p); font: 12px var(--f-mono); }
+.clip > svg { color: #8A5A10; flex: none; }
+.clip-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 260px; }
+.clip small { color: var(--ink-p2); }
+.clip-x { display: grid; place-items: center; width: 20px; height: 20px; border: 0; border-radius: 3px; background: none; color: var(--ink-p2); cursor: pointer; }
+.clip-x:hover:not(:disabled) { background: rgba(34,32,28,.12); color: var(--ink-p); }
+.ref-files { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; border-radius: 10px; transition: box-shadow .12s; }
+.ref-files.over { box-shadow: 0 0 0 2px var(--cyan); }
+.ref-files .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 .printer-keys { display: flex; gap: 10px; padding: 14px 18px 0; }
 .printer-keys .dev-key { flex: none; min-width: 0; padding: 0 16px; height: 40px; font-size: 13px; }
 .printer-keys .dev-key.hot { flex: 1; }
@@ -1757,3 +1775,24 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .cos-now b { font: 500 13px var(--f-mono); color: var(--ink); overflow-wrap: anywhere; }
 .cos-now i { font: 500 10px var(--f-mono); font-style: normal; color: var(--amber); border: 1px solid rgba(240,165,60,.35); border-radius: 4px; padding: 1px 5px; }
 .ql-now-act .cos-setup { margin-top: 2px; }
+
+/* a floor's env variables (the Env tab) */
+.env-list { list-style: none; margin: 0 0 14px; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.env-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: 10px; background: var(--sf-raised); box-shadow: inset 0 0 0 1px var(--sb-raised); }
+.env-n { display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.env-n b { overflow-wrap: anywhere; }
+.env-n small { display: inline-flex; align-items: center; gap: 4px; }
+.env-act, .env-replace { display: flex; gap: 6px; align-items: center; }
+.env-replace { flex: 1 1 100%; }
+.env-replace .input { flex: 1; min-width: 0; }
+.env-add { display: flex; flex-direction: column; gap: 6px; }
+.env-fields { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 6px; }
+@media (max-width: 520px) { .env-fields { grid-template-columns: 1fr; } }
+.team-models .field { margin-top: 6px; }
+
+/* the file archive sheet */
+.archive .ar-tools { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.archive .ar-tools .input { flex: 1 1 220px; min-width: 0; }
+.archive .ar-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.archive .ar-job { overflow-wrap: anywhere; }
+.archive .seg-row button { font: 600 13px var(--f-ui); height: 34px; }

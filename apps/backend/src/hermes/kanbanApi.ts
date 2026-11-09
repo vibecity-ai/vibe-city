@@ -47,7 +47,11 @@ export interface RawAttachment {
   content_type: string | null;
   size: number;
   created_at: number | null;
+  /** Who uploaded it through the dashboard (null for files a worker attached). */
+  uploaded_by?: string | null;
 }
+
+export interface UploadFile { filename: string; contentType: string | null; bytes: Uint8Array }
 
 export interface TaskDetail {
   task: RawTask;
@@ -83,4 +87,6 @@ export interface KanbanApi {
   unblockTask(board: string, id: string): Promise<void>;
   /** Streams an attachment's bytes. The caller must have authorized (board, attachment) first. */
   downloadAttachment(board: string, attachmentId: number): Promise<Response>;
+  /** Attaches a file to a task (Hermes keeps it on disk and lists its path in the worker's context). */
+  uploadAttachment(board: string, taskId: string, file: UploadFile, uploadedBy: string): Promise<RawAttachment>;
 }

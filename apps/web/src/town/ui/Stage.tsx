@@ -119,8 +119,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       {openDept && (
         <div className="tags">
           {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), title: openDept.chief.title, k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), title: w.title, k: w.status as StatusKey }))].map((t) => (
-            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => useStore.getState().openPanel('agent', { agent: t.id }))}
-              onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }} onAuxClick={(e) => { if (e.button === 1) ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }); }}>
+            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => useStore.getState().openPanel('agent', { agent: t.id }))}>
               <Glyph k={t.k} />{t.label}{t.title && <small className="tag-title">{t.title}</small>}<SkillBadges names={openDept.view.agents.find((a) => (t.id === 'chief' ? a.lead : a.key === t.id))?.skills ?? []} max={3} size={9} />
             </button>
           ))}
@@ -226,7 +225,7 @@ function HoverCard({ ref_, deptId, agentKey }: { ref_: React.RefObject<HTMLDivEl
         <span className="hc-role">{ch?.title ?? (agentKey === 'chief' ? 'Lead' : 'Teammate')}</span>
         <span className="hc-doing"><Glyph k={status as StatusKey} /> {doing || deptStatus(d.state).label}</span>
         {own.length > 0 && <span className="hc-skills"><SkillBadges names={own} max={5} size={11} /><small>{own.length === 1 ? 'own skill' : 'own skills'}</small></span>}
-        <span className="hc-hint">Click for profile · middle-click or hold to talk</span>
+        <span className="hc-hint">Click for profile · hold to talk</span>
       </div>
     </div>
   );

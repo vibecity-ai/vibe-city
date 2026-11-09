@@ -1,5 +1,5 @@
 import { HermesHttp } from './http.ts';
-import type { CreateTaskInput, KanbanApi, RawAttachment, RawTask, TaskDetail } from './kanbanApi.ts';
+import type { CreateTaskInput, KanbanApi, RawAttachment, RawTask, TaskDetail, UploadFile } from './kanbanApi.ts';
 
 export type { TaskDetail, RawRun as HermesRun } from './kanbanApi.ts';
 
@@ -9,6 +9,9 @@ export interface KanbanClientOptions {
 }
 
 const q = (board: string, extra = '') => `?board=${encodeURIComponent(board)}${extra}`;
+/** stored_path is a host path: dropped at the boundary so no caller can leak it. */
+const att = ({ id, task_id, filename, content_type, size, created_at, uploaded_by }: RawAttachment & { stored_path?: string }): RawAttachment =>
+  ({ id, task_id, filename, content_type, size, created_at, uploaded_by: uploaded_by ?? null });
 
 /** Thin client over Hermes' kanban dashboard plugin (/api/plugins/kanban). */
 export class KanbanClient implements KanbanApi {
@@ -49,8 +52,7 @@ export class KanbanClient implements KanbanApi {
       'GET', this.p(`/tasks/${encodeURIComponent(id)}${q(board)}`));
     return {
       task: j.task, links: j.links, comments: j.comments ?? [], events: j.events ?? [], runs: j.runs ?? [],
-      // strip stored_path at the boundary so no caller can leak it
-      attachments: (j.attachments ?? []).map(({ id: aid, task_id, filename, content_type, size, created_at }) => ({ id: aid, task_id, filename, content_type, size, created_at })),
+      attachments: (j.attachments ?? []).map(att),
     };
   }
 
@@ -72,5 +74,13 @@ export class KanbanClient implements KanbanApi {
 
   downloadAttachment(board: string, attachmentId: number): Promise<Response> {
     return this.http.raw('GET', this.p(`/attachments/${attachmentId}${q(board)}`), { timeoutMs: 60_000 });
+  }
+
+  async uploadAttachment(board: string, taskId: string, file: UploadFile, uploadedBy: string): Promise<RawAttachment> {
+    const form = new FormData();
+    form.set('file', new Blob([file.bytes as BlobPart], { type: file.contentType ?? 'application/octet-stream' }), file.filename);
+    form.set('uploaded_by', uploadedBy);
+    const res = await this.http.raw('POST', this.p(`/tasks/${encodeURIComponent(taskId)}/attachments${q(board)}`), { form, timeoutMs: 120_000 });
+    return att(((await res.json()) as { attachment: RawAttachment & { stored_path?: string } }).attachment);
   }
 }
