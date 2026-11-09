@@ -26,7 +26,7 @@ open http://127.0.0.1:4100
 
 ### Develop (only Hermes in Docker)
 
-No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100.
+No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100. The dev scripts pin `DOCKER_CONTEXT=default` (native engine): Docker Desktop on Linux runs containers in a VM whose "host" network can't reach the backend, and a second Hermes on the same `.dev/hermes` corrupts its SQLite files.
 
 ```
 npm run dev:hermes        # Hermes gateway + dashboard (docker-compose.dev.yml), data in ./.dev/hermes
