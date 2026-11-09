@@ -164,7 +164,7 @@ export interface SelectOption { value: string; label: string; group?: string; di
 
 export function PixelSelect({ id, value, options, onChange, disabled, placeholder = 'Choose…', mono, ...aria }: {
   id?: string; value: string; options: readonly SelectOption[]; onChange: (v: string) => void; disabled?: boolean;
-  placeholder?: string; mono?: boolean; 'aria-describedby'?: string; 'aria-invalid'?: boolean;
+  placeholder?: string; mono?: boolean; 'aria-label'?: string; 'aria-describedby'?: string; 'aria-invalid'?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);

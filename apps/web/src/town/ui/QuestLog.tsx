@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MARKET_CATEGORIES, type CeoQuest, type GameState, type ListingDraft, type MarketRegister, type MarketView, type TemplateList } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon, useDialog } from './kit';
+import { Icon, PixelSelect, useDialog } from './kit';
 import { acts, nextQuest, progressLabel, questTarget } from '../data/game';
 
 const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
@@ -137,9 +137,8 @@ function MarketQuest() {
             <input className="input mono" placeholder="handle" aria-label="Handle" maxLength={30} spellCheck={false} value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value.toLowerCase() })} />
           </div>
           <div className="ql-gh-row">
-            <select className="input" aria-label="Category" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value as MarketRegister['category'] })}>
-              {MARKET_CATEGORIES.map((c) => <option key={c} value={c}>{c.replace(/_/g, ' ')}</option>)}
-            </select>
+            <PixelSelect aria-label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v as MarketRegister['category'] })}
+              options={MARKET_CATEGORIES.map((c) => ({ value: c, label: c.replace(/_/g, ' ') }))} />
             <button className="btn primary small" type="submit" disabled={busy || !form.name.trim() || !form.handle.trim()}>Register</button>
           </div>
         </form>

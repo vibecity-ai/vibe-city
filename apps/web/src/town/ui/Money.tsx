@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import type { WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon } from './kit';
+import { Icon, PixelSelect } from './kit';
 
 const NEW_WALLET_URL = 'https://app.outlayer.ai/wallet/new';
 /** Native USDC on NEAR (what the trading connectors settle in, through Intents). */
@@ -133,10 +133,8 @@ function Fund({ to }: { to: string }) {
   return (
     <form className="row" onSubmit={(e) => { e.preventDefault(); if (ok) window.open(url, '_blank', 'noreferrer'); }}>
       <input className="input mono" inputMode="decimal" placeholder="Amount" aria-label="Amount to fund" value={amount} onChange={(e) => setAmount(e.target.value.trim())} />
-      <select className="input" aria-label="Token" value={token} onChange={(e) => setToken(e.target.value as 'near' | 'usdc')}>
-        <option value="usdc">USDC (trading, to Intents)</option>
-        <option value="near">NEAR (gas)</option>
-      </select>
+      <PixelSelect aria-label="Token" value={token} onChange={(v) => setToken(v as 'near' | 'usdc')}
+        options={[{ value: 'usdc', label: 'USDC (trading, to Intents)' }, { value: 'near', label: 'NEAR (gas)' }]} />
       <button className="btn small" type="submit" disabled={!ok}>Fund</button>
     </form>
   );
