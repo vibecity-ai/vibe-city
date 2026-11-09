@@ -2,14 +2,10 @@
 import type { Template } from '../schemas.ts';
 import { tradingDesk } from './trading-desk.ts';
 import { treasuryOps } from './treasury-ops.ts';
-import { software } from './software.ts';
-import { tokenTreasury } from './token-treasury.ts';
 import { predictionDesk } from './prediction-desk.ts';
-import { redTeam } from './red-team.ts';
-import { blueTeam } from './blue-team.ts';
 import { marketplaceAgency } from './marketplace-agency.ts';
 
 export { TEMPLATE_BASE_TOOLSETS } from './helpers.ts';
 
-export const TEMPLATES: readonly Template[] = [software, marketplaceAgency, treasuryOps, tradingDesk, tokenTreasury, predictionDesk, redTeam, blueTeam];
+export const TEMPLATES: readonly Template[] = [marketplaceAgency, treasuryOps, tradingDesk, predictionDesk];
 export const templateById = (id: string) => TEMPLATES.find((t) => t.id === id) ?? null;

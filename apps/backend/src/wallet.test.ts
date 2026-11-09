@@ -81,7 +81,7 @@ test('a pasted wallet key is checked with OutLayer, never returned, and reaches 
   const { app, hermes, hire, outlayer } = setup();
   outlayer.usdc = '5000000'; // the CEO funded 5 USDC and 12 USDT to the wallet's Intents balance
   outlayer.usdt = '12000000';
-  const trading = await hire('Trading', 'trading-desk'), software = await hire('Software', 'software');
+  const trading = await hire('Trading', 'trading-desk'), agency = await hire('Agency', 'marketplace-agency');
   assert.deepEqual((await app.inject('/api/wallet')).json().registered, false);
 
   const bad = await app.inject({ method: 'POST', url: '/api/wallet/key', payload: { apiKey: 'wk_' + 'f'.repeat(64) } });
@@ -99,7 +99,7 @@ test('a pasted wallet key is checked with OutLayer, never returned, and reaches 
   ], 'every non-zero Intents token, largest first; the empty gas account and wNEAR are left out');
   for (const url of ['/api/wallet', '/api/company/settings', '/api/game']) assert.ok(!(await app.inject(url)).body.includes(KEY), `${url} never carries the key`);
   for (const p of trading) assert.deepEqual(hermes.env.get(p), { ...hermes.env.get(p), OUTLAYER_API_KEY: KEY, OUTLAYER_WALLET_ID: 'w-1' });
-  for (const p of software) assert.equal(hermes.env.get(p)?.OUTLAYER_API_KEY, undefined, 'a wallet: none floor never gets it');
+  for (const p of agency) assert.equal(hermes.env.get(p)?.OUTLAYER_API_KEY, undefined, 'a wallet: none floor never gets it');
 });
 
 test('binding registers a wallet, returns the connect page once, and the treasury quest is done when it is active', async () => {

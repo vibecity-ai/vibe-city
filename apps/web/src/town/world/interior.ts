@@ -290,9 +290,9 @@ export function deskStatic(c: IC, i: number, accent: string) {
   }
 }
 /** What a working agent's monitor shows: the tools of its trade (see data/floor.ts STATIONS). */
-export type ScreenKind = 'code' | 'candles' | 'odds' | 'recon';
+export type ScreenKind = 'code' | 'candles' | 'odds';
 export const screenKindFor = (templateId: string | undefined): ScreenKind =>
-  templateId === 'trading-desk' || templateId === 'treasury-ops' ? 'candles' : templateId === 'prediction-desk' ? 'odds' : templateId === 'red-team' ? 'recon' : 'code';
+  templateId === 'trading-desk' || templateId === 'treasury-ops' ? 'candles' : templateId === 'prediction-desk' ? 'odds' : 'code';
 
 export function deskLive(c: IC, i: number, st: AgentStatus | undefined, lit: boolean, kind: ScreenKind = 'code') {
   const { P, px, L, t } = c;
@@ -326,10 +326,6 @@ export function screen(c: IC, u: number, v: number, h: number, w: number, hh: nu
   } else if (st === 'running' && kind === 'odds') {
     quad(0, 0, w, hh, '#120A20', 0.9);
     for (let r = 0; r < 3; r++) { const p = 0.3 + 0.5 * (0.5 + 0.5 * Math.sin(t * 0.5 + r * 2)); quad(1, 1.5 + r * 2.8, (w - 2) * p, 1.6, r === 1 ? C.violet : C.cyan); }
-  } else if (st === 'running' && kind === 'recon') {
-    quad(0, 0, w, hh, '#0C140F', 0.9);
-    for (let a = 2; a < w; a += 4) quad(a, 0.5, 0.5, hh - 1, '#1E3A28', 0.6);
-    for (let i = 0; i < 2; i++) { const on = Math.sin(t * 4 + i * 2) > 0; quad(3 + hash(i, Math.floor(t * 0.3)) * (w - 6), 2 + hash(i + 3, Math.floor(t * 0.3)) * (hh - 5), 1.5, 1.5, on ? C.red : '#5A1A26'); }
   } else if (st === 'running') {
     quad(0, 0, w, hh, '#06202C', 0.9);
     const k = Math.floor(t * 4);

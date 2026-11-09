@@ -43,7 +43,7 @@ import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, regis
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
-import { githubToken, nearAiKey, readSettings, register as registerCompany, secret } from './routes/company.ts';
+import { nearAiKey, readSettings, register as registerCompany, secret } from './routes/company.ts';
 import { WalletService } from './domain/walletService.ts';
 import { register as registerWallet } from './routes/wallet.ts';
 import { register as registerAi } from './routes/ai.ts';
@@ -74,7 +74,7 @@ export interface AppServices {
   money: MoneyService;
   /** The OutLayer company wallet (brief 03). */
   wallet: WalletService;
-  /** Rewrites every department's secrets env (GH_TOKEN, OutLayer key) into its profiles (best effort; the next sync retries). */
+  /** Rewrites every department's secrets env (OutLayer key, market token) into its profiles (best effort; the next sync retries). */
   pushDepartmentEnv: () => Promise<void>;
   /** The Agent Market (brief 02). Call tick() periodically (the server does every 45 s) to take and deliver jobs. */
   market: MarketService;
@@ -386,16 +386,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
   });
   registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
-  // Secrets a floor's agents get in their profile .env, by template: the Software Department runs git/gh with GH_TOKEN,
-  // company-wallet floors use the OutLayer wallet key, the Marketplace Agency the Agent Market token (marketplace-worker). Written after every sync that changed something and whenever
+  // Secrets a floor's agents get in their profile .env, by template: company-wallet floors use the OutLayer wallet key, the Marketplace Agency the Agent Market token (marketplace-worker). Written after every sync that changed something and whenever
   // the CEO pastes a token or a wallet key; other floors never receive them.
   const wallet = new WalletService(db, extra.outlayerFetch);
   const writeDepartmentEnv = async (deptId: string, profiles: string[]) => {
     const t = TEMPLATES.find((x) => x.id === departments.getRow(deptId).template_id);
-    const gh = t?.id === 'software' ? githubToken(db) : null;
     const mkt = t?.id === 'marketplace-agency' ? secret(db, 'marketAgentToken') : null;
     // every agent thinks with NEAR AI Cloud: the key (pasted in the first quest, else the backend env) goes to all floors
-    const env = { ...aiEnv(), ...(gh ? { GH_TOKEN: gh } : {}), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
+    const env = { ...aiEnv(), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
     if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
     for (const p of profiles) await hermes.setProfileEnv(p, env);
   };

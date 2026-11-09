@@ -13,28 +13,28 @@ test('every template parses and has a lead plus teammates with distinct titles',
     // without the skills toolset the agents could not load the skills the template names
     for (const ts of ['skills', 'memory', 'todo']) assert.ok(t.inventory.allowedToolsets.includes(ts as never), `${t.id} has ${ts}`);
   }
-  assert.deepEqual(TEMPLATES.map((t) => t.id), ['software', 'marketplace-agency', 'treasury-ops', 'trading-desk', 'token-treasury', 'prediction-desk', 'red-team', 'blue-team']);
+  assert.deepEqual(TEMPLATES.map((t) => t.id), ['marketplace-agency', 'treasury-ops', 'trading-desk', 'prediction-desk']);
 });
 
-test('hiring the Software Department creates four agents with their titles and no schedule', async () => {
+test('hiring Treasury Ops creates three agents with their titles and no schedule', async () => {
   const { app, db } = memApp();
-  const r = await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Software', template: 'software' } });
+  const r = await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Treasury', template: 'treasury-ops' } });
   assert.equal(r.statusCode, 201, r.body);
   const d = r.json();
-  assert.deepEqual(d.agents.map((a: any) => [a.key, a.title]), [['chief', 'Engineering Manager'], ['W-01', 'Coder'], ['W-02', 'QA & Testing'], ['W-03', 'DevOps']]);
-  assert.match(d.purpose, /pr url=/, 'the template purpose is copied');
-  assert.equal(d.templateId, 'software', 'the floor knows its template (its station and screens)');
+  assert.deepEqual(d.agents.map((a: any) => [a.key, a.title]), [['chief', 'Head of Treasury Ops'], ['W-01', 'Swap Operator'], ['W-02', 'Reconciler']]);
+  assert.match(d.purpose, /dao account=/, 'the template purpose is copied');
+  assert.equal(d.templateId, 'treasury-ops', 'the floor knows its template (its station and screens)');
   const inv = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
-  assert.deepEqual(inv.allowedToolsets, ['terminal', 'file', 'code_execution', 'web', 'skills', 'memory', 'todo', 'session_search', 'clarify']);
-  assert.equal(inv.limits.dailyBudgetCredits, 1000);
-  assert.equal((db.prepare('SELECT template_id FROM department WHERE id = ?').get(d.id) as { template_id: string }).template_id, 'software');
+  assert.deepEqual(inv.allowedToolsets, ['web', 'terminal', 'skills', 'memory', 'todo', 'session_search', 'clarify']);
+  assert.equal(inv.limits.dailyBudgetCredits, 300);
+  assert.equal((db.prepare('SELECT template_id FROM department WHERE id = ?').get(d.id) as { template_id: string }).template_id, 'treasury-ops');
   assert.equal((await app.inject(`/api/schedules?departmentId=${d.id}`)).json().schedules.length, 0);
   // the persona keeps the seat title (the dialogue window and the hover card read it)
-  const coder = (await app.inject(`/api/departments/${d.id}/characters/W-01`)).json();
-  assert.equal(coder.title, 'Coder');
+  const swapper = (await app.inject(`/api/departments/${d.id}/characters/W-01`)).json();
+  assert.equal(swapper.title, 'Swap Operator');
 });
 
-test('hiring the Trading Desk creates four agents and one disabled schedule; the Red Team seats use the abliterated model', async () => {
+test('hiring the Trading Desk creates four agents and one disabled schedule', async () => {
   const { app } = memApp();
   const td = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Trading', template: 'trading-desk' } })).json();
   assert.equal(td.agents.length, 4);
@@ -42,14 +42,12 @@ test('hiring the Trading Desk creates four agents and one disabled schedule; the
   const scheds = (await app.inject(`/api/schedules?departmentId=${td.id}`)).json().schedules;
   assert.equal(scheds.length, 1);
   assert.equal(scheds[0].enabled, false);
-  const red = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Red', template: 'red-team' } })).json();
-  assert.ok(red.agents.every((a: any) => a.model?.id === 'deepseek-ai/DeepSeek-V4.1-Flash-1017-abliterated'));
   // a department without a template keeps the plain generated titles and no `title` on its agents
   const plain = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Plain', teammates: 1 } })).json();
   assert.ok(plain.agents.every((a: any) => !('title' in a)));
   assert.equal((await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'X', template: 'nope' } })).statusCode, 400);
   const list = (await app.inject('/api/templates')).json();
-  assert.equal(list.length, 8);
+  assert.equal(list.length, 4);
   // without NEAR AI connected, hiring is off: every card points at that quest first
   const saved = process.env.NEAR_AI_API_KEY;
   delete process.env.NEAR_AI_API_KEY;
