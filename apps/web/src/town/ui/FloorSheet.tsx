@@ -8,6 +8,7 @@ import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Icon } from './kit';
 import { DeskSheet } from './Desk';
+import { FileArchive } from './FileArchive';
 import { stationFor, toolsReport, type ToolLine } from '../data/floor';
 import { SkillBadge } from './Skills';
 import { JOB_LABEL } from './QuestLog';
@@ -16,7 +17,8 @@ import { skillMeta } from '../data/skills';
 export function FloorSheetWindow() {
   const kind = useStore((s) => s.ui.floorSheet);
   const deptId = useStore((s) => s.ui.floorId);
-  return kind && deptId ? <FloorSheet kind={kind} deptId={deptId} /> : null;
+  if (!kind || !deptId) return null;
+  return kind === 'archive' ? <FileArchive deptId={deptId} /> : <FloorSheet kind={kind} deptId={deptId} />;
 }
 
 function ToolRow({ t, need }: { t: ToolLine; need: boolean }) {
@@ -51,7 +53,7 @@ function FloorSheet({ kind, deptId }: { kind: 'station'; deptId: string }) {
   const report = inv ? toolsReport(templateId, inv) : null;
   const s = useStore.getState();
   const lib = (skill: string | null) => { close(); s.ui$({ skillLib: { deptId, skill } }); };
-  const toLoadout = () => { close(); s.openPanel('dept', { deptTab: 'loadout', agent: null }); };
+  const toLoadout = () => { close(); s.openPanel('dept', { deptTab: 'tools', agent: null }); };
   const missing = report?.needed.filter((t) => !t.on).length ?? 0;
   const users = (ids: string[]) => d.view.agents.filter((a) => a.skills.some((k) => ids.includes(k))).map((a) => a.title ?? (a.lead ? 'Lead' : a.key));
   const done = quests.filter((q) => q.summary.status === 'completed').slice(0, 4);
@@ -93,7 +95,7 @@ function FloorSheet({ kind, deptId }: { kind: 'station'; deptId: string }) {
             </section>}
             <div className="fs-act">
               <button className="btn primary small" onClick={() => { close(); s.openPanel('board', { composer: true, composerDept: deptId, boardDept: deptId, boardFilter: 'all' }); }}>Give it a job</button>
-              <button className="btn secondary small" onClick={toLoadout}>Loadout</button>
+              <button className="btn secondary small" onClick={toLoadout}>Tools</button>
             </div>
           </>
         )}

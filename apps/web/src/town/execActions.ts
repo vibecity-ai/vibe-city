@@ -14,7 +14,7 @@ export function execAction(id: ExecObjectId) {
   s.ui$(CLEAR_DESK);
   switch (id) {
     case 'desk': s.openPanel('board', { composer: true, composerDept: null, boardDept: null, boardQuest: null }); break;
-    // the meeting table is where jobs are reviewed, here and on every floor: the Ops board (all floors here)
+    // the meeting table: the Ops board, every floor's jobs
     case 'table': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
     case 'trophy': s.ui$({ questLog: true }); break;
     case 'org': case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
@@ -45,9 +45,11 @@ export function floorAction(id: FloorObjectId, deptId: string) {
   switch (id) {
     case 'board': s.openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); break;
     case 'lead': if (d?.chief) s.openPanel('agent', { agent: 'chief' }); else s.openPanel('dept', { deptTab: 'overview' }); break;
-    case 'meeting': s.openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); break;
-    // the rack holds the floor's gear: the loadout, where tools and skills are switched on and off
-    case 'rack': s.openPanel('dept', { deptTab: 'loadout', agent: null }); break;
+    case 'archive': s.ui$({ floorSheet: 'archive' }); break;
+    // the floor's gear, each where it lives: tools in the rack, skills on the bookshelf, keys in the cabinet
+    case 'rack': s.openPanel('dept', { deptTab: 'tools', agent: null }); break;
+    case 'shelf': s.openPanel('dept', { deptTab: 'skills', agent: null }); break;
+    case 'keys': s.openPanel('dept', { deptTab: 'env', agent: null }); break;
     case 'station': s.ui$({ floorSheet: 'station' }); break;
     case 'clock': s.ui$({ execModal: 'calendar', scheduleDept: deptId }); break;
   }

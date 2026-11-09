@@ -235,6 +235,15 @@ export class RealHermesRuntime implements HermesRuntime {
     }
   }
 
+  async unsetProfileEnv(profile: string, names: string[]): Promise<void> {
+    for (const name of names) {
+      if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(name)) throw new HermesRejectedError(`invalid env variable ${name}`);
+      // `config unset` routes an UPPER_SNAKE name to the profile's .env, and exits non-zero when the name is not set
+      // there: that refusal means it is already gone. Timeouts and a missing CLI still throw.
+      try { await this.cli(['config', 'unset', name], profile); } catch (e) { if (!(e instanceof HermesRejectedError)) throw e; }
+    }
+  }
+
   async getConcurrencyCap(): Promise<number | null> {
     try {
       const out = (await this.cli(['config', 'get', 'kanban.max_in_progress_per_profile'])).trim().split('\n').pop() ?? '';

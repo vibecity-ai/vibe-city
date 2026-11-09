@@ -51,6 +51,8 @@ import { register as registerGame } from './routes/game.ts';
 import { register as registerIpo } from './routes/ipo.ts';
 import { register as registerMarket } from './routes/market.ts';
 import { register as registerQuestFiles } from './routes/questFiles.ts';
+import { register as registerEnv } from './routes/env.ts';
+import { DepartmentEnvService } from './domain/departmentEnv.ts';
 import { MarketService } from './domain/marketService.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
@@ -85,6 +87,8 @@ export interface AppServices {
   modelPrices: ModelPrices | null;
   /** The model the Chief of Staff uses until the CEO picks one. */
   chatModelDefault: string;
+  /** Each floor's own env variables (write-only), pushed into its agents' profiles. */
+  deptEnv: DepartmentEnvService;
 }
 
 export interface ServicesExtra {
@@ -146,6 +150,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     get: () => async () => { throw new HermesUnavailableError('Hermes integration is not configured'); },
   });
   const quests_ = new QuestService(departments, extra.kanban ?? unconfiguredKanban);
+  const deptEnv = new DepartmentEnvService(db, departments, hermes);
   const runtime = hermes ?? unconfiguredHermes;
   const hub = extra.live
     ? new LiveHub({ health: () => runtime.health(), cursors: new SqliteCursorStore(db), ...extra.live }, { graceMs: extra.live.graceMs })
@@ -392,13 +397,16 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   // the CEO pastes a token or a wallet key; other floors never receive them.
   const wallet = new WalletService(db, extra.outlayerFetch);
   const writeDepartmentEnv = async (deptId: string, profiles: string[]) => {
+    const at = new Date().toISOString();
     const t = TEMPLATES.find((x) => x.id === departments.getRow(deptId).template_id);
     const gh = t?.id === 'software' ? githubToken(db) : null;
     const mkt = t?.id === 'marketplace-agency' ? secret(db, 'marketAgentToken') : null;
     // every agent thinks with NEAR AI Cloud: the key (pasted in the first quest, else the backend env) goes to all floors
-    const env = { ...aiEnv(), ...(gh ? { GH_TOKEN: gh } : {}), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
+    // the floor's own variables first: a name Vibe City manages always keeps Vibe City's value
+    const env = { ...deptEnv.values(deptId), ...aiEnv(), ...(gh ? { GH_TOKEN: gh } : {}), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
     if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
     for (const p of profiles) await hermes.setProfileEnv(p, env);
+    if (profiles.length) deptEnv.markApplied(deptId, at);
   };
   const pushDepartmentEnv = async () => {
     for (const d of departments.list()) {
@@ -584,11 +592,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
   const services: AppServices = {
     app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market,
-    chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL,
+    chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv,
   };
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
   registerAi(app, services); registerGame(app, services); registerIpo(app, services); registerMarket(app, services);
-  registerQuestFiles(app, services);
+  registerQuestFiles(app, services); registerEnv(app, services);
   return services;
 }

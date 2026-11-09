@@ -1,5 +1,5 @@
 import {
-  HERMES_TASK_ID_RE, QUEST_FILE_MAX_BYTES, type ActivityEvent, type AttachmentView, type CancellationStatus, type QuestCreate, type QuestCreated,
+  HERMES_TASK_ID_RE, QUEST_FILE_MAX_BYTES, type ActivityEvent, type ArchiveFile, type AttachmentView, type CancellationStatus, type QuestCreate, type QuestCreated,
   type QuestDetail, type QuestResults, type QuestSummary, type TaskNode,
 } from '@vibe-city/shared';
 import { HermesNotFoundError, HermesRejectedError } from '../hermes/ports.ts';
@@ -233,23 +233,50 @@ export class QuestService {
 
   // ---- queries -----------------------------------------------------------------------
 
-  async list(departmentId: string): Promise<QuestSummary[]> {
-    const ctx = this.ctx(departmentId);
+  /** The department's quest roots, newest first (at most 50), with their total count. */
+  private async roots(ctx: Ctx) {
     const tasks = await this.kanban.listBoardTasks(ctx.board, { includeArchived: true });
-    const roots = tasks
+    const all = tasks
       .filter((t) => t.assignee === ctx.lead && (t.link_counts?.parents ?? 0) === 0)
-      .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0))
-      .slice(0, 50);
-    const out: QuestSummary[] = [];
+      .sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
+    return { roots: all.slice(0, 50), more: all.length > 50 };
+  }
+
+  /** Loads each root's tree, four at a time. */
+  private async trees(ctx: Ctx, roots: { id: string }[]): Promise<Tree[]> {
+    const out: Tree[] = [];
     for (let i = 0; i < roots.length; i += 4) {
-      const batch = await Promise.all(roots.slice(i, i + 4).map(async (r) => {
-        const tree = await this.loadTree(ctx, await this.kanban.getTask(ctx.board, r.id));
-        const { _truncated: _t, ...s } = this.summarize(tree, this.nodes(ctx, tree), this.cancellation(tree));
-        return s;
-      }));
-      out.push(...batch);
+      out.push(...await Promise.all(roots.slice(i, i + 4).map(async (r) => this.loadTree(ctx, await this.kanban.getTask(ctx.board, r.id)))));
     }
     return out;
+  }
+
+  async list(departmentId: string): Promise<QuestSummary[]> {
+    const ctx = this.ctx(departmentId);
+    return (await this.trees(ctx, (await this.roots(ctx)).roots)).map((tree) => {
+      const { _truncated: _t, ...s } = this.summarize(tree, this.nodes(ctx, tree), this.cancellation(tree));
+      return s;
+    });
+  }
+
+  /** The file archive: every file attached anywhere on the department's jobs, newest first. */
+  async archive(departmentId: string): Promise<{ files: ArchiveFile[]; truncated: boolean }> {
+    const ctx = this.ctx(departmentId);
+    const { roots, more } = await this.roots(ctx);
+    const trees = await this.trees(ctx, roots);
+    const files: ArchiveFile[] = [];
+    for (const tree of trees) {
+      const root = tree.details.get(tree.rootId)!.task;
+      for (const id of tree.order) {
+        const d = tree.details.get(id)!;
+        for (const a of d.attachments) {
+          const v = this.attachmentView(ctx, tree.rootId, a);
+          files.push({ ...v, questId: tree.rootId, questTitle: root.title, taskTitle: d.task.title, agentKey: v.fromCeo ? null : this.agentKeyOf(ctx, d.task.assignee) });
+        }
+      }
+    }
+    files.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? '') || b.id - a.id);
+    return { files, truncated: more || trees.some((t) => t.truncated) };
   }
 
   async detail(departmentId: string, questId: string): Promise<QuestDetail> {

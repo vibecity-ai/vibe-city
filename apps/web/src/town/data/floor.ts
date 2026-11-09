@@ -104,14 +104,16 @@ export function toolsReport(templateId: string | undefined | null, inv: Pick<Inv
 
 /* ---------------- the objects every floor shares ---------------- */
 
-export type FloorObjectId = 'board' | 'lead' | 'meeting' | 'rack' | 'clock' | 'station';
+export type FloorObjectId = 'board' | 'lead' | 'archive' | 'rack' | 'shelf' | 'keys' | 'clock' | 'station';
 
 /** What a click opens, so the screen copy and the test agree. */
 export const FLOOR_OBJECT_HELP: Record<FloorObjectId, string> = {
   board: 'This floor\'s jobs on the Ops board',
   lead: 'The lead\'s profile and chat',
-  meeting: 'This floor\'s jobs on the Ops board',
-  rack: 'The loadout: tools, skills, models',
+  archive: 'The file archive: every file on this floor\'s jobs',
+  rack: 'Tools: the toolsets every agent here carries',
+  shelf: 'Skills: the floor\'s skill deck',
+  keys: 'Env variables: keys the floor\'s tools read',
   clock: 'This floor\'s schedules',
   station: 'The station: what this team works with',
 };

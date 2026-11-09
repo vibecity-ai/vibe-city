@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Character } from '@vibe-city/shared';
-import { agentLabel, nameProfiles, pickFiles } from './views.ts';
+import { agentLabel, envNameProblem, nameProfiles, pickFiles } from './views.ts';
 
 test('agents are shown by persona name, else by role, never by seat key', () => {
   assert.equal(agentLabel('W-02', { name: 'Ada' } as Character), 'Ada');
@@ -26,4 +26,11 @@ test('reference files keep to Hermes limits and say why one was left out', () =>
   const many = pickFiles(Array.from({ length: 9 }, (_, i) => f(`${i}`)), [f('x'), f('y'), f('z')]);
   assert.equal(many.files.length, 10);
   assert.equal(many.error, 'a job takes at most 10 files.');
+});
+
+test('floor env names are UPPER_SNAKE and never one Vibe City or Hermes sets', () => {
+  assert.equal(envNameProblem(''), null);
+  assert.equal(envNameProblem('SERPAPI_API_KEY'), null);
+  for (const n of ['lower', 'A', '9LIVES', 'WITH-DASH']) assert.match(envNameProblem(n)!, /capitals/, n);
+  for (const n of ['NEAR_AI_API_KEY', 'GH_TOKEN', 'HERMES_HOME', 'PATH']) assert.match(envNameProblem(n)!, /itself/, n);
 });

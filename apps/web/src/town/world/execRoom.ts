@@ -10,7 +10,7 @@ import { shade } from './sprites';
 export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'assistant' | 'library';
 /** Footprint boxes (u, v, h, du, dv, dh) for hit-testing and the hover outline, and where the label sits. */
 export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number, number, number, number, number] }[] = [
-  { id: 'phone', label: 'Phone', b: [15, 119, 13, 9, 7, 6] },
+  { id: 'phone', label: 'Phone', b: [23, 118, 13, 10, 7, 6] },
   { id: 'desk', label: 'Your desk', b: [13, 117, 0, 38, 16, 26] },
   { id: 'trophy', label: 'Quest log', b: [0, 118, 0, 8, 20, 46] },
   { id: 'safe', label: 'Safe', b: [0, 70, 0, 16, 18, 20] },
@@ -41,10 +41,6 @@ export function execProps(c: IC) {
   box(c, 16, 72, 3, 0.5, 14, 14, '#3A3A4C', { edge: false });
   const d = P(16.5, 79, 10); px.ring(d[0], d[1], 3, 3, '#B8B0D0', 1); px.dot(Math.floor(d[0]), Math.floor(d[1]), C.gold, 1);
   px.line(P(16.5, 84, 6), P(16.5, 84, 14), '#8C84B8');
-  // the phone on the desk (cherry red, with a cord)
-  box(c, 17, 120, 14, 6, 4, 2, '#A82848', { top: '#E0406A' });
-  box(c, 17, 121, 16, 6, 2, 1, '#C8325A', { top: '#FF5C8A', edge: false });
-  px.line(P(23, 122, 14), P(26, 126, 14), '#6A1A30');
   // trophies on top of the shelf
   for (const [v, hh] of [[121, 6], [127, 8], [133, 5]] as Pt[]) {
     box(c, 2, v, 40, 4, 3, 1, '#6B5530', { edge: false });
@@ -75,9 +71,18 @@ function libraryCabinet(c: IC) {
   px.poly([P(201, 130, 39), P(217, 130, 39), P(217, 130, 42), P(201, 130, 42)], C.gold, 1);
 }
 
+/** The phone on the desk, cherry red with a cord: drawn after the desk (and beside its notepad) so nothing covers it. */
+function deskPhone(c: IC) {
+  const { P, px } = c;
+  box(c, 24, 119, 14, 8, 5, 2, '#A82848', { top: '#E0406A' });
+  box(c, 24, 120, 16, 8, 2, 1.5, '#C8325A', { top: '#FF5C8A', edge: false });
+  px.line(P(32, 122, 14), P(36, 125, 14), '#6A1A30');
+}
+
 export function execFurniture(c: IC) {
   libraryCabinet(c);
   chiefDeskStatic(c);
+  deskPhone(c);
   shelfItem(c);
   meetingStatic(c);
   plant(c, 84, 132, true, 7); plant(c, 12, 8, true, 11); plant(c, 232, 112, false, 5); plant(c, 100, 10, false, 9);

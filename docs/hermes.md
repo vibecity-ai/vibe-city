@@ -50,6 +50,9 @@ them with live calls.
   a task held until its files arrive (triage tasks may be auto-decomposed), so the CEO's reference files are uploaded
   right after creation, the brief names them and tells the lead to wait for any not listed yet.
 - Task events include plumbing (heartbeats); `domain/activity.ts` filters them.
+- Profile env (v0.22.6): `hermes -p <profile> config set NAME value` writes any UPPER_SNAKE name to that profile's
+  `.env` (Hermes refuses its own denylist, e.g. PATH); `config unset NAME` removes it and exits non-zero when the name
+  is not there. A floor's own variables (`domain/departmentEnv.ts`) use both.
 
 ## MCP and chat
 

@@ -25,7 +25,7 @@ export type Fx =
 
 export type View = 'tower' | 'floor';
 export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';
-export type DeptTab = 'overview' | 'loadout' | 'quests';
+export type DeptTab = 'overview' | 'tools' | 'skills' | 'env' | 'quests';
 
 /** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
 export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
@@ -70,8 +70,8 @@ interface UI {
   scheduleDept: string | null;
   /** The CEO quest log window (brief 05). */
   questLog: boolean;
-  /** The sheet a template's station opens on its floor. */
-  floorSheet: 'station' | null;
+  /** A sheet a floor object opens: the template's station, or the file archive. */
+  floorSheet: 'station' | 'archive' | null;
   /** The Skill library window: opened from a floor (that floor first) or the Executive Office, maybe on one skill. */
   skillLib: { deptId: string | null; skill: string | null } | null;
 }

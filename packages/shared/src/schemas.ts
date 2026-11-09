@@ -1164,3 +1164,56 @@ export const IpoStateSchema = z.object({
   state: z.enum(['locked', 'ready', 'done', 'error']), error: z.string().nullable(),
 }).strict();
 export type IpoState = z.infer<typeof IpoStateSchema>;
+
+// ---- department env variables ------------------------------------------------
+// A floor's own .env entries (API keys a skill or tool needs), written into every agent profile of the floor. Values are
+// write-only: the browser sends them, no response ever contains one.
+
+/** UPPER_SNAKE, as Hermes stores it in a profile's .env. */
+export const ENV_NAME_RE = /^[A-Z][A-Z0-9_]{1,63}$/;
+/** Set by Vibe City itself (keys from the company settings, the agents' API server key) or by Hermes: not editable here. */
+export const MANAGED_ENV_NAMES = ['NEAR_AI_API_KEY', 'API_SERVER_KEY', 'GH_TOKEN', 'MARKET_AGENT_TOKEN', 'OUTLAYER_API_KEY', 'OUTLAYER_WALLET_ID'] as const;
+export const isReservedEnvName = (n: string) =>
+  (MANAGED_ENV_NAMES as readonly string[]).includes(n) || n.startsWith('HERMES_') || ['PATH', 'HOME', 'USER', 'SHELL', 'PWD', 'LANG', 'TERM', 'TZ'].includes(n);
+
+export const EnvNameSchema = z.string().regex(ENV_NAME_RE, 'use UPPER_SNAKE_CASE: a capital letter, then capitals, digits or _ (2-64 characters)')
+  .refine((n) => !isReservedEnvName(n), 'Vibe City or Hermes sets this one itself');
+
+export const DepartmentEnvVarSchema = z.object({
+  name: z.string(),
+  updatedAt: z.string(),
+  /** true once every agent profile on the floor has the current value. */
+  onAgents: z.boolean(),
+}).strict();
+export type DepartmentEnvVar = z.infer<typeof DepartmentEnvVarSchema>;
+
+export const DepartmentEnvSchema = z.object({
+  vars: z.array(DepartmentEnvVarSchema),
+  /** After a save: why the agents do not have the value yet (null when they do). */
+  warning: z.string().nullable(),
+}).strict();
+export type DepartmentEnv = z.infer<typeof DepartmentEnvSchema>;
+
+/** PUT /api/departments/:id/env/:name */
+export const EnvVarSetSchema = z.object({
+  value: z.string().min(1, 'value is required').max(4096).refine((v) => !/[\r\n\0]/.test(v), 'one line, no line breaks'),
+}).strict();
+export type EnvVarSet = z.infer<typeof EnvVarSetSchema>;
+
+// ---- the department's file archive -------------------------------------------
+/** GET /api/departments/:id/files: every file on the department's jobs (agents' output and the CEO's references). */
+export const ArchiveFileSchema = AttachmentViewSchema.extend({
+  questId: z.string(),
+  questTitle: z.string(),
+  /** The task it is attached to (the job itself when it is the root). */
+  taskTitle: z.string(),
+  /** Who was working that task: an agent key of the floor, or null (the CEO's files, or someone outside the floor). */
+  agentKey: z.string().nullable(),
+}).strict();
+export type ArchiveFile = z.infer<typeof ArchiveFileSchema>;
+export const DepartmentFilesSchema = z.object({
+  files: z.array(ArchiveFileSchema),
+  /** Only the latest 50 jobs (and their first 200 tasks each) are read. */
+  truncated: z.boolean(),
+}).strict();
+export type DepartmentFiles = z.infer<typeof DepartmentFilesSchema>;

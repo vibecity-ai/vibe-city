@@ -251,6 +251,16 @@ export const MIGRATIONS: readonly string[] = [
      created_at TEXT NOT NULL,
      updated_at TEXT NOT NULL
    );`,
+  // a floor's own env variables (write-only), written into every agent profile's .env. applied_at: when every profile
+  // last took the current value (null: not yet).
+  `CREATE TABLE department_env (
+     department_id TEXT NOT NULL REFERENCES department(id),
+     name TEXT NOT NULL,
+     value TEXT NOT NULL,
+     updated_at TEXT NOT NULL,
+     applied_at TEXT,
+     PRIMARY KEY (department_id, name)
+   );`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

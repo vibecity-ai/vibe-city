@@ -115,4 +115,6 @@ export interface HermesRuntime {
   /** Writes variables into the profile's own .env. Under gateway multiplexing a profile reads credentials only from its
       .env (never the process env): its API_SERVER_KEY for /p/<profile>/ requests, and its model provider's key. */
   setProfileEnv?(profile: string, vars: Record<string, string>): Promise<void>;
+  /** Removes variables from the profile's .env (a name that is not there is not an error). */
+  unsetProfileEnv?(profile: string, names: string[]): Promise<void>;
 }

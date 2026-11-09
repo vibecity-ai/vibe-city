@@ -18,6 +18,7 @@ import {
 } from '../data/views';
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
 import { AttachTray, ReferenceFiles } from './QuestFiles';
+import { DeptEnvTab } from './DeptEnv';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { DeskSheet } from './Desk';
 import { Mark } from './Device';
@@ -153,7 +154,7 @@ export function DeptPanel() {
           {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New jobs need the floor to be in sync with Hermes.' : 'New jobs need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new jobs wait in Queued until it starts.</p>}
           <Tabs label="Department sections" idBase="dept" value={tab} onChange={(t) => s.ui$({ deptTab: t })}
-            options={(['overview', 'loadout', 'quests'] as const).map((t) => ({ key: t, label: <>{t === 'quests' ? 'Jobs' : t[0]!.toUpperCase() + t.slice(1)}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
+            options={(['overview', 'tools', 'skills', 'env', 'quests'] as const).map((t) => ({ key: t, label: <>{DEPT_TAB_LABEL[t]}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
         </section>
         <div id="dept-panel" role="tabpanel" aria-labelledby={`dept-tab-${tab}`}>
           <div aria-live="polite">
@@ -194,6 +195,7 @@ export function DeptPanel() {
                 </div>
                 <p className="mono muted small">{running + (d.chief.status === 'running' ? 1 : 0)} of {d.teamSize} agent{d.teamSize === 1 ? '' : 's'} working · each is its own Hermes profile{d.teamSize > d.workers.length + 1 ? ` · ${d.teamSize - d.workers.length - 1} not drawn (no free desk)` : ''}</p></>}
               </section>
+              {d.view.agents.length > 0 && <TeamModels d={d} />}
               <section className="pane-sec">
                 <h3 className="sec-t">Active jobs</h3>
                 {active.length === 0 && <p className="muted">No active jobs. Give the lead an objective.</p>}
@@ -206,7 +208,8 @@ export function DeptPanel() {
               </section>
             </>
           )}
-          {tab === 'loadout' && <DeptLoadout d={d} />}
+          {(tab === 'tools' || tab === 'skills') && <DeptLoadout key={tab} d={d} part={tab} />}
+          {tab === 'env' && <DeptEnvTab d={d} />}
           {tab === 'quests' && (
             <section className="pane-sec">
               <p className="fine">You give and manage jobs on the company Ops board. This department’s own Hermes board belongs to its agents; this list is read-only.</p>
@@ -268,9 +271,54 @@ function PendingSync({ d }: { d: Dept }) {
 
 const teamLine = (n: number) => (n <= 1 ? '1 · the lead works alone' : `${n} · a lead + ${n - 1} teammate${n === 2 ? '' : 's'}, one Hermes profile each`);
 
-/** The department's loadout: what every agent gets by default (skills, model, toolsets) and its limits.
-    Installed skills and toolset states are read back from the lead's profile. */
-function DeptLoadout({ d }: { d: Dept }) {
+const DEPT_TAB_LABEL = { overview: 'Overview', tools: 'Tools', skills: 'Skills', env: 'Env', quests: 'Jobs' } as const;
+
+/** Every agent's model at a glance, each changeable in place (no need to open the agent). */
+function TeamModels({ d }: { d: Dept }) {
+  const s = useStore();
+  const hermesModels = useHermesModels();
+  useEffect(() => { void loadDeptInfo(d.id); }, [d.id]);
+  const inv = s.info[d.id]?.inventory ?? null;
+  const saving = !!s.busy[`inv:${d.id}`] || syncing(s.busy, d);
+  return (
+    <section className="pane-sec team-models">
+      <h3 className="sec-t">Models</h3>
+      <p className="fine">Each agent thinks with its own model. A change reaches Hermes when you sync the floor.</p>
+      {d.view.agents.map((a) => (
+        <ModelPicker key={a.key} label={`${agentLabel(a.key, s.personas[`${d.id}:${a.key}`])}${a.lead ? ' · lead' : ''}`}
+          hint={(() => { const now = s.info[d.id]?.profiles?.agents.find((p) => p.key === a.key)?.model; return now ? `Hermes reports ${now}.` : ''; })()}
+          models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
+          value={a.model} fallback={inv?.model ?? undefined} disabled={saving} onChange={(m) => void setAgentModel(d.id, a.key, m)} />
+      ))}
+    </section>
+  );
+}
+
+/** Department settings: how long the lead's task may run. */
+function DeptLimits({ d }: { d: Dept }) {
+  const s = useStore();
+  const inv = s.info[d.id]?.inventory ?? null;
+  const saving = !!s.busy[`inv:${d.id}`] || syncing(s.busy, d);
+  const save = (p: Parameters<typeof patchInventory>[1]) => void patchInventory(d.id, p);
+  return (
+    <>
+      {inv && (
+        <section className="pane-sec">
+          <h3 className="sec-t">Limits</h3>
+          <p className="fine">{LIMIT_COPY.teammates} To add an agent, use Hire on the department panel.</p>
+          <Field label="Max seconds for the lead’s task (10–86400, blank = none)" hint={LIMIT_COPY.maxTaskRuntimeSeconds}>
+            {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
+              onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
+          </Field>
+        </section>
+      )}
+    </>
+  );
+}
+
+/** What every agent on the floor gets: its toolsets (the Tools tab, the server rack) or its skill deck (the Skills tab,
+    the bookshelf). Installed skills and toolset states are read back from the lead's profile. */
+function DeptLoadout({ d, part }: { d: Dept; part: 'tools' | 'skills' }) {
   const s = useStore();
   useEffect(() => { void loadAgent(d.id, 'chief'); }, [d.id, d.provisioning]);
   const info = s.info[d.id];
@@ -289,24 +337,16 @@ function DeptLoadout({ d }: { d: Dept }) {
   const needOff = report?.needed.filter((t) => !t.on) ?? [];
   const riskyOn = report?.extra.filter((t) => t.risky).length ?? 0;
   const skillsOff = report?.skills.filter((k) => !k.on) ?? [];
-  // model -> the agents on it: the agent's own choice, else the department's, else what Hermes reports for the profile
-  const modelsInUse = new Map<string, string[]>();
-  for (const a of d.view.agents) {
-    const m = a.model?.id ?? inv?.model?.id ?? info?.profiles?.agents.find((p) => p.key === a.key)?.model ?? 'Hermes default';
-    modelsInUse.set(m, [...(modelsInUse.get(m) ?? []), a.key]);
-  }
   return (
     <div aria-busy={saving}>
       <section className="pane-sec">
         <div aria-live="polite">
           {s.busy[`inv:${d.id}`] && <p className="muted small" role="status">Saving…</p>}
-          {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this loadout.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
+          {d.provisioning === 'ready' && eff && !eff.inSync && <div className="banner warn"><Glyph k="awaiting" /><div><b>Hermes no longer matches</b><p>The last read from Hermes differs from this floor’s tools and skills.</p><Btn kind="secondary" busy={busyProv} disabled={busyProv || !s.conn.hermes} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync again'}</Btn></div></div>}
         </div>
-        <p className="fine">Every agent on this floor gets these skills and toolsets by default. An agent’s own skills from its hire come on top, and each agent has its own model.</p>
-        <KV rows={[['Agents', teamLine(d.teamSize)]]} />
-        {!inv && <p className="muted">Loading loadout…</p>}
+        {!inv && <p className="muted">Loading…</p>}
       </section>
-        <section className="pane-sec">
+        {part === 'skills' && <section className="pane-sec">
           <h3 className="sec-t">Skill deck</h3>
           <div className="sk-deck-h"><p className="fine">Every agent on this floor carries these skills, plus its own from its hire. Changes reach Hermes at the next sync.</p>
             <button className="btn secondary small" onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: null } })}><Icon n="sparkle" size={12} />Skill library</button></div>
@@ -337,17 +377,10 @@ function DeptLoadout({ d }: { d: Dept }) {
             <div className="sk-deck">{inv.allowedSkillIds.filter((n) => !view.skills.some((k) => k.name === n)).map((n) => <SkillCard key={n} name={n} state="missing" onClick={() => s.ui$({ skillLib: { deptId: d.id, skill: n } })}
               action={<button className="btn tertiary small" disabled={saving} onClick={() => toggleSkill(n)}>Unequip</button>} />)}</div>
           </>}
-        </section>
+        </section>}
 
-        <section className="pane-sec">
-          <h3 className="sec-t">Models in use</h3>
-          <p className="fine">Each agent picks its own model in its Loadout tab. Hermes cannot stop an agent from picking another model for a task.</p>
-          <ul className="models-used">{[...modelsInUse].map(([m, keys]) => (
-            <li key={m}><span className="mono">{m}</span><span className="muted small">{keys.map((k, i) => <span key={k}>{i ? ', ' : ''}<AgentName deptId={d.id} agentKey={k} /></span>)}</span></li>
-          ))}</ul>
-        </section>
 
-        <section className="pane-sec">
+        {part === 'tools' && <section className="pane-sec">
           <h3 className="sec-t">Toolsets</h3>
           <p className="fine">Gear every agent on this floor carries. Flip a switch, then sync the floor to apply it in Hermes.</p>
           {report && !report.plain && <p className={`note${needOff.length ? ' warn' : ''}`}>{needOff.length
@@ -371,19 +404,9 @@ function DeptLoadout({ d }: { d: Dept }) {
               {off.length > 0 && <section aria-label="Off in Hermes"><h4 className="tg-h">Off in Hermes <span>{off.length}</span></h4><div className="tool-grid">{off.map(slot)}</div></section>}
             </div>;
           })()}
-        </section>
+        </section>}
 
 
-      {inv && (
-        <section className="pane-sec">
-          <h3 className="sec-t">Limits</h3>
-          <p className="fine">{LIMIT_COPY.teammates} To add an agent, use Hire at the top of this panel.</p>
-          <Field label="Max seconds for the lead’s task (10–86400, blank = none)" hint={LIMIT_COPY.maxTaskRuntimeSeconds}>
-            {(p) => <input {...p} className="input mono" type="number" min={10} max={86400} defaultValue={inv.limits.maxTaskRuntimeSeconds ?? ''} key={String(inv.limits.maxTaskRuntimeSeconds)} disabled={saving}
-              onBlur={(e) => { const v = e.target.value.trim(); const n = v === '' ? null : Math.round(Number(v)); if ((n === null || (n >= 10 && n <= 86400)) && n !== inv.limits.maxTaskRuntimeSeconds) save({ limits: { maxTaskRuntimeSeconds: n } }); else e.target.value = String(inv.limits.maxTaskRuntimeSeconds ?? ''); }} />}
-          </Field>
-        </section>
-      )}
     </div>
   );
 }
@@ -404,6 +427,7 @@ export function SettingsSheet() {
           <p className="sub">Edit the department, inspect what Vibe City created or linked in Hermes, or archive the floor.</p>
         </section>
         <SettingsForm key={`${d.id}|${d.name}|${d.purpose}`} d={d} />
+        <DeptLimits d={d} />
         <SyncInspector d={d} />
         <section className="pane-sec danger">
           <h3 className="sec-t">Archive</h3>
@@ -713,7 +737,7 @@ export function AgentPanel() {
             {view?.observedAt && <KV rows={[
               ['Toolsets on in Hermes', <span className="mono">{view.toolsets.filter((t) => t.enabled && shownToolset(t.name)).map((t) => t.name).join(', ') || 'none'}</span>],
             ]} />}
-            <Btn kind="secondary" onClick={() => s.openPanel('dept', { deptTab: 'loadout' })}>Edit the department loadout</Btn>
+            <div className="row"><Btn kind="secondary" onClick={() => s.openPanel('dept', { deptTab: 'tools' })}>Floor tools</Btn><Btn kind="secondary" onClick={() => s.openPanel('dept', { deptTab: 'skills' })}>Floor skills</Btn></div>
           </section>
         )}
         </div>

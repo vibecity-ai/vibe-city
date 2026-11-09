@@ -68,3 +68,22 @@ test('uploads are refused for foreign, finished or bad requests', async () => {
   assert.equal((await upload(t, d.id, questId, 'a.txt', 'x')).statusCode, 409, 'finished job');
   assert.equal((await t.kanban.getTask(d.board, questId)).attachments.length, 0);
 });
+
+test('the file archive lists every file on the floor\'s jobs, newest first, with who made it', async () => {
+  const t = questApp();
+  const d = await t.readyDept('Eng');
+  const other = await t.readyDept('Ops');
+  const { questId } = (await t.create(d.id, { title: 'Pricing' })).json();
+  await upload(t, d.id, questId, 'brief.md', '# brief');
+  const kid = t.kanban.seedTask(d.board, { title: 'Scrape', assignee: d.teammate, parents: [questId] });
+  t.kanban.attach(d.board, kid.id, 'prices.csv', 'a,b');
+  const res = await t.get(`/api/departments/${d.id}/files`);
+  assert.equal(res.statusCode, 200, res.body);
+  const { files, truncated } = res.json();
+  assert.equal(truncated, false);
+  assert.deepEqual(files.map((f: { filename: string; taskTitle: string; questTitle: string; agentKey: string | null; fromCeo: boolean }) => [f.filename, f.questTitle, f.taskTitle, f.agentKey, f.fromCeo]),
+    [['prices.csv', 'Pricing', 'Scrape', 'W-01', false], ['brief.md', 'Pricing', 'Pricing', null, true]]);
+  assert.ok(!res.body.includes('/home/'), 'no host path');
+  assert.equal((await t.get(files[0].downloadUrl)).body, 'a,b', 'downloads through the job route');
+  assert.deepEqual((await t.get(`/api/departments/${other.id}/files`)).json().files, [], 'only this floor\'s jobs');
+});
