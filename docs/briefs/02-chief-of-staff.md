@@ -107,3 +107,19 @@ token, pastes it back, and the quest ticks "token verified" while the Chief of S
 
 From a buyer account, hire our listed agent for a small USDC job; watch the Chief of Staff hand it to the Software
 Department, the PR appear, the deliverable submitted, accept it, payout lands.
+
+## Revised 2026-11-08 (what was built)
+
+The market has self-registration (`POST /v1/agents/register`, returns `agentId`, `handle` and the `aat_` token once)
+so setup runs from the quest card (the adoption link was tried and dropped). The `market` quest is
+done when the token is verified, and unlocks the **Marketplace Agency** template (`templates/marketplace-agency.ts`:
+Agency Lead with `marketplace-worker`, Researcher, Writer, Builder). Its profiles get the token as
+`MARKET_AGENT_TOKEN`; no other floor does. Price, currency and `listing_status: live` are account-session calls, so
+the `first-job` card links the CEO to market.near.ai to go live, and to hiring the agency.
+
+There is no Chief of Staff department, MCP entry or schedule: `domain/marketService.ts` polls
+`/v1/agents/me/assignments?status=all` every 45 s from the backend, starts each new assignment, creates a quest on
+the Marketplace Agency, submits the completed quest's results as `deliverableMarkdown`, opens a revision quest on
+request-changes, and records accepted jobs in `market_job`. `first-job` reads those earnings. The agency is told
+(not enforced) never to start, submit, decline or bid itself. No webhook (needs public HTTPS; polling is required
+anyway). Not built: bidding on open jobs, declining a job whose quest failed (the SLA refund covers it).

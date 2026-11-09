@@ -11,10 +11,24 @@ const KEY = 'wk_' + 'a'.repeat(64), NEW_KEY = 'wk_' + 'b'.repeat(64), ADDR = 'c'
 /** A fake OutLayer: knows KEY (and NEW_KEY once registered), records calls, binding goes pending -> active on demand. */
 function fakeOutlayer() {
   const calls: string[] = [];
-  const o = { binding: null as null | { asset_account_id: string; binding_status: string }, bindConflict: false, setupUnavailable: false, usdc: '0', policy: { hyperliquid: false, polymarket: false } as Record<string, boolean>, trialClaimed: false, calls };
+  const o = { binding: null as null | { asset_account_id: string; binding_status: string }, bindConflict: false, setupUnavailable: false, usdc: '0', usdt: '0', policy: { hyperliquid: false, polymarket: false } as Record<string, boolean>, trialClaimed: false, calls };
   const known = new Set([KEY]);
   const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const USDC_ID = 'nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1', USDT_ID = 'nep141:usdt.tether-token.near';
   const fetch_ = (async (url: string, init: RequestInit = {}) => {
+    // NEAR Intents: the 1Click token list, intents.near's balances (one view call), CoinGecko logos
+    if (url === 'https://1click.chaindefuser.com/v0/tokens') return json(200, [
+      { assetId: 'nep141:wrap.near', symbol: 'wNEAR', decimals: 24, blockchain: 'near', price: 4, coingeckoId: 'wrapped-near' },
+      { assetId: USDC_ID, symbol: 'USDC', decimals: 6, blockchain: 'near', price: 1, coingeckoId: 'usd-coin' },
+      { assetId: USDT_ID, symbol: 'USDT', decimals: 6, blockchain: 'near', price: 1, coingeckoId: 'tether' },
+    ]);
+    if (url.startsWith('https://rpc.mainnet.fastnear.com')) {
+      const q = JSON.parse(String(init.body)).params, args = JSON.parse(Buffer.from(q.args_base64, 'base64').toString());
+      assert.equal(`${q.account_id}.${q.method_name}.${args.account_id}`, `intents.near.mt_batch_balance_of.${ADDR}`);
+      const bal: Record<string, string> = { [USDC_ID]: o.usdc, [USDT_ID]: o.usdt };
+      return json(200, { result: { result: [...Buffer.from(JSON.stringify(args.token_ids.map((id: string) => bal[id] ?? '0')))] } });
+    }
+    if (url.startsWith('https://api.coingecko.com/')) return json(200, [{ id: 'tether', image: 'https://img.test/usdt.png' }, { id: 'near', image: 'https://img.test/near.png' }]);
     const path = url.replace(/^https?:\/\/[^/]+/, ''), method = init.method ?? 'GET';
     calls.push(`${method} ${path}`);
     if (method === 'POST' && path === '/register') { known.add(NEW_KEY); return json(200, { api_key: NEW_KEY, wallet_id: 'w-new', near_account_id: ADDR, handoff_url: 'x' }); }
@@ -29,7 +43,6 @@ function fakeOutlayer() {
     if (!known.has(key)) return json(401, { error: 'invalid_api_key', message: 'Invalid or revoked API key' });
     if (path === '/wallet/v1/address?chain=near') return json(200, { wallet_id: 'w-1', chain: 'near', address: ADDR });
     if (path === '/wallet/v1/balance?chain=near') return json(200, { balance: '0', token: 'near', account_id: ADDR });
-    if (path.startsWith('/wallet/v1/balance?token=17208628') && path.endsWith('&source=intents')) return json(200, { balance: o.usdc, token: 'nep141:usdc', account_id: ADDR });
     if (path === '/wallet/v1/binding' && method === 'GET') return o.binding ? json(200, o.binding) : json(404, { error: 'not_found' });
     if (path === '/wallet/v1/binding' && method === 'PUT') {
       if (o.bindConflict) return json(409, { message: 'account already has a contract' });
@@ -66,7 +79,8 @@ function setup() {
 
 test('a pasted wallet key is checked with OutLayer, never returned, and reaches only company-wallet floors', async () => {
   const { app, hermes, hire, outlayer } = setup();
-  outlayer.usdc = '5000000'; // the CEO funded 5 USDC to the wallet's Intents balance
+  outlayer.usdc = '5000000'; // the CEO funded 5 USDC and 12 USDT to the wallet's Intents balance
+  outlayer.usdt = '12000000';
   const trading = await hire('Trading', 'trading-desk'), software = await hire('Software', 'software');
   assert.deepEqual((await app.inject('/api/wallet')).json().registered, false);
 
@@ -79,7 +93,10 @@ test('a pasted wallet key is checked with OutLayer, never returned, and reaches 
   assert.equal(r.statusCode, 200, r.body);
   assert.equal(r.json().registered, true);
   assert.equal(r.json().accountId, ADDR);
-  assert.deepEqual(r.json().balances, [{ token: 'near', amount: '0', source: 'wallet' }, { token: 'usdc', amount: '5000000', source: 'intents' }], 'USDC funded to Intents shows');
+  assert.deepEqual(r.json().balances, [
+    { token: 'USDT', amount: '12000000', decimals: 6, source: 'intents', chain: 'near', usd: 12, logo: 'https://img.test/usdt.png' },
+    { token: 'USDC', amount: '5000000', decimals: 6, source: 'intents', chain: 'near', usd: 5, logo: null },
+  ], 'every non-zero Intents token, largest first; the empty gas account and wNEAR are left out');
   for (const url of ['/api/wallet', '/api/company/settings', '/api/game']) assert.ok(!(await app.inject(url)).body.includes(KEY), `${url} never carries the key`);
   for (const p of trading) assert.deepEqual(hermes.env.get(p), { ...hermes.env.get(p), OUTLAYER_API_KEY: KEY, OUTLAYER_WALLET_ID: 'w-1' });
   for (const p of software) assert.equal(hermes.env.get(p)?.OUTLAYER_API_KEY, undefined, 'a wallet: none floor never gets it');
@@ -101,7 +118,9 @@ test('binding registers a wallet, returns the connect page once, and the treasur
   outlayer.binding!.binding_status = 'active'; // the CEO signed on OutLayer's page
   const active = (await app.inject('/api/wallet')).json();
   assert.equal(active.binding.status, 'active');
-  assert.deepEqual(active.balances[0], { token: 'near', amount: '5000000000000000000000000', source: 'bound' });
+  const { usd, ...bound } = active.balances[0];
+  assert.deepEqual(bound, { token: 'NEAR', amount: '5000000000000000000000000', decimals: 24, source: 'bound', chain: 'near', logo: 'https://img.test/near.png' });
+  assert.equal(Math.round(usd), 20, '5 NEAR priced at the wNEAR price');
   assert.equal(await treasuryDone(), true);
 });
 

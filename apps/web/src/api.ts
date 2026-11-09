@@ -17,6 +17,9 @@ import {
   TaskStepsViewSchema, type TaskStepsView,
 } from '@vibe-city/shared';
 import { AiUsageSummarySchema, CompanySettingsSchema, ConnectorCheckReplySchema, type ConnectorCheckReply, type ConnectorName, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
+import {
+  ListingDraftSchema, MarketViewSchema, type ListingDraft, type MarketRegister, type MarketView,
+} from '@vibe-city/shared';
 import type { z } from 'zod';
 
 export interface FieldIssue { path: string; message: string }
@@ -126,6 +129,10 @@ export const api = {
   checkConnector: (name: ConnectorName): Promise<ConnectorCheckReply> => request('POST', `/api/wallet/connectors/${name}/check`, ConnectorCheckReplySchema),
   wallet: (): Promise<WalletState> => request('GET', '/api/wallet', WalletStateSchema),
   walletKey: (apiKey: string): Promise<WalletState> => request('POST', '/api/wallet/key', WalletStateSchema, { apiKey }),
+  market: (): Promise<MarketView> => request('GET', '/api/market', MarketViewSchema),
+  marketDraft: (): Promise<ListingDraft> => request('POST', '/api/market/listing-draft', ListingDraftSchema),
+  marketRegister: (input: MarketRegister): Promise<MarketView> => request('POST', '/api/market/register', MarketViewSchema, input),
+  marketToken: (handle: string, token: string): Promise<MarketView> => request('POST', '/api/market/token', MarketViewSchema, { handle, token }),
   setCompanySettings: (patch: CompanySettingsPatch): Promise<CompanySettings> => request('PATCH', '/api/company/settings', CompanySettingsSchema, patch),
   schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
   createSchedule: (dept: string, input: Partial<ScheduleCreate> & Pick<ScheduleCreate, 'name' | 'cron' | 'title' | 'objective'>): Promise<Schedule> => request('POST', `${d(dept)}/schedules`, ScheduleSchema, input),

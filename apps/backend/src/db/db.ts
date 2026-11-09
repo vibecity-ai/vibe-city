@@ -236,6 +236,21 @@ export const MIGRATIONS: readonly string[] = [
    CREATE INDEX ai_usage_dept_at_idx ON ai_usage(department_id, at);
    CREATE TABLE ipo (id INTEGER PRIMARY KEY CHECK (id = 1), state_json TEXT NOT NULL);
    ALTER TABLE department ADD COLUMN template_id TEXT;`,
+  // brief 02: one row per Agent Market assignment the backend took on: the quest doing it (a Hermes reference) and
+  // where the hand-off stands. The market owns the job; this is the cursor.
+  `CREATE TABLE market_job (
+     assignment_id TEXT PRIMARY KEY,
+     title TEXT NOT NULL,
+     department_id TEXT NOT NULL,
+     quest_id TEXT NOT NULL,
+     state TEXT NOT NULL CHECK (state IN ('working','submitted','accepted','failed','closed')),
+     rounds INTEGER NOT NULL DEFAULT 1,
+     amount TEXT NOT NULL,
+     token TEXT NOT NULL,
+     note TEXT,
+     created_at TEXT NOT NULL,
+     updated_at TEXT NOT NULL
+   );`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

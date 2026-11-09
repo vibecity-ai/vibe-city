@@ -10,7 +10,7 @@ const base = (): GameInput => ({
   settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, marketAgentHandle: null, marketVerifiedAt: null, githubConnected: false, githubLogin: null, hyperliquidConnectedAt: null, polymarketConnectedAt: null },
   wallet: EMPTY_WALLET, departments: [], templateOf: {}, templates: TEMPLATES,
   usage: { byDepartment: [], companyTodayCents: 0, companySevenDayAvgCents: 0 }, totalMeteredCents: 0,
-  questsByDept: {}, results: [], pendingApprovals: [],
+  questsByDept: {}, results: [], marketEarnedCents: 0, marketJobsPaid: 0, pendingApprovals: [],
 });
 const done = (i: GameInput, id: string) => deriveGame(i).quests.find((q) => q.id === id)!.done;
 
@@ -23,11 +23,10 @@ const cases: Array<[string, (i: GameInput) => void]> = [
   ['connect-hyperliquid', (i) => { i.settings.hyperliquidConnectedAt = '2026-11-08T10:00:00Z'; }],
   ['connect-polymarket', (i) => { i.settings.polymarketConnectedAt = '2026-11-08T10:00:00Z'; }],
   ['market', (i) => { i.settings.marketVerifiedAt = '2026-11-08T10:00:00Z'; }],
-  ['first-job', (i) => { i.templateOf = { cos: 'chief-of-staff' }; i.results = [{ departmentId: 'cos', questId: 'q', text: 'Delivered. [earned usd=12.50]' }]; }],
-  ['first-swap', (i) => { i.templateOf = { td: 'trading-desk' }; i.results = [{ departmentId: 'td', questId: 'q', text: 'Closed ETH long [pnl usd=3.2]' }]; }],
+  ['first-job', (i) => { i.marketJobsPaid = 1; }], // a 0 USD test hire counts
   ['first-ship', (i) => { i.templateOf = { sw: 'software' }; i.results = [{ departmentId: 'sw', questId: 'q', text: 'Opened [pr url=https://github.com/acme/app/pull/7]' }]; }],
   // three ready floors besides the Chief of Staff, and one earning
-  ['ipo', (i) => { i.departments = [dept('a'), dept('b'), dept('c'), dept('cos')]; i.templateOf = { cos: 'chief-of-staff' }; i.results = [{ departmentId: 'cos', questId: 'q', text: '[earned usd=1]' }]; }],
+  ['ipo', (i) => { i.departments = [dept('a'), dept('b'), dept('c'), dept('cos')]; i.templateOf = { cos: 'chief-of-staff' }; i.marketEarnedCents = 95; }],
 ];
 for (const [id, make] of cases) test(`CEO quest ${id}: not done, then done`, () => {
   const i = base();
@@ -36,11 +35,10 @@ for (const [id, make] of cases) test(`CEO quest ${id}: not done, then done`, () 
   assert.equal(done(i, id), true);
 });
 
-test('a loss or a closed trade without profit does not count; a security floor cannot finish first-ship', () => {
+test('a security floor cannot finish first-ship', () => {
   const i = base();
-  i.templateOf = { td: 'trading-desk', red: 'red-team' };
-  i.results = [{ departmentId: 'td', questId: 'q', text: '[pnl usd=-4] stopped out' }, { departmentId: 'red', questId: 'q', text: 'https://github.com/acme/app/pull/9' }];
-  assert.equal(done(i, 'first-swap'), false);
+  i.templateOf = { red: 'red-team' };
+  i.results = [{ departmentId: 'red', questId: 'q', text: 'https://github.com/acme/app/pull/9' }];
   assert.equal(done(i, 'first-ship'), false);
 });
 
@@ -61,7 +59,7 @@ test('a funded treasury opens Treasury Ops; perps and prediction markets wait fo
   const i = base();
   i.settings.nearAiApiKeySet = true;
   assert.equal(deriveGame(i).locked['treasury-ops'], true);
-  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'usdc', amount: '5000000', source: 'intents' }] };
+  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'USDC', amount: '5000000', decimals: 6, source: 'intents', chain: 'near', usd: 5, logo: null }] };
   let l = deriveGame(i).locked;
   assert.equal(l['treasury-ops'], false);
   assert.equal(l['trading-desk'], true);
@@ -70,10 +68,6 @@ test('a funded treasury opens Treasury Ops; perps and prediction markets wait fo
   l = deriveGame(i).locked;
   assert.equal(l['trading-desk'], false);
   assert.equal(l['prediction-desk'], true);
-  // a Treasury Ops swap that closes in profit is the first profitable trade
-  i.templateOf = { ops: 'treasury-ops' };
-  i.results = [{ departmentId: 'ops', questId: 'q', text: 'Swapped NEAR to USDC and back [pnl usd=0.40]' }];
-  assert.equal(done(i, 'first-swap'), true);
 });
 
 test('runway: null without credits, computed from credits loaded, metered spend and the 7-day average', () => {
@@ -101,7 +95,7 @@ test('decisions: over budget, awaiting input and staged owner actions', () => {
 test('GET /api/game answers a game state; the trading floors wait for their connector quests', async () => {
   const { app } = memApp();
   const g = (await app.inject('/api/game')).json();
-  assert.equal(g.quests.length, 11);
+  assert.equal(g.quests.length, 10);
   assert.ok(!g.quests.some((q: any) => q.id === 'policy'), 'no self-confirmed policy quest');
   assert.equal(g.quests.find((q: any) => q.id === 'connect-hyperliquid').unlocks, 'Trading Desk');
   assert.equal(g.quests.find((q: any) => q.id === 'connect-polymarket').unlocks, 'Prediction Desk');

@@ -1,4 +1,4 @@
-/* Company settings (brief 00 stub; briefs 02 and 04 add the write paths for the market token and the NEAR AI key).
+/* Company settings (brief 00 stub; brief 04 adds the NEAR AI key; the market token is written by routes/market.ts).
    One row in company_settings. Secrets live under `secrets` and never leave this module. */
 import type { FastifyInstance } from 'fastify';
 import type { DatabaseSync } from 'node:sqlite';
@@ -55,7 +55,7 @@ export function githubToken(db: DatabaseSync, env: NodeJS.ProcessEnv = process.e
 
 export function register(app: FastifyInstance, deps: AppServices) {
   app.get('/api/company/settings', async () => readSettings(deps.db));
-  // Write-only secrets. Only the GitHub token is settable so far (the NEAR AI key and market token come with briefs 02/04).
+  // Write-only secrets. Only the GitHub token is settable so far (the NEAR AI key comes with brief 04).
   app.patch('/api/company/settings', async (req) => {
     const patch = CompanySettingsPatchSchema.parse(req.body);
     const other = Object.keys(patch).filter((k) => k !== 'githubToken');

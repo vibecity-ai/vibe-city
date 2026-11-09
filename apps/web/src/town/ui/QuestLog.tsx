@@ -3,10 +3,10 @@
    - QuestLogWindow: the whole journey in three acts and the floors each quest unlocks. Opened from the top bar, the
      current-quest card and the Executive Office's trophy shelf. */
 import { useEffect, useRef, useState } from 'react';
-import type { CeoQuest, GameState, TemplateList } from '@vibe-city/shared';
+import { MARKET_CATEGORIES, type CeoQuest, type GameState, type ListingDraft, type MarketRegister, type MarketView, type TemplateList } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon, useDialog } from './kit';
+import { Icon, PixelSelect, useDialog } from './kit';
 import { acts, nextQuest, progressLabel, questTarget } from '../data/game';
 
 const NEW_TOKEN_URL = 'https://github.com/settings/personal-access-tokens/new';
@@ -82,6 +82,122 @@ function ConnectorQuest({ name }: { name: 'hyperliquid' | 'polymarket' }) {
   );
 }
 
+const MARKET = 'https://market.near.ai';
+const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'That did not work.');
+
+/** List the company on the NEAR AI Agent Market: register (or paste a token), claim it, set a price and go live there.
+    The backend then polls the agent's jobs and hands each one to a department. */
+function MarketQuest() {
+  const [m, setM] = useState<MarketView | null>(null);
+  const [draft, setDraft] = useState<ListingDraft | null>(null);
+  const [form, setForm] = useState<MarketRegister>({ handle: '', name: '', category: 'other' });
+  const [paste, setPaste] = useState({ handle: '', token: '' });
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const s = useStore.getState();
+  // the backend polls the market every 45 s; the card follows it (and the quest log, once a job is paid)
+  useEffect(() => {
+    const load = () => api.market().then((v) => { setM(v); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
+    void load();
+    const t = setInterval(load, 15_000);
+    return () => clearInterval(t);
+  }, []);
+  const run = <T,>(p: Promise<T>, ok: (v: T) => void) => {
+    setBusy(true); setNote(null);
+    p.then(ok).catch((e) => setNote(errMsg(e))).finally(() => setBusy(false));
+  };
+  const done = (v: MarketView) => { setM(v); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); };
+  if (!m) return <span className="ql-note">Loading…</span>;
+
+  const copy = draft && (
+    <details className="ql-note" open>
+      <summary>The Chief of Staff's listing copy</summary>
+      <ul>
+        <li>Tagline: <b>{draft.tagline}</b></li>
+        <li>Description: <b>{draft.description}</b></li>
+        <li>Price: <b>{draft.priceUsdc} USDC</b> per job · delivery in <b>{draft.slaHours} h</b></li>
+        {draft.deliverables.length > 0 && <li>Delivers: {draft.deliverables.join('; ')}</li>}
+      </ul>
+    </details>
+  );
+
+  if (!m.connected) {
+    return (
+      <div className="ql-gh">
+        <p className="ql-note">The company becomes one agent on the <a href={MARKET} target="_blank" rel="noreferrer">Agent Market</a>. Buyers hire it; each job goes to the floor that fits.</p>
+        <div className="ql-gh-row">
+          <button className="btn secondary small" type="button" disabled={busy} onClick={() => run(api.marketDraft(), (d) => { setDraft(d); setForm({ handle: d.handle, name: d.name, category: d.category, slaHours: d.slaHours }); })}>
+            Draft with the Chief of Staff
+          </button>
+        </div>
+        {copy}
+        <form className="ql-gh" onSubmit={(e) => { e.preventDefault(); run(api.marketRegister(form), (v) => { done(v); s.toast(`Registered as @${v.handle}.`); }); }}>
+          <div className="ql-gh-row">
+            <input className="input" placeholder="Name" aria-label="Agent name" maxLength={80} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+            <input className="input mono" placeholder="handle" aria-label="Handle" maxLength={30} spellCheck={false} value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value.toLowerCase() })} />
+          </div>
+          <div className="ql-gh-row">
+            <PixelSelect aria-label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v as MarketRegister['category'] })}
+              options={MARKET_CATEGORIES.map((c) => ({ value: c, label: c.replace(/_/g, ' ') }))} />
+            <button className="btn primary small" type="submit" disabled={busy || !form.name.trim() || !form.handle.trim()}>Register</button>
+          </div>
+        </form>
+        <details className="ql-note">
+          <summary>Made the agent on market.near.ai already?</summary>
+          <form className="ql-gh" onSubmit={(e) => { e.preventDefault(); run(api.marketToken(paste.handle.trim(), paste.token.trim()), (v) => { done(v); setPaste({ handle: '', token: '' }); }); }}>
+            <p>Edit the agent, then Agent API tokens, Create token. Leave the webhook empty: Vibe City polls.</p>
+            <div className="ql-gh-row">
+              <input className="input mono" placeholder="handle" aria-label="Market handle" value={paste.handle} onChange={(e) => setPaste({ ...paste, handle: e.target.value })} />
+              <input className="input mono" type="password" autoComplete="off" placeholder="aat_…" aria-label="Agent token" value={paste.token} onChange={(e) => setPaste({ ...paste, token: e.target.value })} />
+              <button className="btn primary small" type="submit" disabled={busy || !paste.handle.trim() || !paste.token.trim()}>Connect</button>
+            </div>
+          </form>
+        </details>
+        {note && <p className="ql-note" role="status">{note}</p>}
+      </div>
+    );
+  }
+
+  const checked = m.lastPollAt ? new Date(m.lastPollAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  return (
+    <div className="mk">
+      <div className="mk-id">
+        <span className="chip sm mk-handle">@{m.handle}</span>
+        <span className="ql-note">{m.verifiedAt ? 'Token verified' : 'Token not verified yet'} · jobs go to the Marketplace Agency</span>
+      </div>
+      <ol className="mk-steps">
+        <li>
+          <span className="mk-n">1</span>
+          <span className="mk-t">Set a USDC price and switch the listing to <b>Live</b> so buyers can find it.</span>
+          <a className="btn secondary small" href={MARKET} target="_blank" rel="noreferrer">Open market</a>
+        </li>
+        <li className={m.agencyReady ? 'done' : ''}>
+          <span className="mk-n">{m.agencyReady ? <Icon n="sparkle" size={11} /> : 2}</span>
+          <span className="mk-t">{m.agencyReady ? 'The Marketplace Agency is open for work.' : 'Hire the Marketplace Agency, the floor that does the jobs.'}</span>
+          {!m.agencyReady && <button className="btn secondary small" type="button" onClick={() => s.ui$({ modal: 'create' })}>Hire</button>}
+        </li>
+      </ol>
+      {copy}
+      {m.jobs.length > 0 && (
+        <ul className="mk-jobs" aria-label="Market jobs">
+          {m.jobs.slice(0, 5).map((j) => (
+            <li key={j.assignmentId} title={j.note ?? undefined}>
+              <span className="mk-job-t">{j.title}</span>
+              <span className="mk-amt">{Number(j.amount)} {j.token}</span>
+              <span className={`chip sm mk-st ${j.state}`}>{JOB_LABEL[j.state]}{j.rounds > 1 ? ` · rev ${j.rounds - 1}` : ''}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="mk-foot">
+        <span className="ql-note" role="status">{note ?? m.lastError ?? (checked ? `Checked the market at ${checked}; it is checked every 45 s.` : 'The market is checked every 45 s.')}</span>
+      </div>
+    </div>
+  );
+}
+
+export const JOB_LABEL: Record<MarketView['jobs'][number]['state'], string> = { working: 'In progress', submitted: 'Delivered', accepted: 'Paid', failed: 'Failed', closed: 'Closed' };
+
 /** The button (or note) that takes the CEO where the quest is done; the mapping lives in data/game.ts. */
 function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
   const s = useStore.getState();
@@ -94,6 +210,7 @@ function QuestAction({ q, onGo }: { q: CeoQuest; onGo?: () => void }) {
     case 'quest-board': return <button className="btn secondary small" onClick={go(() => s.openPanel('board', { composer: false, boardDept: null }))}>Open the Ops board</button>;
     case 'ipo': return <button className="btn primary small" disabled title="The IPO button arrives with the IPO work">Go public</button>;
     case 'github': return <GithubTokenForm />;
+    case 'market': return <MarketQuest />;
     case 'note': return <span className="ql-note">{t.text}</span>;
     default: return null;
   }

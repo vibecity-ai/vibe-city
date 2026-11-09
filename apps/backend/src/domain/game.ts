@@ -1,6 +1,6 @@
 /* The game loop (docs/briefs/05-game-loop.md): CEO quests, decisions and runway, derived from state Vibe City
    already has. Pure: the route assembles the input, this decides. Markers are written by the agents (brief 01's
-   template purposes): [earned usd=<n>] (Chief of Staff), [pnl usd=<n>] (trading floors), [pr url=<github url>]
+   template purposes): [pnl usd=<n>] (trading floors), [pr url=<github url>]
    (Software), awaiting_owner (an action staged for the CEO). */
 import type { AiUsageSummary, CeoQuest, CompanySettings, Decision, DepartmentView, GameState, QuestSummary, Template, WalletState } from '@vibe-city/shared';
 
@@ -20,20 +20,24 @@ export interface GameInput {
   questsByDept: Record<string, QuestSummary[]>;
   /** Task summaries of recent quests, per department. */
   results: ResultLine[];
+  /** Agent Market jobs the buyer accepted, after the market's fee (brief 02). */
+  marketEarnedCents: number;
+  /** How many Agent Market jobs the buyer accepted (any amount). */
+  marketJobsPaid: number;
   /** Hermes approvals waiting on an agent turn. Only chat approvals are known (Kanban does not expose them). */
   pendingApprovals: Array<{ departmentId: string; agentKey: string; title: string }>;
 }
 
 export const CHIEF_OF_STAFF = 'chief-of-staff';
 const usd = (s: string) => Math.round(Number(s) * 100);
-const amounts = (lines: string[], tag: 'earned' | 'pnl') =>
+const amounts = (lines: string[], tag: 'pnl') =>
   lines.flatMap((t) => [...t.matchAll(new RegExp(`\\[${tag} usd=(-?[0-9]+(?:\\.[0-9]+)?)\\]`, 'g'))].map((m) => usd(m[1]!)));
 const PR = /\[pr url=https:\/\/github\.com\/[^\]\s]+\]|https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+/;
 
 interface QuestDef { id: string; title: string; hint: string; unlocks: string | null; done: (x: Ctx) => boolean }
 interface Ctx { i: GameInput; textOf: (templates: string[]) => string[]; earnedCents: number; ready: number }
 
-/** In display order. first-swap and first-ship are parallel: each needs a different floor. */
+/** In display order. */
 export const CEO_QUESTS: readonly QuestDef[] = [
   { id: 'connect-ai', title: 'Connect NEAR AI Cloud', unlocks: 'Hiring', done: (x) => x.i.settings.nearAiApiKeySet,
     hint: 'Your agents think with NEAR AI Cloud models. Add your NEAR AI API key and the credits you loaded.' },
@@ -50,12 +54,10 @@ export const CEO_QUESTS: readonly QuestDef[] = [
   { id: 'hire', title: 'Hire your first department', unlocks: null,
     done: (x) => x.i.departments.filter((d) => x.i.templateOf[d.id] !== CHIEF_OF_STAFF).length >= 1,
     hint: 'Pick a team from the templates. Each one comes with its agents and their jobs.' },
-  { id: 'market', title: 'Set up the Agent Market', unlocks: null, done: (x) => !!x.i.settings.marketVerifiedAt,
-    hint: 'List the company on market.near.ai with the Chief of Staff, then paste the agent token here so it can take jobs.' },
-  { id: 'first-job', title: 'Win your first job', unlocks: 'Token & Treasury', done: (x) => amounts(x.textOf([CHIEF_OF_STAFF]), 'earned').length > 0,
-    hint: 'When a buyer accepts a job the Chief of Staff handled, the payout is recorded here.' },
-  { id: 'first-swap', title: 'First profitable trade', unlocks: null, done: (x) => amounts(x.textOf(['treasury-ops', 'trading-desk']), 'pnl').some((n) => n > 0),
-    hint: 'Treasury Ops or the Trading Desk closes a trade with a realized profit.' },
+  { id: 'market', title: 'Join the Agent Market', unlocks: 'Marketplace Agency', done: (x) => !!x.i.settings.marketVerifiedAt,
+    hint: 'Register the company as an agent on market.near.ai. Its token stays on the server and goes to the Marketplace Agency.' },
+  { id: 'first-job', title: 'Win your first job', unlocks: 'Token & Treasury', done: (x) => x.i.marketJobsPaid > 0,
+    hint: 'Go live on market.near.ai, hire the Marketplace Agency, and a buyer accepts its first delivery.' },
   { id: 'first-ship', title: 'First code shipped', unlocks: 'Red Team, Blue Team', done: (x) => x.textOf(['software']).some((t) => PR.test(t)),
     hint: 'The Software Department opens a pull request on GitHub.' },
   { id: 'ipo', title: 'IPO', unlocks: 'IPO button', done: (x) => x.earnedCents > 0 && x.ready >= 3,
@@ -65,7 +67,7 @@ export const CEO_QUESTS: readonly QuestDef[] = [
 export function deriveGame(i: GameInput): GameState & { locked: Record<string, boolean> } {
   const tplByDept = i.templateOf;
   const textOf = (templates: string[]) => i.results.filter((r) => templates.includes(tplByDept[r.departmentId] ?? '')).map((r) => r.text);
-  const earned = amounts(textOf([CHIEF_OF_STAFF]), 'earned').reduce((a, n) => a + n, 0);
+  const earned = i.marketEarnedCents;
   const pnl = amounts(textOf(['treasury-ops', 'trading-desk', 'prediction-desk']), 'pnl').reduce((a, n) => a + n, 0);
   const earnedCents = earned + pnl;
   const ready = i.departments.filter((d) => d.state === 'ready' && tplByDept[d.id] !== CHIEF_OF_STAFF).length;

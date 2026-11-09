@@ -13,7 +13,7 @@ lead can name.
 | `trading-desk` | Trading Desk | `treasury` quest | yes | Head of Trading | Market Analyst, Perps Trader, Risk Officer | company | 500 |
 | `software` | Software Department | `connect-github` quest | no | Engineering Manager | Coder, QA & Testing, DevOps | none | 1000 |
 | `token-treasury` | Token & Treasury | `first-job` quest | yes | Head of Treasury | Tokenomics Analyst, DAO Secretary, Community Manager | company | 300 |
-| `prediction-desk` | Prediction Desk | `first-swap` quest (first profitable trade) | yes | Head of Research | Forecaster, Position Trader | company | 300 |
+| `prediction-desk` | Prediction Desk | `connect-polymarket` quest | yes | Head of Research | Forecaster, Position Trader | company | 300 |
 | `red-team` | Red Team | `first-ship` quest (first PR/push) | no | Red Team Lead | Recon Analyst, Hardening Engineer | none | 300 |
 | `blue-team` | Blue Team | `first-ship` quest (first PR/push) | no | Blue Team Lead | Detection Engineer, Patch Engineer | none | 300 |
 

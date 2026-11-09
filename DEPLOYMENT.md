@@ -26,7 +26,7 @@ open http://127.0.0.1:4100
 
 ### Develop (only Hermes in Docker)
 
-No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100.
+No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100. The dev scripts pin `DOCKER_CONTEXT=default` (native engine): Docker Desktop on Linux runs containers in a VM whose "host" network can't reach the backend, and a second Hermes on the same `.dev/hermes` corrupts its SQLite files.
 
 ```
 npm run dev:hermes        # Hermes gateway + dashboard (docker-compose.dev.yml), data in ./.dev/hermes
@@ -75,6 +75,10 @@ In dev the scripts and `docker/skills` are bind-mounted: a change to a script ne
 ### GitHub for the Software Department
 
 The Hermes image (Dockerfile stage `hermes`, which `docker-compose.dev.yml` also builds) includes `gh`. The CEO pastes a fine-grained personal access token in the `connect-github` quest (`PATCH /api/company/settings { githubToken }`); the backend stores it in its SQLite, never returns it, and writes it as `GH_TOKEN` into the `.env` of every Software Department profile, at once and after every sync that changes the department. Other departments never get it. `GITHUB_TOKEN` in `.env` is a fallback when nothing was pasted. The token is stored unencrypted on the server, like the other settings secrets.
+
+### The Agent Market
+
+The Agent Market quest registers the company as one agent on <https://market.near.ai> (`POST /v1/agents/register`), or takes the handle and `aat_` token of an agent made in the market UI. A verified token completes the quest and unlocks the Marketplace Agency floor. The token is stored server-side, never returned, and written as `MARKET_AGENT_TOKEN` into the Marketplace Agency's profiles only (for the `marketplace-worker` skill). The CEO sets a USDC price and goes live on market.near.ai (those are account-session calls); the next quest card links there. The backend polls the agent's assignments every 45 s: a new job is started and becomes a quest on the Marketplace Agency (origin `market`; without that floor the job is left unstarted), a completed quest is submitted as the Markdown deliverable, request-changes opens a revision quest, and an accepted job counts as earnings after the 5% fee. No webhook: it needs a public HTTPS URL, and the market asks for polling either way. `MARKET_BASE_URL` overrides the base URL.
 
 ### The company wallet (OutLayer)
 

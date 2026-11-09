@@ -10,11 +10,16 @@ import { WalletStateSchema, type ConnectorName, type WalletState } from '@vibe-c
 import { readSettings, secret, setSecrets, writeSettings } from '../routes/company.ts';
 import { ConflictError, InvalidInputError, UpstreamError } from './errors.ts';
 import { scrub } from './scrub.ts';
+import { DEFAULT_RPC, NearRpc } from '../near/rpc.ts';
 
 export const OUTLAYER_API = process.env.OUTLAYER_API_URL || 'https://api.outlayer.ai';
 export const OUTLAYER_APP = 'https://app.outlayer.ai';
-/** Native USDC on NEAR: funding sends it to the wallet's Intents balance, which swaps and the trading connectors spend. */
-export const USDC = '17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1';
+/** Every token NEAR Intents trades (symbol, decimals, chain, USD price); public, no key. */
+export const INTENTS_TOKENS_URL = 'https://1click.chaindefuser.com/v0/tokens';
+type IntentsToken = { assetId: string; symbol: string; decimals: number; blockchain: string; price?: number; coingeckoId?: string };
+/** Token logos by CoinGecko id; keyless (rate limited), so only held tokens are asked for, once each. */
+export const COINGECKO_MARKETS_URL = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=';
+const TOKENS_TTL_MS = 5 * 60_000;
 
 export const EMPTY_WALLET: WalletState = { registered: false, accountId: null, handoffUrl: null, binding: { accountId: null, status: 'none' }, balances: [], shielded: false, error: null };
 
@@ -25,7 +30,38 @@ export class WalletService {
   private db: DatabaseSync;
   private fetch_: typeof fetch;
   private api: string;
+  private tokens: { at: number; list: IntentsToken[] } | null = null;
+  private logos = new Map<string, string | null>();
+
+  /** Fills `logos` for ids not asked yet; a failure leaves them unknown (null) until the process restarts. */
+  private async loadLogos(ids: string[]) {
+    const ask = [...new Set(ids)].filter((id) => !this.logos.has(id));
+    if (!ask.length) return;
+    for (const id of ask) this.logos.set(id, null);
+    const r = await this.fetch_(COINGECKO_MARKETS_URL + ask.map(encodeURIComponent).join(','), { signal: AbortSignal.timeout(10_000) }).catch(() => null);
+    const rows = r?.ok ? ((await r.json().catch(() => [])) as { id?: string; image?: string }[]) : [];
+    for (const x of Array.isArray(rows) ? rows : []) if (x.id && typeof x.image === 'string' && x.image.startsWith('https://')) this.logos.set(x.id, x.image);
+  }
   constructor(db: DatabaseSync, fetch_: typeof fetch = fetch, api = OUTLAYER_API) { this.db = db; this.fetch_ = fetch_; this.api = api; }
+
+  /** The wallet's Intents holdings, every token at once: one 1Click token list (cached), one intents.near view call. */
+  private async intents(accountId: string): Promise<WalletState['balances']> {
+    if (!this.tokens || Date.now() - this.tokens.at > TOKENS_TTL_MS) {
+      const r = await this.fetch_(INTENTS_TOKENS_URL, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
+      if (!r?.ok) throw new UpstreamError('The NEAR Intents token list is unreachable.');
+      this.tokens = { at: Date.now(), list: (await r.json()) as IntentsToken[] };
+    }
+    const list = this.tokens.list;
+    const amounts = await new NearRpc(DEFAULT_RPC.mainnet, { fetch: this.fetch_ })
+      .view<string[]>('intents.near', 'mt_batch_balance_of', { account_id: accountId, token_ids: list.map((t) => t.assetId) });
+    const held = list.flatMap((t, i) => (amounts[i] && amounts[i] !== '0' ? [{ t, amount: amounts[i] }] : []));
+    await this.loadLogos([...held.flatMap(({ t }) => (t.coingeckoId ? [t.coingeckoId] : [])), 'near']);
+    return held.map(({ t, amount }) => ({
+      token: t.symbol, amount, decimals: t.decimals, source: 'intents' as const, chain: t.blockchain,
+      usd: typeof t.price === 'number' ? (Number(amount) / 10 ** t.decimals) * t.price : null,
+      logo: (t.coingeckoId && this.logos.get(t.coingeckoId)) || null,
+    })).sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
+  }
 
   private key() { return secret(this.db, 'outlayerApiKey'); }
 
@@ -85,18 +121,20 @@ export class WalletService {
     const s = readSettings(this.db);
     const base: WalletState = { ...EMPTY_WALLET, registered: true, accountId: s.outlayerAccountId };
     try {
-      const [bal, usdc, b] = await Promise.all([
-        this.call('/wallet/v1/balance?chain=near'), this.call(`/wallet/v1/balance?token=${USDC}&source=intents`), this.call('/wallet/v1/binding'),
+      const [bal, b, intents] = await Promise.all([
+        this.call('/wallet/v1/balance?chain=near'), this.call('/wallet/v1/binding'), s.outlayerAccountId ? this.intents(s.outlayerAccountId) : [],
       ]);
       const raw = str(b.binding_status) ?? str(b.status);
       const status = raw === 'active' ? 'active' : raw === 'pending' ? 'pending' : 'none';
       const balances: WalletState['balances'] = [];
+      const nearPrice = this.tokens?.list.find((t) => t.assetId === 'nep141:wrap.near')?.price;
+      const nearUsd = (raw: string) => (typeof nearPrice === 'number' ? (Number(raw) / 1e24) * nearPrice : null);
       if (status === 'active') {
         const bound = await this.call('/wallet/v1/binding/balance');
-        if (str(bound.balance)) balances.push({ token: 'near', amount: str(bound.balance)!, source: 'bound' });
+        if (str(bound.balance) && bound.balance !== '0') balances.push({ token: 'NEAR', amount: str(bound.balance)!, decimals: 24, source: 'bound', chain: 'near', usd: nearUsd(str(bound.balance)!), logo: this.logos.get('near') ?? null });
       }
-      if (str(bal.balance)) balances.push({ token: 'near', amount: str(bal.balance)!, source: 'wallet' });
-      if (str(usdc.balance)) balances.push({ token: 'usdc', amount: str(usdc.balance)!, source: 'intents' });
+      if (str(bal.balance) && bal.balance !== '0') balances.push({ token: 'NEAR', amount: str(bal.balance)!, decimals: 24, source: 'wallet', chain: 'near', usd: nearUsd(str(bal.balance)!), logo: this.logos.get('near') ?? null });
+      balances.push(...intents);
       return WalletStateSchema.parse({ ...base, binding: { accountId: str(b.asset_account_id), status }, balances });
     } catch (e) {
       return { ...base, error: scrub((e as Error).message, 300) };
