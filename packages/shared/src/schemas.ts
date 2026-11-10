@@ -969,6 +969,8 @@ export const WalletViewSchema = z.object({
   accountId: z.string(),
   primary: z.boolean(),
   /** Balance in yoctoNEAR (decimal string), or null when it could not be read. */
+  /** One per company: hiring it again is refused while an active floor of it exists. */
+  single: z.boolean().default(false),
   balance: z.string().nullable(),
   error: z.string().nullable(),
 }).strict();
@@ -1049,7 +1051,8 @@ export const TemplateSchema = z.object({
   hidden: z.boolean().default(false),
 }).strict();
 export type Template = z.infer<typeof TemplateSchema>;
-export const TemplateListSchema = z.array(TemplateSchema.extend({ locked: z.boolean(), unlocks: z.string().nullable() }));
+/** `hired`: a single template the company already has a floor of (the grid shows it taken). */
+export const TemplateListSchema = z.array(TemplateSchema.extend({ locked: z.boolean(), unlocks: z.string().nullable(), hired: z.boolean() }));
 export type TemplateList = z.infer<typeof TemplateListSchema>;
 
 export const CompanySettingsSchema = z.object({

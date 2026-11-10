@@ -27,9 +27,11 @@ export function HireGrid({ onPick, onBlank, onAssistant, questTitle }: {
             const quest = t.unlocks ? (questTitle?.(t.unlocks) ?? t.unlocks) : null;
             return (
               <li key={t.id}>
-                <button type="button" className={`tpl-card${t.locked ? ' locked' : ''}`} disabled={t.locked} onClick={() => onPick(t)} aria-describedby={`tpl-${t.id}`}>
+                <button type="button" className={`tpl-card${t.locked || t.hired ? ' locked' : ''}`} disabled={t.locked || t.hired} onClick={() => onPick(t)} aria-describedby={`tpl-${t.id}`}>
                   <span className="tpl-top"><b>{t.name}</b>
-                    {t.locked ? <span className="tpl-lock"><Icon n="lock" size={12} />Unlocks after {quest}</span> : t.wallet === 'company' && <span className="tpl-chip" title="Spends from the shared company wallet">Wallet</span>}</span>
+                    {t.locked ? <span className="tpl-lock"><Icon n="lock" size={12} />Unlocks after {quest}</span>
+                      : t.hired ? <span className="tpl-lock" title="One per company">Already hired</span>
+                      : t.wallet === 'company' && <span className="tpl-chip" title="Spends from the shared company wallet">Wallet</span>}</span>
                   <span id={`tpl-${t.id}`} className="tpl-seats">{t.seats.map((s) => s.title).join(' · ')}</span>
                   <span className="tpl-row"><i>Tools</i>{t.inventory.allowedToolsets.filter((x) => !BASE.includes(x)).map((x) => TOOL_INFO[x]?.label ?? x).join(', ')}</span>
                   {t.inventory.allowedSkillIds.length > 0 && <span className="tpl-row"><i>Skills</i><SkillBadges names={t.inventory.allowedSkillIds} max={9} size={11} /></span>}

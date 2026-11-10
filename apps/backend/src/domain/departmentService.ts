@@ -253,6 +253,9 @@ export class DepartmentService {
     // a hidden department is not a floor: its name never blocks (or is blocked by) a floor's
     const key = t?.hidden ? hiddenNameKey(input.name) : nameKey(input.name);
     return this.tx(() => {
+      if (t?.single && this.db.prepare('SELECT 1 FROM department WHERE template_id = ? AND archived_at IS NULL').get(t.id)) {
+        throw new ConflictError(`The company already has ${t.name}: there is one per company.`);
+      }
       if (!t?.hidden) this.assertUniqueName(input.name);
       const id = randomUUID();
       const now = new Date().toISOString();
