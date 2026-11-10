@@ -14,7 +14,7 @@ test('a solo department provisions only its lead, which gets the department tool
   assert.ok(!t.hermes.calls.some((c) => c.startsWith('createProfile') && !c.includes(lead)), 'no other profile is created');
   const c = t.hermes.profiles.get(lead)!;
   const on = Object.entries(c.toolsets).filter(([, v]) => v).map(([k]) => k).sort();
-  assert.deepEqual(on, ['file', 'kanban', 'terminal', 'web'], 'department toolsets plus kanban; never delegation/cronjob');
+  assert.deepEqual(on, ['file', 'kanban', 'skills', 'terminal', 'web'], 'department toolsets plus the required ones; never delegation/cronjob');
   assert.match(c.soul, /no teammates: do the work yourself/);
 });
 
@@ -39,7 +39,7 @@ test('every agent is its own profile, with the same rules and the others named a
   const conc = eff.departmentWide.find((e) => e.capability === 'limits.concurrency')!;
   assert.deepEqual(conc.effective, { agents: 3, perAgentCap: 1, departmentMax: 3 });
   const rec = (await t.app.inject({ method: 'POST', url: '/api/runtime/reconcile' })).json();
-  assert.equal(rec.departments[0].state, 'ready');
+  assert.equal(rec.departments.find((x: any) => x.departmentId === d.id).state, 'ready');
 });
 
 test('a new agent gets its own profile, model and skills on the next run; the rest of the team learns about it', async () => {
@@ -118,7 +118,8 @@ test('runtime defaults report the default profile: model, toolsets (with managea
   const v = HermesDefaultsViewSchema.parse((await t.app.inject('/api/runtime/defaults')).json());
   assert.equal(v.model, 'base-model');
   const ts = (n: string) => v.toolsets.find((x) => x.name === n)!;
-  assert.deepEqual(ts('terminal'), { name: 'terminal', enabled: true, manageable: true });
+  assert.deepEqual(ts('terminal'), { name: 'terminal', enabled: true, manageable: false }, 'required: always on, not a toggle');
+  assert.equal(ts('file').manageable, true);
   assert.equal(ts('tts').enabled, false);
   assert.equal(ts('delegation').manageable, false, 'excluded for agents');
   assert.equal(ts('kanban').manageable, false, 'always on, not a choice');

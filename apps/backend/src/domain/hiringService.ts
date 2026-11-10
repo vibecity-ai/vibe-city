@@ -474,8 +474,12 @@ export function parseJsonReply(raw: string): { say: string; mood: Mood; replies:
   const j = extractJson(raw);
   if (j) { try { obj = JSON.parse(j) as Record<string, unknown>; } catch { obj = null; } }
   if (!obj || typeof obj.say !== 'string' || !obj.say.trim()) {
-    const text = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```[a-z]*|```/gi, '').trim().slice(0, 1200) || '…';
-    return { say: text, mood: 'neutral', replies: [], obj: null };
+    const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```[a-z]*|```/gi, '').trim();
+    // a reply cut off by the token limit (or prose followed by its JSON): never show the JSON, keep its "say"
+    const said = /"say"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(clean)?.[1];
+    let say = clean.split(/\{\s*"say"/)[0]!.trim();
+    if (!say && said) { try { say = JSON.parse(`"${said}"`) as string; } catch { say = said; } }
+    return { say: say.slice(0, 1200) || '…', mood: 'neutral', replies: [], obj: null };
   }
   const mood = (MOODS as readonly string[]).includes(obj.mood as string) ? (obj.mood as Mood) : 'neutral';
   const replies = Array.isArray(obj.replies) ? obj.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3) : [];

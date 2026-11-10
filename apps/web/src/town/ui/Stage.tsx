@@ -6,7 +6,7 @@ import { FloorKey, Glyph, Icon, deptStatus, statusColor, type StatusKey } from '
 import { EXEC_OBJECTS } from '../world/execRoom';
 import { execAction, floorAction } from '../execActions';
 import { floorObjects } from '../world/floorRoom';
-import { FLOOR_OBJECT_HELP, stationFor } from '../data/floor';
+import { FLOOR_OBJECT_HELP, listedFloors, stationFor, stationKeyOf } from '../data/floor';
 import { loadPersonas } from './AgentView';
 import { agentLabel } from '../data/views';
 import { PortraitCanvas } from './Dialogue';
@@ -92,6 +92,7 @@ export function StageOverlay({ city }: { city: City | null }) {
   useEffect(() => { if (openId && seatKeys.length) loadPersonas(openId, seatKeys); }, [openId, seatKeys.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
   const set = (id: string) => (el: HTMLElement | null) => { if (el) refs.current.set(id, el); else refs.current.delete(id); };
   const openDept = ui.view === 'floor' ? depts.find((d) => d.id === ui.floorId) : null;
+  const market = useStore((s) => s.market);
   const wide = ui.panel === 'dept' || ui.panel === 'exec' || ui.panel === 'agent';
 
   return (
@@ -139,7 +140,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* A department floor: its controls, same as the Executive Office's */}
       {openDept && !ui.execRoom && (
         <div className="tags objs" aria-label={`${openDept.name}: controls`}>
-          {floorObjects(stationFor(openDept.view.templateId)?.name ?? null).map((o) => (
+          {floorObjects(stationFor(stationKeyOf(openDept, listedFloors(market)))?.name ?? null).map((o) => (
             <button key={o.id} ref={set('obj:' + o.id)} className="tag obj" onClick={() => floorAction(o.id, openDept.id)} title={FLOOR_OBJECT_HELP[o.id]}
               onMouseEnter={() => { if (city) city.hoverObj = o.id; }} onMouseLeave={() => { if (city) city.hoverObj = null; }}
               onFocus={() => { if (city) city.hoverObj = o.id; }} onBlur={() => { if (city) city.hoverObj = null; }} aria-label={`${o.label}: ${FLOOR_OBJECT_HELP[o.id]}`}><span aria-hidden="true">{o.label}</span></button>

@@ -9,9 +9,9 @@ import {
   mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
-import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, type ExecObjectId } from './execRoom';
+import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, templateKiosk, type ExecObjectId } from './execRoom';
 import { execAction, floorAction } from '../execActions';
-import { stationFor, type FloorObjectId } from '../data/floor';
+import { listedFloors, stationFor, stationKeyOf, type FloorObjectId } from '../data/floor';
 import { STATION_BOX, archiveStatic, clockLive, floorObjects, keyCabinet, stationLive, stationStatic } from './floorRoom';
 import { hull } from './interior';
 
@@ -401,7 +401,7 @@ export class City {
       const od = s.depts.find((x) => x.id === open);
       if (od && fa) {
         const P = mkP(fa.y), vis = fa.open > 0.95 ? 1 : 0;
-        for (const o of floorObjects(stationFor(od.view.templateId)?.name ?? null)) {
+        for (const o of floorObjects(stationFor(stationKeyOf(od, listedFloors(s.market)))?.name ?? null)) {
           const pts = boxCorners(P, o.b), top = pts.reduce((mm, p) => (p[1] < mm[1] ? p : mm), pts[0]!);
           anchors.push({ id: 'obj:' + o.id, kind: 'obj', x: pts.reduce((sum, p) => sum + p[0], 0) / pts.length, y: top[1] - 4, visible: vis, z: 0 });
         }
@@ -442,7 +442,7 @@ export class City {
     wallLive(c, d, s.quests.filter((q) => q.deptId === d.id).map((q) => q.summary.status), floorNo, elevOpen, lit);
     clockLive(c, lit, new Date());
     keyCabinet(c, lit);
-    const station = stationFor(d.view.templateId) ? d.view.templateId! : null;
+    const station = stationKeyOf(d, listedFloors(s.market));
 
     // cast shadows first, so everything stands in them
     const nD = Math.min(DESKS.length, d.workers.length);
@@ -552,6 +552,7 @@ export class City {
     cast(c, 14, 118, 36, 14, 14, 0.24); cast(c, 0, 70, 16, 18, 20, 0.22); cast(c, 30, 13, 18, 18, 12, 0.2);
     bake('furniture', (q) => execFurniture(q));
     chiefDeskLive(c, 'running', lit);
+    templateKiosk(c, lit);
     if (lit) { L.add(...P(28, 121, 18), 26, '#FF5C8A', 0.5); L.add(...P(4, 128, 46), 30, C.gold, 0.6); L.add(...P(0, 64, 46), 28, '#7CF5B4', 0.5); }
     // the assistant stands by the desk, waiting for you
     const g = P(ASSISTANT_SPOT[0], ASSISTANT_SPOT[1]);
@@ -628,7 +629,7 @@ export class City {
       const od = s.depts.find((x) => x.id === open), fa = this.floors.get(open);
       if (od && fa && fa.open > 0.95) {
         const P = mkP(fa.y);
-        for (const o of floorObjects(stationFor(od.view.templateId)?.name ?? null)) if (pointInPoly([x, y], hull(boxCorners(P, o.b)))) return { kind: 'obj', id: o.id };
+        for (const o of floorObjects(stationFor(stationKeyOf(od, listedFloors(s.market)))?.name ?? null)) if (pointInPoly([x, y], hull(boxCorners(P, o.b)))) return { kind: 'obj', id: o.id };
       }
     }
 
@@ -698,7 +699,7 @@ export class City {
       if (h.kind === 'floor') { if (s.ui.view === 'floor' && s.ui.floorId === h.id) return; s.openFloor(h.id); this.fit(); }
       else if (h.kind === 'ph') { s.openExec(); this.fit(); }
       else if (h.kind === 'obj') { if (s.ui.execRoom) execAction(h.id as ExecObjectId); else if (s.ui.floorId) floorAction(h.id as FloorObjectId, s.ui.floorId); }
-      else if (h.kind === 'ghost') s.ui$({ newDept: true });
+      else if (h.kind === 'ghost') s.ui$({ modal: 'create' });
       else if (h.kind === 'agent') s.openPanel('agent', { agent: h.id });
     });
   }

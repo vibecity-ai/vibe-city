@@ -65,7 +65,7 @@ prepares the IPO (brief 06), runs the DAO after it, and handles public announcem
   (brief 05) that opens a pre-filled `x.com/intent/post?text=...` link, same manual pattern as meme.cooking and
   Trezu. No X API keys, no server code, no MCP tool.
 
-**Prediction Desk** — toolsets web; skills `agent-custody`, `polymarket-connector`.
+**Prediction Desk** — toolsets web, terminal (the OutLayer API is curl with a bearer token); skills `agent-custody`, `polymarket-connector`.
 - Head of Research: picks markets that fit the purpose, sizes the position, writes `[pnl usd=<n>]`.
 - Forecaster (web): the evidence and probability estimate for a market.
 - Position Trader (`polymarket-connector`): buys, sells and claims outcome shares inside the policy.

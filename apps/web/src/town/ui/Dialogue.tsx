@@ -203,6 +203,8 @@ export function progressLabel(p: ChatProgress): string {
   return /kanban/.test(p.name) ? 'checking the board' : `using ${name}`;
 }
 
+const SEE_BOARD = 'Show me the board';
+
 export function DialogueWindow() {
   const talk = useStore((s) => s.ui.talk);
   if (!talk) return null;
@@ -210,7 +212,7 @@ export function DialogueWindow() {
 }
 
 function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk }) {
-  const d = useStore((s) => s.depts.find((x) => x.id === deptId));
+  const d = useStore((s) => s.depts.find((x) => x.id === deptId) ?? (s.chiefOfStaff?.id === deptId ? s.chiefOfStaff : undefined));
   const personas = useStore((s) => s.personas);
   const worker = agentKey === 'chief' ? null : d?.workers.find((w) => w.id === agentKey) ?? null;
   const close = useCallback(() => useStore.getState().ui$({ talk: null }), []);
@@ -241,6 +243,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
     : `${ch.name} here. ${worker ? `Working on "${worker.task}".` : ''} What's up, boss?`;
 
   const onSend = async (m: string) => {
+    if (m === SEE_BOARD) { close(); useStore.getState().openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); return true; }
     setError(null); setWaiting(true); setProgress(null);
     setMessages((xs) => [...xs, { id: 'pending', from: 'user', text: m, mood: null, replies: [], proposal: null, at: new Date().toISOString() }]);
     try {
@@ -257,7 +260,10 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
   const startQuest = async (msgId: string, p: ChatProposal) => {
     setProposalDone((x) => ({ ...x, [msgId]: 'started' }));
     const id = await createQuest(deptId, { clientRequestId: crypto.randomUUID(), title: p.title, objective: p.objective });
-    if (!id) setProposalDone((x) => { const { [msgId]: _, ...rest } = x; return rest; });
+    if (!id) { setProposalDone((x) => { const { [msgId]: _, ...rest } = x; return rest; }); return; }
+    // the agent acknowledges, so the proposal's old reply chips ("say the word…") are gone
+    setMessages((xs) => [...xs, { id: `ack:${msgId}`, from: 'agent', text: `On it, boss: "${p.title}" is on the board. I'll report back when it's done. Anything else?`,
+      mood: 'happy', replies: [SEE_BOARD, 'What are you working on?'], proposal: null, at: new Date().toISOString() }]);
   };
 
   if (!d) return null;

@@ -10,7 +10,7 @@
 import type {
   CancellationStatus, DepartmentCreate, DepartmentUpdate, DepartmentView, HealthView, HermesDefaultsView, HermesModelsView, Inventory, InventoryPatch, ModelChoice, ProvisioningStatus, QuestDetail, QuestSummary, SyncCheck,
 } from '@vibe-city/shared';
-import { KANBAN_EVENT_LABELS, KANBAN_EVENT_NOISE } from '@vibe-city/shared';
+import { CHIEF_OF_STAFF, KANBAN_EVENT_LABELS, KANBAN_EVENT_NOISE } from '@vibe-city/shared';
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
 import { clock, deriveDept, isLiveQuest } from './derive.ts';
@@ -51,11 +51,15 @@ const asApiError = (e: unknown) => (e instanceof ApiError ? e : new ApiError(-1,
 function commit() {
   const s = st();
   const hermesUp = connState().hermes;
-  const sorted = [...raw.depts].filter((d) => !d.archivedAt).sort((a, b) => (a.floorPosition ?? 1e9) - (b.floorPosition ?? 1e9));
-  const depts: Dept[] = sorted.map((v) => deriveDept({
+  const derive = (v: DepartmentView) => deriveDept({
     dept: v, provisioning: raw.prov[v.id] ?? null, liveQuests: raw.live[v.id] ?? [],
     chiefModel: s.info[v.id]?.profiles?.agents.find((a) => a.key === 'chief')?.model ?? null, hermesUp,
-  }));
+  });
+  const active = raw.depts.filter((d) => !d.archivedAt);
+  // the Chief of Staff is a department (its own Hermes profile) but lives in the Executive Office, not on a floor
+  const cos = active.find((d) => d.templateId === CHIEF_OF_STAFF) ?? null;
+  const sorted = active.filter((d) => d !== cos).sort((a, b) => (a.floorPosition ?? 1e9) - (b.floorPosition ?? 1e9));
+  const depts: Dept[] = sorted.map(derive);
   const quests: QuestItem[] = sorted.flatMap((v) => (raw.quests[v.id] ?? []).map((summary) => ({ deptId: v.id, summary })));
   const questSync: Record<string, QuestSync> = {};
   for (const v of sorted) questSync[v.id] = raw.sync[v.id] ?? 'not_loaded';
@@ -66,7 +70,7 @@ function commit() {
 
   if (s.loaded) emitFx(s.depts, depts, s.quests, quests);
   useStore.setState({
-    company: raw.companyName ? { name: raw.companyName } : s.company, depts, quests, questSync, details, info,
+    company: raw.companyName ? { name: raw.companyName } : s.company, depts, chiefOfStaff: cos ? derive(cos) : null, quests, questSync, details, info,
     conn: connState(), loaded: true, stale: staleDepts.size > 0,
   });
 }
@@ -225,9 +229,10 @@ function fail(e: unknown) {
 export async function refreshAll() {
   const t = gate.begin('all');
   try {
-    const [health, company, depts, game] = await Promise.all([api.health().catch(() => null), api.company(), api.departments(), api.game().catch(() => null)]);
+    const [health, company, depts, game, market] = await Promise.all([api.health().catch(() => null), api.company(), api.departments(), api.game().catch(() => null), api.market().catch(() => null)]);
     if (!gate.current('all', t)) return;
     if (game) useStore.setState({ game });
+    if (market) useStore.setState({ market });
     raw.health = health; raw.companyName = company.name; raw.depts = depts;
     forgetGone();
     await Promise.all(depts.filter((d) => !d.archivedAt).map(async (v) => { await loadLocal(v); await loadQuests(v); }));
@@ -354,16 +359,18 @@ export async function loadHermesModels(): Promise<{ value: HermesModelsView | nu
   catch (e) { return { value: null, error: asApiError(e) }; }
 }
 
-/** Creates the department with its capabilities, then syncs it right away unless asked not to. */
+/** Creates the department with its capabilities, then starts syncing it unless asked not to. Returns the new floor
+    (null on failure) as soon as it exists: the Hermes sync runs on in the background. */
 export async function createDepartment(input: DepartmentCreate, provisionNow: boolean) {
   const v = await run('create', 'Could not create the department', () => api.createDepartment(input));
-  if (!v) return;
+  if (!v) return null;
   await refreshAll();
   st().ui$({ modal: null });
   st().openFloor(v.id);
-  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Sync it to bring in its agents.`); return; }
+  if (!provisionNow) { st().toast(`Floor added · ${v.name}. Sync it to bring in its agents.`); return v; }
   st().toast(`Floor added · ${v.name}. Syncing with Hermes…`);
-  await provisionDepartment(v.id);
+  void provisionDepartment(v.id);
+  return v;
 }
 
 /** PATCH name/purpose. On failure nothing local changes (the last good state stays). */

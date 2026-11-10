@@ -122,6 +122,9 @@ test('without a model the intake is 503; model tiers and reply parsing', async (
   assert.equal(modelTier('Qwen/Qwen3-235B-A22B'), 3);
   assert.equal(modelTier('zai-org/GLM-4.6'), 2);
   assert.equal(parseJsonReply('not json').say, 'not json');
+  // cut off by the token limit: the JSON never reaches the dialogue, only what was said
+  assert.equal(parseJsonReply('Locked in, boss.\n\n{"say": "Locked in, boss.", "mood": "focused", "draft": {"').say, 'Locked in, boss.');
+  assert.equal(parseJsonReply('{"say": "Hi \\"boss\\".", "mood": "focused", "draft": {"na').say, 'Hi "boss".');
   assert.equal(parseJsonReply('<think>x</think>{"say":"hi","mood":"smug","replies":["a"]}').mood, 'smug');
 });
 

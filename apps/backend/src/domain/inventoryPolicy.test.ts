@@ -2,20 +2,20 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { InventorySchema, TOOLSETS, type Inventory } from '@vibe-city/shared';
 import {
-  agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, diffObserved, effectiveToolsets, inventoryHash, modelToApply,
+  REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, diffObserved, effectiveToolsets, inventoryHash, modelToApply,
   type ObservedRole,
 } from './inventoryPolicy.ts';
 import { buildBlock, upsertBlock } from './instructions.ts';
 
 const inv = (o: Record<string, unknown> = {}): Inventory => InventorySchema.parse(o);
 
-test('empty inventory allows only the required kanban toolset', () => {
-  assert.deepEqual(effectiveToolsets(inv()), ['kanban']);
+test('empty inventory allows only the required toolsets: kanban, skills, terminal', () => {
+  assert.deepEqual(effectiveToolsets(inv()), ['kanban', 'skills', 'terminal']);
 });
 
 test('agents get the department allowance, never delegation/cronjob', () => {
   const i = inv({ allowedToolsets: ['terminal', 'file', 'todo', 'delegation', 'cronjob', 'web'] });
-  assert.deepEqual(effectiveToolsets(i), ['file', 'kanban', 'terminal', 'todo', 'web']);
+  assert.deepEqual(effectiveToolsets(i), ['file', 'kanban', 'skills', 'terminal', 'todo', 'web']);
 });
 
 test('an agent\'s own model wins and its own skills add to the department\'s; toolsets stay department-wide', () => {
@@ -31,7 +31,7 @@ test('monotonic: effective toolsets never exceed department allowance plus requi
   for (let n = 0; n < 200; n++) {
     const subset = TOOLSETS.filter(() => Math.random() < 0.4);
     const i = inv({ allowedToolsets: subset });
-    for (const t of effectiveToolsets(i)) assert.ok(t === 'kanban' || subset.includes(t as any), `got ${t}`);
+    for (const t of effectiveToolsets(i)) assert.ok((REQUIRED_TOOLSETS as readonly string[]).includes(t) || subset.includes(t as any), `got ${t}`);
   }
 });
 
@@ -59,13 +59,14 @@ test('modelToApply: no choice leaves the profile alone; an unchanged pair is not
 });
 
 const observed = (o: Partial<ObservedRole> = {}): ObservedRole => ({
-  profile: 'p', toolsets: { kanban: true, terminal: false, file: false }, enabledSkills: ['hermes-agent'], installedSkills: ['pdf', 'hermes-agent'], model: 'm', provider: 'near-ai', instructionsPresent: true, ...o,
+  profile: 'p', toolsets: { kanban: true, skills: true, terminal: true, file: false }, enabledSkills: ['hermes-agent'], installedSkills: ['pdf', 'hermes-agent'], model: 'm', provider: 'near-ai', instructionsPresent: true, ...o,
 });
 
 test('diffObserved flags extra toolsets, skills, model and missing instructions', () => {
   const i = inv({ model: { provider: 'near-ai', id: 'm' } });
   assert.deepEqual(diffObserved(i, observed()), []);
-  assert.equal(diffObserved(i, observed({ toolsets: { kanban: true, terminal: true, file: false } })).length, 1);
+  assert.equal(diffObserved(i, observed({ toolsets: { kanban: true, skills: true, terminal: true, file: true } })).length, 1);
+  assert.equal(diffObserved(i, observed({ toolsets: { kanban: true, skills: true, terminal: false, file: false } })).length, 1, 'a required toolset turned off');
   assert.equal(diffObserved(i, observed({ enabledSkills: ['hermes-agent', 'pdf'] })).length, 1);
   assert.equal(diffObserved(i, observed({ enabledSkills: [] })).length, 1, 'essential skill missing is also a difference');
   assert.equal(diffObserved(i, observed({ model: 'zzz' })).length, 1);
@@ -76,10 +77,10 @@ test('report never claims enforcement without an in-sync observation', () => {
   const i = inv({ allowedToolsets: ['file'] });
   const none = buildAgentReport(i, null);
   assert.ok(none.every((e) => e.status !== 'enforced' && e.status !== 'configured'));
-  const obs = buildAgentReport(i, observed({ toolsets: { kanban: true, file: true, terminal: false } }));
+  const obs = buildAgentReport(i, observed({ toolsets: { kanban: true, skills: true, file: true, terminal: true, web: false } }));
   assert.equal(obs.find((e) => e.capability === 'toolsets.behavior-tested')!.status, 'enforced');
   assert.equal(obs.find((e) => e.capability === 'toolsets.other')!.status, 'configured');
-  const drift = buildAgentReport(i, observed({ toolsets: { kanban: true, file: true, terminal: true } }));
+  const drift = buildAgentReport(i, observed({ toolsets: { kanban: true, skills: true, file: true, terminal: true, web: true } }));
   assert.equal(drift.find((e) => e.capability === 'toolsets.behavior-tested')!.status, 'unverified');
 });
 

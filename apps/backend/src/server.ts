@@ -21,7 +21,7 @@ const hermes = new RealHermesRuntime({
   baseUrl: cfg.hermesUrl, sessionToken: cfg.hermesToken ?? '', hermesBin: cfg.hermesBin, log: (m) => console.warn(m),
 });
 const kanban = new KanbanClient({ baseUrl: cfg.hermesUrl, sessionToken: cfg.hermesToken ?? '' });
-const { app, provisioning, schedules, market } = buildServices(db, hermes, {
+const { app, provisioning, schedules, market, departments, chiefOfStaffId } = buildServices(db, hermes, {
   kanban, ...(process.env.MARKET_BASE_URL ? { marketBaseUrl: process.env.MARKET_BASE_URL } : {}),
   // Live events: the Hermes WebSocket (and token) stay on the server; browsers only talk to /api/live.
   live: { wsBaseUrl: cfg.hermesUrl.replace(/^http/, 'ws'), sessionToken: cfg.hermesToken ?? '' },
@@ -44,8 +44,19 @@ setInterval(() => { void market.tick(); }, 45_000).unref();
 await app.listen({ host: cfg.host, port: cfg.port }); // loopback by default
 console.log(`Vibe City backend listening on http://${cfg.host}:${cfg.port}`);
 
+// The Chief of Staff's profile: nobody presses Sync for a floor the tower does not show, so the backend does, now and
+// whenever Hermes was away (reconcile only follows floors that were synced once).
+const syncChiefOfStaff = async () => {
+  const state = departments.get(chiefOfStaffId).state;
+  if (state === 'unconfigured') await provisioning.provision(chiefOfStaffId);
+  else if (state === 'error') await provisioning.retry(chiefOfStaffId);
+};
+void syncChiefOfStaff().catch((e) => console.warn('Chief of Staff not synced yet:', (e as Error).message));
 // Background reconciliation: detects Hermes going away/returning and heals missing resources.
-const timer = setInterval(() => { provisioning.reconcileAll().catch((e) => console.warn('reconcile failed', e)); }, cfg.reconcileIntervalMs);
+const timer = setInterval(() => {
+  provisioning.reconcileAll().catch((e) => console.warn('reconcile failed', e));
+  syncChiefOfStaff().catch(() => undefined);
+}, cfg.reconcileIntervalMs);
 timer.unref();
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

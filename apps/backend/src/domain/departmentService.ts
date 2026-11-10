@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, templateById,
+  CHIEF_OF_STAFF, InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, isInternalOnly, templateById,
   type DepartmentAgent, type DepartmentCreate, type DepartmentUpdate, type DepartmentView, type Inventory, type InventoryPatch, type ModelChoice,
 } from '@vibe-city/shared';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
 import { generateCharacter } from './characters.ts';
+import { WORKER_SKILL } from './marketService.ts';
 
 interface Row {
   id: string; company_id: string; name: string; purpose: string; floor_order: number;
@@ -34,8 +35,14 @@ export const LEAD_KEY = 'chief';
 export const seatKey = (seat: number) => (seat === 0 ? LEAD_KEY : `W-${String(seat).padStart(2, '0')}`);
 export const agentModel = (a: AgentRow): ModelChoice | null => (a.model_json ? ModelChoiceSchema.parse(JSON.parse(a.model_json)) : null);
 export const agentSkills = (a: AgentRow): string[] => JSON.parse(a.skills_json) as string[];
+/** The Chief of Staff's department is not a floor: it has no position and is left out of every floor list. */
+const isHidden = (r: Pick<Row, 'template_id'>) => r.template_id === CHIEF_OF_STAFF;
+/** SQL: rows that are floors. */
+export const FLOOR = `(template_id IS NULL OR template_id != '${CHIEF_OF_STAFF}')`;
 
 const nameKey = (n: string) => n.trim().toLowerCase();
+/** Leading space: a trimmed floor name can never produce it, so the unique-name index never pairs the two. */
+const hiddenNameKey = (n: string) => ` ${nameKey(n)}`;
 const RESERVED_PROFILES = new Set(['default']);
 
 export function agentView(a: AgentRow): DepartmentAgent {
@@ -112,7 +119,8 @@ export class DepartmentService {
     if (hit) throw new ConflictError('a department with this name already exists');
   }
 
-  list(opts: { includeArchived?: boolean } = {}): DepartmentView[] {
+  /** The floors of the tower. `includeHidden` adds the Chief of Staff's department (hidden template, no floor position). */
+  list(opts: { includeArchived?: boolean; includeHidden?: boolean } = {}): DepartmentView[] {
     // Visible order is a projection of the active departments: newest first, directly below the Executive Office.
     // Archived rows (only with includeArchived) follow, also newest first, with no floor position.
     const rows = this.db.prepare(
@@ -120,16 +128,16 @@ export class DepartmentService {
     ).all() as unknown as Row[];
     let pos = 0;
     return rows
-      .filter((r) => opts.includeArchived || !r.archived_at)
-      .map((r) => toView(r, r.archived_at ? null : ++pos, this.agents(r.id)));
+      .filter((r) => (opts.includeArchived || !r.archived_at) && (opts.includeHidden || !isHidden(r)))
+      .map((r) => toView(r, r.archived_at || isHidden(r) ? null : ++pos, this.agents(r.id)));
   }
 
   get(id: string): DepartmentView {
     const r = this.row(id);
     const above = r.archived_at ? 0 : (this.db
-      .prepare('SELECT COUNT(*) AS n FROM department WHERE archived_at IS NULL AND floor_order > ?')
+      .prepare(`SELECT COUNT(*) AS n FROM department WHERE archived_at IS NULL AND floor_order > ? AND ${FLOOR}`)
       .get(r.floor_order) as { n: number }).n;
-    return toView(r, above + 1, this.agents(id));
+    return toView(r, isHidden(r) ? null : above + 1, this.agents(id));
   }
 
   /** Internal: raw row for the provisioning service. */
@@ -233,14 +241,19 @@ export class DepartmentService {
     return (this.db.prepare('SELECT id FROM department WHERE archived_at IS NULL ORDER BY floor_order ASC').all() as unknown as { id: string }[]).map((r) => r.id);
   }
 
-  create(input: DepartmentCreate): DepartmentView {
+  /** `internal`: Vibe City itself creating a floor from a hidden template (the Chief of Staff). */
+  create(input: DepartmentCreate, internal = false): DepartmentView {
     // A template (brief 01) brings the inventory, the purpose and one seat per agent; what the caller gives wins.
     const t = input.template ? templateById(input.template) : null;
-    if (input.template && (!t || t.hidden)) throw new InvalidInputError(`unknown template: ${input.template}`);
+    if (input.template && (!t || (t.hidden && !internal))) throw new InvalidInputError(`unknown template: ${input.template}`);
     const inventory = mergeInventory(t ? t.inventory : InventorySchema.parse({}), input.inventory ?? {});
-    const seats = t ? t.seats : Array.from({ length: input.teammates + 1 }, () => null);
+    const seats = t ? t.seats
+      : input.agents ? input.agents.map((a) => ({ title: a.title, name: a.name, model: null, skills: [] as string[] }))
+      : Array.from({ length: input.teammates + 1 }, () => null);
+    // a hidden department is not a floor: its name never blocks (or is blocked by) a floor's
+    const key = t?.hidden ? hiddenNameKey(input.name) : nameKey(input.name);
     return this.tx(() => {
-      this.assertUniqueName(input.name);
+      if (!t?.hidden) this.assertUniqueName(input.name);
       const id = randomUUID();
       const now = new Date().toISOString();
       // floor_order is monotonic and never reused or renumbered, so existing floors stay stable.
@@ -248,14 +261,14 @@ export class DepartmentService {
       this.db.prepare(
         `INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, this.companyId, input.name, nameKey(input.name), input.purpose || t?.purpose || '', next, now, now);
+      ).run(id, this.companyId, input.name, key, input.purpose || t?.purpose || '', next, now, now);
       this.db.prepare('INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, ?, ?)')
         .run(id, JSON.stringify(inventory), now);
       seats.forEach((s, seat) => {
         this.insertAgent(id, seat, { model: s?.model ?? null, skills: s?.skills ?? [] }, now);
         // the seat's job title lives on the agent's persona (the city and the dialogue window read it from there)
         if (s) {
-          const c = { ...generateCharacter(id, input.name, seatKey(seat)), title: s.title };
+          const c = { ...generateCharacter(id, input.name, seatKey(seat)), title: s.title, ...('name' in s && s.name ? { name: s.name } : {}) };
           this.db.prepare('INSERT INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)').run(id, seatKey(seat), JSON.stringify(c), now);
         }
       });
@@ -269,6 +282,7 @@ export class DepartmentService {
     return this.tx(() => {
       const cur = this.row(id);
       if (cur.archived_at) throw new ConflictError('department is archived');
+      if (isHidden(cur)) throw new ConflictError('the Chief of Staff is not a floor: it cannot be renamed or edited');
       if (patch.name !== undefined) this.assertUniqueName(patch.name, id);
       const curLead = this.lead(id).profile_ref;
       const lead = patch.leadProfileRef === undefined ? curLead : patch.leadProfileRef;
@@ -305,6 +319,7 @@ export class DepartmentService {
     return this.tx(() => {
       const cur = this.row(id);
       if (cur.archived_at) throw new NotFoundError('department not found');
+      if (isHidden(cur)) throw new ConflictError('the Chief of Staff cannot be archived');
       const now = new Date().toISOString();
       this.db.prepare('UPDATE department SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
       return {
@@ -335,10 +350,20 @@ export class DepartmentService {
     this.db.prepare('UPDATE department_agent SET verified_at = NULL WHERE department_id = ?').run(id);
   }
 
+  /** The stored inventory plus the skills game flow needs on this floor, so no patch, draft or old floor can drop them. */
   getInventory(id: string): Inventory {
-    this.row(id);
+    const locked = this.lockedSkills(id);
     const r = this.db.prepare('SELECT inventory_json FROM department_inventory WHERE department_id = ?').get(id) as unknown as { inventory_json: string };
-    return InventorySchema.parse(migrateInventory(JSON.parse(r.inventory_json)));
+    const inv = InventorySchema.parse(migrateInventory(JSON.parse(r.inventory_json)));
+    return locked.length ? { ...inv, allowedSkillIds: [...new Set([...inv.allowedSkillIds, ...locked])] } : inv;
+  }
+
+  /** A wallet floor moves money only through agent-custody; the floor listed on the market reads jobs and messages
+      buyers only through marketplace-worker. */
+  lockedSkills(id: string): string[] {
+    const out = isInternalOnly(this.row(id).template_id) ? ['agent-custody'] : [];
+    if (this.db.prepare('SELECT 1 FROM market_agent WHERE department_id = ?').get(id)) out.push(WORKER_SKILL);
+    return out;
   }
 
   patchInventory(id: string, patch: InventoryPatch): Inventory {

@@ -58,13 +58,20 @@ export interface Station {
 }
 
 export const STATIONS: Record<string, Station> = {
-  'marketplace-agency': { name: 'Job board', blurb: 'Jobs buyers hired the company for on the NEAR AI Agent Market, and what was delivered.', toolsets: ['web', 'file'], skills: ['marketplace-worker'], marker: null, wallet: false },
   'trading-desk': { name: 'Market wall', blurb: 'Prices, funding and open positions. Every trade stays inside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'hyperliquid-connector'], marker: '[pnl usd=…]', wallet: true },
-  'treasury-ops': { name: 'Swap board', blurb: 'Wallet and Intents balances, and every swap in flight. Nothing moves outside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'near-intents'], marker: '[pnl usd=…]', wallet: true },
-  'prediction-desk': { name: 'Odds board', blurb: 'Markets the desk follows, its estimates and open positions.', toolsets: ['web'], skills: ['agent-custody', 'polymarket-connector'], marker: '[pnl usd=…]', wallet: true },
+  'treasury-ops': { name: 'Swap board', blurb: 'Wallet and Intents balances, and every swap in flight. Nothing moves outside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody'], marker: '[pnl usd=…]', wallet: true },
+  'prediction-desk': { name: 'Odds board', blurb: 'Markets the desk follows, its estimates and open positions.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'polymarket-connector'], marker: '[pnl usd=…]', wallet: true },
+  // not a template: the floor listed on the Agent Market (see stationKeyOf)
+  market: { name: 'Marketplace board', blurb: 'Jobs buyers hired this floor for on the NEAR AI Agent Market: in progress, delivered, paid.', toolsets: [], skills: ['marketplace-worker'], marker: null, wallet: false },
 };
 
 export const stationFor = (templateId: string | undefined | null): Station | null => (templateId ? STATIONS[templateId] ?? null : null);
+/** Which station a floor has: the marketplace board on the floor listed on the Agent Market (never a template floor: those all
+    spend from the company wallet and can't be listed), else its template's own, else none (the lounge stays). */
+export const stationKeyOf = (d: { id: string; view: { templateId?: string | null } }, listed: readonly string[]): string | null =>
+  listed.includes(d.id) ? 'market' : stationFor(d.view.templateId) ? d.view.templateId! : null;
+/** The floors on the Agent Market (each its own agent). */
+export const listedFloors = (m: { agents: { departmentId: string }[] } | null | undefined): string[] => m?.agents.map((a) => a.departmentId) ?? [];
 
 /* ---------------- what a floor's work needs (the loadout and the station show it) ---------------- */
 

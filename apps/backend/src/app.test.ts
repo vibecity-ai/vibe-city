@@ -201,7 +201,7 @@ test('DELETE archives: hidden from default list, history and inventory retained,
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/departments/${d.id}` })).statusCode, 404);
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}`, payload: { name: 'Z' } })).statusCode, 409);
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/departments/${d.id}/inventory`, payload: { allowedSkillIds: [] } })).statusCode, 409);
-  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM department').get() as { n: number }).n, 1, 'row is kept');
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM department WHERE id = ?').get(d.id) as { n: number }).n, 1, 'row is kept');
 });
 
 // ---- persistence -------------------------------------------------------------
@@ -232,8 +232,8 @@ test('all organizational data survives a backend restart', async () => {
   assert.deepEqual((await app.inject('/api/departments?includeArchived=true')).json(), before.list);
   assert.deepEqual((await app.inject(`/api/departments/${a.id}/inventory`)).json(), before.invA);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM company').get() as { n: number }).n, 1);
-  // new department after restart continues the floor sequence
-  assert.equal((await createDept(app, { name: 'Ops' })).json.floorOrder, 4);
+  // new department after restart continues the floor sequence (the Chief of Staff's department took 1)
+  assert.equal((await createDept(app, { name: 'Ops' })).json.floorOrder, 5);
 });
 
 test('hackathon route modules answer with views that parse with their schemas', async () => {

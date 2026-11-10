@@ -46,3 +46,6 @@ ponytail, ponytail-review, ponytail-audit, ponytail-debt
 defillama
   Written for Vibe City against DefiLlama's free public API (endpoints checked 2026-11-08). The official
   DefiLlama skills (github.com/DefiLlama/DefiLlama-skills) need its paid MCP with an OAuth login.
+
+vibe-city
+  written here (the company's own skill: Vibe City's MCP tools and the Chief of Staff's market listing flow)

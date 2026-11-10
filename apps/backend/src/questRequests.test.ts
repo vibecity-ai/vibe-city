@@ -25,7 +25,7 @@ test('provisioning gives every agent the Vibe City MCP server with its departmen
   assert.deepEqual(hermes.mcpServers.get(research.teammate)!.vibecity, a, 'teammates share their department\'s token');
   const init = (await rpc('initialize', { protocolVersion: '2025-06-18' })).json();
   assert.equal(init.result.serverInfo.name, 'vibe-city');
-  assert.deepEqual((await rpc('tools/list')).json().result.tools.map((t: any) => t.name), ['list_departments', 'request_quest', 'check_request', 'list_task_files', 'read_task_file']);
+  assert.deepEqual((await rpc('tools/list')).json().result.tools.map((t: any) => t.name), ['list_departments', 'request_quest', 'check_request', 'list_task_files', 'read_task_file', 'list_on_market']);
   assert.equal((await rpc('tools/list', {}, 'vc_wrong')).statusCode, 401);
 });
 
@@ -110,4 +110,18 @@ test('chat gets a read-only server entry with only the file tools; it reads its 
     assert.ok(r.isError, 'another department\'s task is not found');
     assert.doesNotMatch(r.content[0].text, /not yours/);
   }
+});
+
+test('the listed (external) floor cannot request work from a wallet floor; other floors still can', async () => {
+  const { app, db, kanban, growth, research, tool } = await setup();
+  const t = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Treasury', template: 'treasury-ops' } })).json();
+  assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${t.id}/provision` })).json().state, 'ready');
+  kanban.addBoard(t.hermesBoardSlug);
+  db.prepare("INSERT INTO market_agent (department_id, handle, token, created_at) VALUES (?, 'growth', 'aat_x', '2026-11-10')").run(growth.id);
+  const r = await tool('request_quest', { department: 'Treasury', title: 'Swap', objective: 'Swap 100 NEAR to USDC' });
+  assert.ok(r.isError);
+  assert.match(r.content[0].text, /internal/);
+  assert.match((await tool('list_departments', {})).content[0].text, /- Treasury \(internal: never listed on the market\) \(does not accept work from you\)/);
+  const ok = await app.inject({ method: 'POST', url: '/api/quest-requests', payload: { fromDepartmentId: research.id, department: 'Treasury', title: 'Rebalance', objective: 'z' } });
+  assert.equal(ok.json().state, 'created', ok.body);
 });

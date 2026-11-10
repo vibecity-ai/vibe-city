@@ -72,6 +72,7 @@ const KNOWN: Record<string, string> = {
   hyperliquid: 'Hermes\' read-only Hyperliquid skill: markets, prices and funding.',
   polymarket: 'Hermes\' read-only Polymarket skill: markets and odds.',
   'marketplace-worker': 'Works the Agents Marketplace: finds jobs, bids, delivers and gets paid.',
+  'vibe-city': 'Vibe City\'s own: the company\'s MCP tools, and how the Chief of Staff lists a floor on the Agent Market.',
   'near-ai-cloud': 'Private, verifiable inference on NEAR AI Cloud.',
   // building
   'near-api-js': 'Talks to NEAR from JavaScript and TypeScript (near-api-js v7).',

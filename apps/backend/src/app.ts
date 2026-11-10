@@ -31,7 +31,7 @@ import { CompanyService } from './domain/companyService.ts';
 import { DepartmentService } from './domain/departmentService.ts';
 import { ConflictError, InvalidInputError, NotFoundError, UpstreamError } from './domain/errors.ts';
 import { AGENT_KEY_RE, AgentPatchSchema, DepartmentAgentSchema, CharacterSchema, ChatHistorySchema, ChatReplySchema, ChatSendSchema } from '@vibe-city/shared';
-import { CharacterService } from './domain/characters.ts';
+import { CharacterService, chiefOfStaff } from './domain/characters.ts';
 import { ChatService } from './domain/chatService.ts';
 import type { AgentChat } from './hermes/agentChat.ts';
 import { ModelFailedError, ModelUnavailableError, type ChatModel } from './model/chatModel.ts';
@@ -39,11 +39,12 @@ import { HiringService } from './domain/hiringService.ts';
 import { dailyCredits, type ModelPrices, type PriceList } from './model/nearPrices.ts';
 import { AssistantService } from './domain/assistantService.ts';
 import { QuestRequestService } from './domain/questRequests.ts';
-import { MCP_CHAT_SERVER_NAME, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
+import { MCP_CHAT_SERVER_NAME, MCP_COS_TOOLS, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
+import { CHIEF_OF_STAFF, type MarketRegister } from '@vibe-city/shared';
 import { ScheduleService } from './domain/scheduleService.ts';
 import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
-import { nearAiKey, readSettings, register as registerCompany, secret } from './routes/company.ts';
+import { nearAiKey, readSettings, register as registerCompany, secret, writeSettings } from './routes/company.ts';
 import { WalletService } from './domain/walletService.ts';
 import { register as registerWallet } from './routes/wallet.ts';
 import { register as registerAi } from './routes/ai.ts';
@@ -57,7 +58,7 @@ import { MarketService } from './domain/marketService.ts';
 import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
-import { AssistantViewSchema, DeptDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
+import { AssistantViewSchema, DeptDraftReplySchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
 import {
   HiringBriefConfirmSchema, HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringSendSchema, HiringStartSchema,
   InterviewReplySchema, InterviewSendSchema,
@@ -79,6 +80,10 @@ export interface AppServices {
   wallet: WalletService;
   /** Rewrites every department's secrets env (OutLayer key, market token) into its profiles (best effort; the next sync retries). */
   pushDepartmentEnv: () => Promise<void>;
+  /** Lists a floor on the Agent Market and re-syncs it (skill + token). */
+  listOnMarket: (input: MarketRegister) => Promise<void>;
+  /** The Chief of Staff department (hidden template, created with the company). */
+  chiefOfStaffId: string;
   /** The Agent Market (brief 02). Call tick() periodically (the server does every 45 s) to take and deliver jobs. */
   market: MarketService;
   /** The Chief of Staff's chat model (checks a NEAR AI key and model before the settings route saves them). */
@@ -140,6 +145,12 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const company = new CompanyService(db);
   const c = company.ensureCompany();
   const departments = new DepartmentService(db, c.id);
+  // The Chief of Staff is a department of the company from day one (hidden template): a Hermes profile the CEO talks
+  // to in the dialogue window. server.ts syncs it with Hermes; the web keeps it out of the tower.
+  const existingChief = departments.list({ includeHidden: true }).find((d) => d.templateId === CHIEF_OF_STAFF);
+  const chiefOfStaffId = (existingChief ?? departments.create(DepartmentCreateSchema.parse({ name: 'Chief of Staff', template: CHIEF_OF_STAFF }), true)).id;
+  // one person: the department's lead is the same Chief of Staff who drafts floors and runs hiring
+  if (!existingChief) new CharacterService(db).save(chiefOfStaffId, 'chief', chiefOfStaff(c.id));
   const app = Fastify({ logger: false });
   const unconfiguredHermes: HermesRuntime = new Proxy({} as HermesRuntime, {
     get: () => async () => { throw new HermesUnavailableError('Hermes integration is not configured'); },
@@ -192,8 +203,8 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.patch('/api/company', async (req) => parse(CompanyViewSchema, company.rename(CompanyRenameSchema.parse(req.body).name)));
 
   app.get('/api/departments', async (req) => {
-    const q = req.query as { includeArchived?: string };
-    return parse(DepartmentListSchema, { departments: departments.list({ includeArchived: q.includeArchived === 'true' }) });
+    const q = req.query as { includeArchived?: string; includeHidden?: string };
+    return parse(DepartmentListSchema, { departments: departments.list({ includeArchived: q.includeArchived === 'true', includeHidden: q.includeHidden === 'true' }) });
   });
 
   app.post('/api/departments', async (req, reply) => {
@@ -372,6 +383,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     departments, provisioning, model: extra.chatModel ?? noModel,
     ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
     companyId: () => company.view().id, companyName: () => company.view().name,
+    isListed: (id) => market.isListed(id), // market is built further down; called per request
   });
   app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
   // The models the Chief of Staff may think with (NEAR AI's priced list, cheapest per day first) and the one in use.
@@ -386,28 +398,42 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
   app.post('/api/assistant/department-draft', async (req) =>
     parse(DeptDraftReplySchema, await assistant.draftDepartment(parse(DeptDraftRequestSchema, req.body).messages)));
+  // ---- the Chief of Staff drafts the Agent Market listing; registering is POST /api/market/register ----
+  app.post('/api/assistant/market-draft', async (req) =>
+    parse(MarketDraftReplySchema, await assistant.draftListing(parse(DeptDraftRequestSchema, req.body).messages)));
 
   // ---- quests between departments + the Vibe City MCP server (feature spec 2.4) ----
   const questRequests = new QuestRequestService({
     db, departments, createQuest: (id, input) => quests_.create(id, input), listQuests: (id) => quests_.list(id),
   });
-  registerMcp(app, { requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_ });
-  // Secrets a floor's agents get in their profile .env, by template: company-wallet floors use the OutLayer wallet key, the Marketplace Agency the Agent Market token (marketplace-worker). Written after every sync that changed something and whenever
-  // the CEO pastes a token or a wallet key; other floors never receive them.
+  /** Lists a floor on the market (the Chief of Staff's list_on_market tool, and POST /api/market/register): register,
+      then re-sync the floor so its profiles get the marketplace-worker skill and the token (writeDepartmentEnv below). */
+  const listOnMarket = async (input: MarketRegister) => {
+    await market.register(input);
+    try { await provisioning.provision(input.departmentId); } catch { /* Hermes away: the next sync applies the skill and the token */ }
+  };
+  registerMcp(app, {
+    requests: questRequests, questDetail: (d, q) => quests_.detail(d, q), files: quests_,
+    chiefOfStaffId, departments, listOnMarket,
+  });
+  // Secrets a floor's agents get in their profile .env: company-wallet floors (by template) get the OutLayer wallet key, the listed floor the Agent Market token (marketplace-worker). Written after every sync that changed something and whenever
+  // the CEO pastes a wallet key; other floors never receive them.
   const wallet = new WalletService(db, extra.outlayerFetch);
   const writeDepartmentEnv = async (deptId: string, profiles: string[]) => {
     const at = new Date().toISOString();
     const t = TEMPLATES.find((x) => x.id === departments.getRow(deptId).template_id);
-    const mkt = t?.id === 'marketplace-agency' ? secret(db, 'marketAgentToken') : null;
+    const mkt = market.tokenFor(deptId);
     // every agent thinks with NEAR AI Cloud: the key (pasted in the first quest, else the backend env) goes to all floors
     // the floor's own variables first: a name Vibe City manages always keeps Vibe City's value
     const env = { ...deptEnv.values(deptId), ...aiEnv(), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
     if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
     for (const p of profiles) await hermes.setProfileEnv(p, env);
     if (profiles.length) deptEnv.markApplied(deptId, at);
+    // the `market` quest: a listed floor's agents hold its token
+    if (mkt && profiles.length) market.markTokenApplied(deptId, at);
   };
   const pushDepartmentEnv = async () => {
-    for (const d of departments.list()) {
+    for (const d of departments.list({ includeHidden: true })) {
       const profiles = departments.agents(d.id).map((a) => a.profile_ref).filter((p): p is string => !!p);
       try { await writeDepartmentEnv(d.id, profiles); } catch (e) { console.warn(`secrets env not written for ${d.id}: ${(e as Error).message}`); }
     }
@@ -419,9 +445,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
       // One token per department, shared by its agents (issuing rotates it, so every profile gets the new one).
       const token = questRequests.issueToken(deptId);
       const headers = { Authorization: `Bearer ${token}` };
+      // chat only reads, except the Chief of Staff's, which lists a floor on the market from the dialogue window
+      const chatTools = deptId === chiefOfStaffId ? [...MCP_FILE_TOOLS, ...MCP_COS_TOOLS] : [...MCP_FILE_TOOLS];
       for (const p of profiles) {
         await rt.setMcpServer!(p, MCP_SERVER_NAME, { url, headers, tools: { include: [...MCP_TOOLS] } });
-        await rt.setMcpServer!(p, MCP_CHAT_SERVER_NAME, { url, headers, tools: { include: [...MCP_FILE_TOOLS] } });
+        await rt.setMcpServer!(p, MCP_CHAT_SERVER_NAME, { url, headers, tools: { include: chatTools } });
         // Naming the read-only entry makes chat's list an allowlist: chat reads task files but gets no request_quest.
         await rt.setPlatformMcpServers?.(p, 'api_server', [MCP_CHAT_SERVER_NAME]);
       }
@@ -585,11 +613,11 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
 
   const market = new MarketService({
     db, departments, createQuest: (id, input) => quests_.create(id, input), results: (id, q) => quests_.results(id, q),
-    recordOrigin: (id, q) => questRequests.recordOrigin(id, q, 'market'), model: extra.chatModel ?? noModel, companyName: () => company.view().name,
+    recordOrigin: (id, q) => questRequests.recordOrigin(id, q, 'market'),
     ...(extra.marketFetch ? { fetch: extra.marketFetch } : {}), ...(extra.marketBaseUrl ? { baseUrl: extra.marketBaseUrl } : {}),
   });
   const services: AppServices = {
-    app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market,
+    app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market, listOnMarket, chiefOfStaffId,
     chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv,
   };
   // hackathon route modules (docs/briefs): one line each

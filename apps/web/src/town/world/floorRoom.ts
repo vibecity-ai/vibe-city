@@ -104,13 +104,13 @@ export function stationStatic(c: IC, templateId: string) {
       box(c, 206, 12, 0, 22, 10, 11, '#3A2448', { top: '#5A3A6A' }); // the desk under it
       break;
     }
-    case 'marketplace-agency': {
-      // the job board: a cork board on legs with a JOBS header, and the delivery desk under it with parcels going out
+    case 'market': {
+      // the marketplace board: a cork board on legs with a MARKET header, and the delivery desk under it with parcels going out
       standingScreen(c, 202, 26, 34, 10, 20, '#4A2E1C');
       const S = face(c, 202, 26, 10, 34, 20);
       quadOn(c, S, 0, 0, 34, 20, '#8A5A30', 0);
       for (let i = 0; i < 14; i++) { const p = S(1 + hash(i, 11) * 32, 1 + hash(i, 12) * 18); px.dot(Math.floor(p[0]), Math.floor(p[1]), '#6E4424'); }
-      px.text('JOBS', (a, b) => S(2 + a, 1.5 + b), 1, '#F6E7C0');
+      px.text('MARKET', (a, b) => S(2 + a, 1.5 + b), 1, '#F6E7C0');
       box(c, 206, 12, 0, 22, 10, 11, '#3A2448', { top: '#5A3A6A' });
       box(c, 209, 14, 11, 5, 4, 4, '#B07A40', { top: '#D09A5A' });
       box(c, 215, 15, 11, 4, 3, 3, '#9A6A38', { top: '#C08A50' });
@@ -137,7 +137,7 @@ export function stationLive(c: IC, templateId: string, lit: boolean) {
       if (lit) L.add(...c.P(219, 26, 22), 46, C.mint, 0.3);
       break;
     }
-    case 'marketplace-agency': {
+    case 'market': {
       // job cards pinned in two rows; each moves working (cyan) -> delivered (gold) -> paid (mint), then a new one
       const S = face(c, 202, 26, 10, 34, 20);
       const cols = [C.cyan, C.gold, C.mint];

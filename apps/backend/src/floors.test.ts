@@ -26,11 +26,11 @@ test('archiving closes the gap and removes the floor position; archived departme
   assert.deepEqual(list.map((d: any) => [d.name, d.floorPosition]), [['C', 1], ['A', 2]]);
   const archived = (await app.inject(`/api/departments/${b.id}`)).json();
   assert.equal(archived.floorPosition, null);
-  assert.equal(archived.floorOrder, 2);
+  assert.equal(archived.floorOrder, 3); // creation order: the Chief of Staff's department is 1
   const all = (await app.inject('/api/departments?includeArchived=true')).json().departments;
   assert.deepEqual(all.map((d: any) => d.name), ['C', 'A', 'B'], 'archived listed last');
-  assert.equal(c.floorOrder, 3);
-  assert.equal(a.floorOrder, 1);
+  assert.equal(c.floorOrder, 4);
+  assert.equal(a.floorOrder, 2);
 });
 
 test('archive and list responses match the strict shared schemas the browser validates', async () => {
@@ -49,4 +49,35 @@ test('archive and list responses match the strict shared schemas the browser val
   assert.equal((await app.inject({ method: 'DELETE', url: `/api/departments/${a.id}` })).statusCode, 404, 'archiving twice is not found');
   assert.equal((await app.inject({ method: 'PATCH', url: `/api/departments/${a.id}`, payload: { name: 'X' } })).statusCode, 409, 'archived is read-only');
   assert.ok(ReconcileResultSchema.safeParse({ departments: [] }).success);
+});
+
+test('the Chief of Staff never collides with a floor named "Chief of Staff", and cannot be archived or edited', async () => {
+  const { openDb, MIGRATIONS } = await import('./db/db.ts');
+  const { buildServices } = await import('./app.ts');
+  const { join } = await import('node:path');
+  const { tempDir } = await import('./testUtils.ts');
+  /** A database from before the last migration with one department row (raw, as an older build wrote it). */
+  const older = (file: string, id: string, templateId: string | null) => {
+    const path = join(tempDir(), file), db = openDb(path, MIGRATIONS.slice(0, -1));
+    db.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'Acme', 'now')").run();
+    db.prepare(`INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, created_at, updated_at, template_id)
+      VALUES (?, 'c', 'Chief of Staff', 'chief of staff', '', 1, 'now', 'now', ?)`).run(id, templateId);
+    db.prepare("INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, '{}', 'now')").run(id);
+    db.prepare("INSERT INTO department_agent (department_id, agent_key, seat, skills_json, created_at) VALUES (?, 'chief', 0, '[]', 'now')").run(id);
+    db.close();
+    return path;
+  };
+  // the CEO named a floor "Chief of Staff" before the hidden Chief of Staff existed: the next start creates it anyway
+  const a = buildServices(openDb(older('floor.sqlite', '11111111-1111-4111-8111-111111111111', null)));
+  assert.notEqual(a.chiefOfStaffId, '11111111-1111-4111-8111-111111111111');
+  assert.deepEqual(await names(a.app), ['Chief of Staff'], 'the floor stays a floor');
+  assert.equal((await a.app.inject({ method: 'DELETE', url: `/api/departments/${a.chiefOfStaffId}` })).statusCode, 409);
+  assert.equal((await a.app.inject({ method: 'PATCH', url: `/api/departments/${a.chiefOfStaffId}`, payload: { name: 'Boss' } })).statusCode, 409);
+  assert.equal((await a.app.inject({ method: 'DELETE', url: '/api/departments/11111111-1111-4111-8111-111111111111' })).statusCode, 200);
+  a.db.close();
+  // a Chief of Staff an older build created with a floor's name key: rekeyed, so the name is free for a floor
+  const b = buildServices(openDb(older('cos.sqlite', '22222222-2222-4222-8222-222222222222', 'chief-of-staff')));
+  assert.equal(b.chiefOfStaffId, '22222222-2222-4222-8222-222222222222');
+  assert.equal((await createDept(b.app, { name: 'Chief of Staff' })).res.statusCode, 201);
+  b.db.close();
 });

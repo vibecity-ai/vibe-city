@@ -7,7 +7,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
-  ChatMessageSchema, ChatProposalSchema, MOODS,
+  CHIEF_OF_STAFF, ChatMessageSchema, ChatProposalSchema, MOODS,
   type Character, type ChatHistory, type ChatMessage, type ChatReply, type ChatSend, type Mood,
 } from '@vibe-city/shared';
 import { ModelUnavailableError } from '../model/chatModel.ts';
@@ -112,7 +112,10 @@ export class ChatService {
       }
       const at = new Date().toISOString();
       const user = ChatMessageSchema.parse({ id: randomUUID(), from: 'user', text: input.message, mood: null, replies: [], proposal: null, at });
-      const agent = ChatMessageSchema.parse({ id: randomUUID(), from: 'agent', ...parseAgentReply(raw), at: new Date().toISOString() });
+      // the Chief of Staff's board is not shown anywhere: a job proposed there would vanish, so it never offers one
+      const said = parseAgentReply(raw);
+      if (this.d.departments.get(departmentId).templateId === CHIEF_OF_STAFF) said.proposal = null;
+      const agent = ChatMessageSchema.parse({ id: randomUUID(), from: 'agent', ...said, at: new Date().toISOString() });
       this.store(departmentId, agentKey, creds.session_id, user);
       this.store(departmentId, agentKey, creds.session_id, agent);
       return { user, agent };
@@ -154,9 +157,14 @@ export class ChatService {
       `Your department's Kanban board right now (open tasks first, then the latest finished):\n${board}`,
       '',
       'How to answer:',
-      '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
+      dept.templateId === CHIEF_OF_STAFF ? [
+        '- You run the Executive Office. The one thing you do from this window is list a floor of the company on the NEAR AI Agent Market (market.near.ai), where buyers hire agents for jobs paid in USDC: call list_departments, ask the boss which floor to list, write the listing (name, tagline, description, price in USDC per job, delivery time, deliverables; promise only what that floor does) as plain text the boss can copy, agree the handle, then call list_on_market once the boss confirms. Never call list_on_market before that.',
+        '- Price and going live are set by the boss on market.near.ai afterwards: say so.',
+      ].join('\n') : '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
       '- To see what a task produced, use list_task_files with its task id from the board, then read_task_file to read a file. Read the files before describing or summarising the work.',
-      '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
+      dept.templateId === CHIEF_OF_STAFF
+        ? '- The Executive Office has no team: never propose a job (always "proposal": null). When the boss wants work done, name the floor that should do it and tell them to give it the job there.'
+        : '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',
       '- End every reply with one final line, exactly in this form (JSON inside the tag):',
       `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}${blocked ? ', "resume": "<only once the boss has answered>"' : ''}}</vc>`,

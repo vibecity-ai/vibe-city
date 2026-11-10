@@ -7,13 +7,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 test('every template parses and has a lead plus teammates with distinct titles', () => {
   for (const t of TEMPLATES) {
     TemplateSchema.parse(t);
-    assert.ok(t.seats.length >= 3, `${t.id} is a team`);
+    assert.ok(t.hidden || t.seats.length >= 3, `${t.id} is a team`);
     assert.equal(new Set(t.seats.map((s) => s.title)).size, t.seats.length, `${t.id} titles are distinct`);
     assert.equal(t.inventory.limits.dailyBudgetCredits, t.dailyBudgetCredits);
     // without the skills toolset the agents could not load the skills the template names
     for (const ts of ['skills', 'memory', 'todo']) assert.ok(t.inventory.allowedToolsets.includes(ts as never), `${t.id} has ${ts}`);
   }
-  assert.deepEqual(TEMPLATES.map((t) => t.id), ['marketplace-agency', 'treasury-ops', 'trading-desk', 'prediction-desk']);
+  assert.deepEqual(TEMPLATES.map((t) => t.id), ['treasury-ops', 'trading-desk', 'prediction-desk', 'chief-of-staff']);
 });
 
 test('hiring Treasury Ops creates three agents with their titles and no schedule', async () => {
@@ -25,6 +25,7 @@ test('hiring Treasury Ops creates three agents with their titles and no schedule
   assert.match(d.purpose, /dao account=/, 'the template purpose is copied');
   assert.equal(d.templateId, 'treasury-ops', 'the floor knows its template (its station and screens)');
   const inv = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
+  assert.deepEqual(inv.allowedSkillIds, ['agent-custody', 'defillama'], 'swaps go through agent-custody only; defillama prices them');
   assert.deepEqual(inv.allowedToolsets, ['web', 'terminal', 'skills', 'memory', 'todo', 'session_search', 'clarify']);
   assert.equal(inv.limits.dailyBudgetCredits, 300);
   assert.equal((db.prepare('SELECT template_id FROM department WHERE id = ?').get(d.id) as { template_id: string }).template_id, 'treasury-ops');
@@ -47,7 +48,7 @@ test('hiring the Trading Desk creates four agents and one disabled schedule', as
   assert.ok(plain.agents.every((a: any) => !('title' in a)));
   assert.equal((await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'X', template: 'nope' } })).statusCode, 400);
   const list = (await app.inject('/api/templates')).json();
-  assert.equal(list.length, 4);
+  assert.equal(list.length, 3);
   // without NEAR AI connected, hiring is off: every card points at that quest first
   const saved = process.env.NEAR_AI_API_KEY;
   delete process.env.NEAR_AI_API_KEY;
@@ -73,4 +74,11 @@ test('every skill a template names is installed in the container (else it stays 
   const builtin = ['github', 'requesting-code-review', 'test-driven-development', 'systematic-debugging', 'codebase-inspection', 'spike', 'simplify-code', 'dogfood'];
   const known = new Set([...vendored, ...optional, ...builtin]);
   for (const t of TEMPLATES) for (const s of t.inventory.allowedSkillIds) assert.ok(known.has(s), `${t.id}: skill ${s} is not installed by docker/cont-init.d/04-vibe-city-skills`);
+});
+
+test('every wallet floor can reach OutLayer (curl needs terminal) and names no skill the container cannot run', () => {
+  for (const t of TEMPLATES.filter((x) => x.wallet === 'company')) {
+    assert.ok(t.inventory.allowedToolsets.includes('terminal'), `${t.id}: agent-custody and the connectors are curl calls`);
+    assert.ok(!t.inventory.allowedSkillIds.includes('risk-metrics-calculation'), `${t.id}: needs numpy/pandas, not in the image`);
+  }
 });

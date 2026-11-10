@@ -6,11 +6,14 @@
      check_request      the state of a request you made, and the result once the other department is done
      list_task_files    the files attached to a task on your own board
      read_task_file     one of those files, as text
+     list_on_market     Chief of Staff only: list a floor of the company on the NEAR AI Agent Market (each its own agent)
    The dialogue-window chat gets only the two file tools, through a second server entry (MCP_CHAT_SERVER_NAME) that its
-   platform list names, so chat can read past work but still cannot act.
+   platform list names, so chat can read past work but still cannot act. The Chief of Staff's chat also gets
+   list_departments and list_on_market (MCP_COS_TOOLS): listing a floor is the one thing it does for the CEO in chat.
    JSON-RPC methods: initialize, notifications/*, ping, tools/list, tools/call. */
 import type { FastifyInstance } from 'fastify';
-import type { QuestDetail } from '@vibe-city/shared';
+import { MARKET_CATEGORIES, MarketRegisterSchema, type MarketRegister, type QuestDetail } from '@vibe-city/shared';
+import type { DepartmentService } from '../domain/departmentService.ts';
 import type { QuestRequestService } from '../domain/questRequests.ts';
 import type { QuestService } from '../domain/questService.ts';
 
@@ -18,6 +21,7 @@ export const MCP_SERVER_NAME = 'vibecity';
 export const MCP_TOOLS = ['list_departments', 'request_quest', 'check_request'] as const;
 export const MCP_CHAT_SERVER_NAME = 'vibecity-chat';
 export const MCP_FILE_TOOLS = ['list_task_files', 'read_task_file'] as const;
+export const MCP_COS_TOOLS = ['list_departments', 'list_on_market'] as const;
 const READ_MAX_CHARS = 40_000;
 const PROTOCOL = '2025-06-18';
 
@@ -57,6 +61,22 @@ const TOOLS = [
     description: `Read a text file attached to a task on your department's board (see list_task_files). Long files are cut at ${READ_MAX_CHARS} characters; binary files cannot be read.`,
     inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, filename: { type: 'string' } }, required: ['task_id', 'filename'], additionalProperties: false },
   },
+  {
+    name: 'list_on_market',
+    description: 'Chief of Staff only. List one department of the company as an agent on the NEAR AI Agent Market (market.near.ai). Call it only after the CEO confirmed the department, handle and name in chat. The department\'s agents get the agent token and the marketplace-worker skill, and every job buyers post lands on its board. Price and going live are set by the CEO on market.near.ai afterwards.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        department: { type: 'string', description: 'Name of the department to list (see list_departments).' },
+        handle: { type: 'string', description: 'The agent\'s handle on the market: 3-30 characters, lowercase letters, digits and dashes, starting with a letter.' },
+        name: { type: 'string', description: 'The agent\'s display name, up to 80 characters.' },
+        category: { type: 'string', enum: [...MARKET_CATEGORIES] },
+        sla_hours: { type: 'integer', description: 'Delivery time promised per job, in hours (1-720).' },
+      },
+      required: ['department', 'handle', 'name', 'category'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
@@ -65,6 +85,9 @@ export function registerMcp(app: FastifyInstance, deps: {
   requests: QuestRequestService;
   questDetail: (departmentId: string, questId: string) => Promise<QuestDetail>;
   files: Pick<QuestService, 'taskFiles' | 'readTaskFile'>;
+  chiefOfStaffId: string;
+  departments: Pick<DepartmentService, 'list'>;
+  listOnMarket: (input: MarketRegister) => Promise<void>;
 }) {
   const text = (t: string, isError = false) => ({ content: [{ type: 'text', text: t }], ...(isError ? { isError: true } : {}) });
 
@@ -73,7 +96,7 @@ export function registerMcp(app: FastifyInstance, deps: {
     if (name === 'list_departments') {
       const list = deps.requests.targets(dept);
       if (!list.length) return text('There are no other departments yet.');
-      return text(list.map((d) => `- ${d.name}${d.ready ? '' : ' (not ready)'}${d.accepts ? '' : ' (does not accept work from you)'}: ${d.purpose || 'no purpose written'}`).join('\n'));
+      return text(list.map((d) => `- ${d.name}${d.ready ? '' : ' (not ready)'}${d.internal ? ' (internal: never listed on the market)' : ''}${d.accepts ? '' : ' (does not accept work from you)'}: ${d.purpose || 'no purpose written'}`).join('\n'));
     }
     if (name === 'request_quest') {
       if (!str('department') || !str('title') || !str('objective')) return text('department, title and objective are required.', true);
@@ -93,6 +116,15 @@ export function registerMcp(app: FastifyInstance, deps: {
       const t = await deps.files.taskFiles(dept, str('task_id'));
       if (!t.files.length) return text(`Task ${str('task_id')} ("${t.title}") has no files attached.`);
       return text(`Files on task ${str('task_id')} ("${t.title}"):\n${t.files.map((f) => `- ${f.filename} (${f.size} bytes${f.content_type ? `, ${f.content_type}` : ''})`).join('\n')}`);
+    }
+    if (name === 'list_on_market') {
+      if (dept !== deps.chiefOfStaffId) return text('Only the Chief of Staff lists departments on the market.', true);
+      const target = deps.departments.list().find((d) => d.name.toLowerCase() === str('department').toLowerCase());
+      if (!target) return text(`No department is called "${str('department')}". Use list_departments for the names.`, true);
+      const parsed = MarketRegisterSchema.safeParse({ departmentId: target.id, handle: str('handle'), name: str('name'), category: str('category'), ...(args.sla_hours !== undefined ? { slaHours: args.sla_hours } : {}) });
+      if (!parsed.success) return text(parsed.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; '), true);
+      try { await deps.listOnMarket(parsed.data); } catch (e) { return text((e as Error).message, true); }
+      return text(`${target.name} is now @${parsed.data.handle} on market.near.ai. Its agents hold the agent token and the marketplace-worker skill${target.state === 'ready' ? '' : ' once the floor is synced with Hermes'}. Tell the CEO to set the USDC price and switch the listing to Live on market.near.ai.`);
     }
     if (name === 'read_task_file') {
       if (!str('task_id') || !str('filename')) return text('task_id and filename are required.', true);
