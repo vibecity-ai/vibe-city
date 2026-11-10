@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Character } from '@vibe-city/shared';
-import { agentLabel, bubbleText, envNameProblem, nameProfiles, pickFiles } from './views.ts';
+import { GREETINGS, agentLabel, bubbleText, envNameProblem, farewellLine, greetingLine, handoffLines, nameProfiles, pickFiles } from './views.ts';
 
 test('agents are shown by persona name, else by role, never by seat key', () => {
   assert.equal(agentLabel('W-02', { name: 'Ada' } as Character), 'Ada');
@@ -48,4 +48,19 @@ test('speech bubbles: the agent\'s own fresh note first, a short recap after, no
   assert.equal(bubbleText(s({ state: 'done', summary: 'x', doneAt: ago(30) }), now), null, 'the recap fades');
   assert.match(bubbleText(s({ state: 'input' }), now)!, /^Waiting on you/);
   assert.equal(bubbleText(s({ state: 'waiting' }), now), null);
+});
+
+test('greetings and hand-off lines: short, varied, the task named and clipped', () => {
+  assert.equal(greetingLine(0), GREETINGS[0]);
+  assert.equal(greetingLine(GREETINGS.length + 1), GREETINGS[1]);
+  assert.ok(GREETINGS.every((g) => g.length <= 18));
+  assert.deepEqual(handoffLines('Scrape vendor pricing pages', 0), { lead: 'Can you take “Scrape vendor pricing pages”?', mate: 'On it!' });
+  assert.equal(handoffLines(null, 1).lead, 'Got a task for you.');
+  assert.ok(handoffLines('A very long task title that goes on and on and on', 2).lead.includes('…'));
+});
+
+test('chat sign-off: back to the task when there is one, else a goodbye', () => {
+  assert.equal(farewellLine({ lead: false, task: 'Scrape vendor pricing pages', n: 0 }), 'Alright, back to “Scrape vendor pricing pages”. Shout if you need me!');
+  assert.match(farewellLine({ lead: true, task: null, n: 3 }), /keep the floor moving/);
+  assert.ok(!farewellLine({ lead: false, task: null, n: 1 }).includes('“'));
 });

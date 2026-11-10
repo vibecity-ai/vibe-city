@@ -1,11 +1,11 @@
-/* CEO-1, the executive console: the top of the Executive Office panel as a device. An amber CRT shows the company,
-   the next CEO quest (docs/briefs/05-game-loop.md) as a ticket with its action, and the runway as a needle meter;
-   three keys open the Ops board, a new job and the Chief of Staff. */
+/* The executive console, the top of the Executive Office panel: the company on an amber screen, three keys (Ops
+   board, a new job, the Chief of Staff), the next CEO quest (docs/briefs/05-game-loop.md) with its action, and money
+   and runway as four readouts. One flat screen, no device shell, so it reads the same in the side panel and on a phone. */
 import { useEffect, useState } from 'react';
 import type { AiUsageSummary } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api } from '../../api';
-import { Device, Gauge, Key, Screen } from './Device';
+import { Icon } from './kit';
 import { Pips, QuestAction } from './QuestLog';
 import { nextQuest, progressLabel } from '../data/game';
 
@@ -27,40 +27,44 @@ export function CeoConsole() {
   const next = game ? nextQuest(game) : null;
   const idx = game && next ? game.quests.indexOf(next) + 1 : 0;
   const r = game?.runway;
+  const pct = r?.days == null ? 0 : Math.max(0, Math.min(1, r.days / 30));
   return (
-    <Device model="CEO-1" name="executive console" shell="beige" led={live ? 'green' : 'off'} className="ceo-dev">
-      <Screen kind="amber" className="ceo-scr">
-        <div className="scr-eyebrow">PH · Executive office{loaded ? '' : ' · connecting'}</div>
-        <h1 className="scr-big" tabIndex={-1}>{company?.name ?? 'Your company'}</h1>
-        <div className="scr-rule" />
-        {game && (
-          <section className="ceo-ticket" aria-label="Your quest">
-            <div className="scr-row"><span>{next ? `Quest ${String(idx).padStart(2, '0')}/${game.quests.length}` : 'All quests done'}</span><Pips g={game} /></div>
-            {next ? <>
-              <h2 className="ceo-q">{next.title}</h2>
-              <p className="scr-mono">{next.hint}</p>
-              <div className="ceo-act"><QuestAction q={next} compact />{next.unlocks && <span className="scr-mono ceo-unl">Unlocks: {next.unlocks}</span>}</div>
-            </> : <h2 className="ceo-q">The company is public.</h2>}
-            <button className="ceo-log scr-mono" onClick={() => s.ui$({ questLog: true })}>Quest log · {progressLabel(game)} ▸</button>
-          </section>
-        )}
-        {r && (
-          <section className="ceo-runway" aria-label="Runway, an estimate">
-            <Gauge value={r.days} max={30} ticks={[0, 7, 14, 21, 30]} label="RUNWAY · DAYS" />
-            <dl className="ceo-read">
-              <div><dt>Earned</dt><dd className="up">{usd(r.earnedCents)}</dd></div>
-              <div><dt>Burned today</dt><dd className="down">{usd(usage?.companyTodayCents ?? 0)}</dd></div>
-              <div><dt>Avg / day</dt><dd>{usd(r.dailyBurnCents)}</dd></div>
-              <div><dt>Days left</dt><dd>{r.days === null ? '—' : r.days}</dd></div>
-            </dl>
-          </section>
-        )}
-      </Screen>
-      <div className="ceo-keys" role="group" aria-label="Executive keys">
-        <Key onClick={() => s.openPanel('board', { composer: false, boardDept: null })}>Ops board</Key>
-        <Key onClick={() => s.openPanel('board', { composer: true, composerDept: null, boardDept: null })}>New job</Key>
-        <Key onClick={() => s.ui$({ newDept: true })}>Staff</Key>
-      </div>
-    </Device>
+    <section className="ceo" aria-label="Executive console">
+      <header className="ceo-head">
+        <div className="ceo-eye"><i className={`ceo-led${live ? ' on' : ''}`} aria-hidden="true" />PH · Executive office{loaded ? '' : ' · connecting'}</div>
+        <h1 className="ceo-name" tabIndex={-1}>{company?.name ?? 'Your company'}</h1>
+      </header>
+      <nav className="ceo-keys" aria-label="Executive keys">
+        <button className="ceo-key" onClick={() => s.openPanel('board', { composer: false, boardDept: null })}><Icon n="board" size={14} />Ops board</button>
+        <button className="ceo-key" onClick={() => s.openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" size={14} />New job</button>
+        <button className="ceo-key" onClick={() => s.ui$({ newDept: true })}><Icon n="users" size={14} />Staff</button>
+      </nav>
+      {game && (
+        <section className="ceo-quest" aria-label="Your quest">
+          <div className="ceo-qhead">
+            <span>{next ? `Quest ${idx}/${game.quests.length}` : 'All quests done'}</span>
+            <Pips g={game} />
+            <button className="ceo-log" onClick={() => s.ui$({ questLog: true })}>Log · {progressLabel(game)}</button>
+          </div>
+          {next ? <>
+            <h2 className="ceo-q">{next.title}</h2>
+            <p className="ceo-hint">{next.hint}</p>
+            <div className="ceo-act"><QuestAction q={next} compact />{next.unlocks && <span className="ceo-unl"><Icon n="lock" size={11} />Unlocks {next.unlocks}</span>}</div>
+          </> : <h2 className="ceo-q">The company is public.</h2>}
+        </section>
+      )}
+      {r && (
+        <dl className="ceo-stats" aria-label="Money and runway, an estimate">
+          <div className="ceo-run">
+            <dt>Runway</dt>
+            <dd>{r.days === null ? '—' : `${r.days} d`}</dd>
+            <span className="ceo-bar" aria-hidden="true"><i style={{ width: `${pct * 100}%` }} /></span>
+          </div>
+          <div><dt>Earned</dt><dd className="up">{usd(r.earnedCents)}</dd></div>
+          <div><dt>Burned today</dt><dd className="down">{usd(usage?.companyTodayCents ?? 0)}</dd></div>
+          <div><dt>Avg / day</dt><dd>{usd(r.dailyBurnCents)}</dd></div>
+        </dl>
+      )}
+    </section>
   );
 }

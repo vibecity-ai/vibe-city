@@ -4,7 +4,8 @@
 import { useStore, type Fx, type State } from '../store';
 import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
-import { getSprite, ghostSprite, lookFor, mix, quirkProp, shade, SKIN, AX, AY, type Look } from './sprites';
+import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
+import { greetingLine, handoffLines } from '../data/views';
 import {
   mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
@@ -32,8 +33,12 @@ interface FloorAnim { target: number; y: number; vy: number; alpha: number; pull
 interface Actor {
   id: string; look: Look; u: number; v: number; path: Pt[]; seat: Pt; mode: 'seat' | 'walk' | 'stand';
   dir: 'f' | 'b'; flip: boolean; walkT: number; standUntil: number; next: number; status: AgentStatus; alpha: number; bubble: number;
-  /** When the CEO last clicked this agent: it stops, turns to you and waves. */
-  waveAt?: number;
+  /** When the CEO last clicked this agent: it stops, turns to you and hops. */
+  greetAt?: number;
+  /** A line said out loud, shown in the speech bubble over the head until `until`. */
+  line?: { text: string; until: number };
+  /** The lead on its way to hand a task to a teammate (stage go), or handing it over (stage talk). */
+  errand?: { to: string; title: string | null; spot: Pt; stage: 'go' | 'talk'; at: number; reply: string | null };
 }
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; col: string; size: number; grav: number; glow: boolean }
 interface Packet { from: Pt; to: Pt; t: number; d: number; dept: string; done?: boolean; big?: boolean }
@@ -53,6 +58,9 @@ export class City {
   private ph = { y: -1300, vy: 0 };
   private ghostA = 1;
   private actors = new Map<string, Map<string, Actor>>();
+  /** Tasks the lead still has to walk over and hand out, per floor. */
+  private errands = new Map<string, { to: string; title: string | null }[]>();
+  private said = 0;
   private elev = new Map<string, number>();
   private shells = new Map<string, Shell>();
   /** 0..1: how far the Executive Office is opened up (feature spec 3.1). */
@@ -193,6 +201,7 @@ export class City {
         if ((a.look.prop ?? null) !== prop) a.look = { ...a.look, prop };
         if (a.status !== w.status) { a.status = w.status; this.onStatus(a); }
         this.stepActor(a, dt);
+        if (w.chief) this.runErrands(d.id, a, m);
       }
       for (const id of [...m.keys()]) if (!want.some((w) => w.id === id)) m.delete(id);
     }
@@ -213,14 +222,52 @@ export class City {
     return out;
   }
   private walkTo(a: Actor, to: Pt) { a.path = this.route([a.u, a.v], to); a.mode = 'walk'; }
-  /** Clicked: the agent stops where it is, turns to face you and waves, and stays put for a while (a seated one just
-      waves from its desk). */
+  /** Clicked: the agent stops where it is, turns to face you, hops and says hello, and stays put for a while (a
+      seated one bobs at its desk). A lead on an errand drops it and hands the task out later. */
   greet(dept: string, id: string) {
     const a = this.actors.get(dept)?.get(id); if (!a) return;
     // the press and the click that ends it are one greeting, not two
-    if (a.waveAt === undefined || this.t - a.waveAt > 0.6) a.waveAt = this.t;
+    if (a.greetAt === undefined || this.t - a.greetAt > 0.6) { a.greetAt = this.t; this.say(a, greetingLine(this.said++), 2.4); }
+    if (a.errand) { (this.errands.get(dept) ?? this.errands.set(dept, []).get(dept)!).unshift({ to: a.errand.to, title: a.errand.title }); a.errand = undefined; }
     if (a.mode !== 'seat') { a.path = []; a.mode = 'stand'; a.walkT = 0; a.dir = 'f'; a.flip = false; }
     a.standUntil = this.t + 9; a.next = Math.max(a.next, this.t + 9);
+  }
+  /** The line an agent is saying right now, if any (the speech bubble shows it over whatever they are working on). */
+  lineOf(dept: string, id: string): string | null {
+    const l = this.actors.get(dept)?.get(id)?.line;
+    return l && this.t < l.until ? l.text : null;
+  }
+  private say(a: Actor, text: string, secs: number) { a.line = { text, until: this.t + secs }; }
+  /** The lead hands out new tasks in person: walks to the teammate's desk, asks, gets an answer, goes on to the next
+      one, then back to its own desk. Skipped when the lead is busy elsewhere; nothing here changes any task. */
+  private runErrands(dept: string, a: Actor, m: Map<string, Actor>) {
+    const e = a.errand, q = this.errands.get(dept);
+    if (!e) {
+      if (!q?.length || a.mode === 'walk' || this.t < a.next || this.t < a.standUntil) return;
+      const job = q.shift()!, mate = m.get(job.to);
+      if (!mate) return;
+      const spot: Pt = [mate.seat[0] - 8, mate.seat[1] - 10];
+      a.errand = { ...job, spot, stage: 'go', at: this.t, reply: null };
+      this.walkTo(a, spot); a.next = this.t + 30;
+      return;
+    }
+    const mate = m.get(e.to);
+    if (!mate || this.t - e.at > 16) { a.errand = undefined; a.next = this.t; return; }
+    if (e.stage === 'go') {
+      if (a.mode === 'walk') return;
+      if (Math.hypot(a.u - e.spot[0], a.v - e.spot[1]) > 4) { a.errand = undefined; a.next = this.t; return; }
+      const lines = handoffLines(e.title, this.said++);
+      a.dir = 'b'; a.flip = false; this.say(a, lines.lead, 2.6);
+      e.stage = 'talk'; e.at = this.t; e.reply = lines.mate;
+      const from = this.interiorPt(dept, a.u, a.v, 24), to = this.interiorPt(dept, mate.u, mate.v, 22);
+      setTimeout(() => this.packets.push({ from, to, t: 0, d: 0.55, dept }), 700);
+      return;
+    }
+    if (e.reply && this.t - e.at > 1.4) { this.say(mate, e.reply, 2.4); e.reply = null; mate.greetAt = this.t; }
+    if (this.t - e.at > 3.6) {
+      a.errand = undefined;
+      if (!q?.length) { this.walkTo(a, CHIEF_SEAT); a.next = this.t + rnd(6, 10); } else a.next = this.t;
+    }
   }
   private onStatus(a: Actor) {
     if (a.status === 'running' || a.status === 'failed' || a.status === 'disconnected') { if (Math.hypot(a.u - a.seat[0], a.v - a.seat[1]) > 3) this.walkTo(a, a.seat); }
@@ -275,6 +322,12 @@ export class City {
     const fa = 'dept' in fx ? this.floors.get(fx.dept) : undefined;
     switch (fx.k) {
       case 'delegate': {
+        // In the open office the lead walks over and hands it out; seen from the tower, a packet flies desk to desk.
+        if (fa && fa.open > 0.5 && this.actors.get(fx.dept)?.has('chief')) {
+          const q = this.errands.get(fx.dept) ?? this.errands.set(fx.dept, []).get(fx.dept)!;
+          if (!q.some((j) => j.to === fx.to) && this.actors.get(fx.dept)?.get('chief')?.errand?.to !== fx.to) q.push({ to: fx.to, title: fx.title });
+          break;
+        }
         const from = this.agentPt(s, fx.dept, 'chief'), to = this.agentPt(s, fx.dept, fx.to);
         this.packets.push({ from, to, t: -Math.random() * 0.4, d: 0.95, dept: fx.dept });
         const a = this.actors.get(fx.dept)?.get('chief'); if (a) a.bubble = 1.2;
@@ -307,7 +360,7 @@ export class City {
         if (fa) { fa.flash = 1; fa.flashCol = C.red; }
         break;
       }
-      case 'plan': { const a = this.actors.get(fx.dept)?.get('chief'); if (a) { a.bubble = 4; this.walkTo(a, BOARD_SPOT); a.next = this.t + 4.5; setTimeout(() => this.walkTo(a, CHIEF_SEAT), 4200); } break; }
+      case 'plan': { const a = this.actors.get(fx.dept)?.get('chief'); if (a) { a.bubble = 4; this.walkTo(a, BOARD_SPOT); a.next = this.t + 4.5; setTimeout(() => { if (!a.errand && !this.errands.get(fx.dept)?.length) this.walkTo(a, CHIEF_SEAT); else a.next = this.t; }, 4200); } break; }
       case 'questDone': {
         if (fa) { fa.flash = 1.4; fa.flashCol = C.mint; }
         const p = this.agentPt(s, fx.dept, 'chief');
@@ -511,7 +564,8 @@ export class City {
       cast(c, 204, 12, 14, 16, 6, 0.22); cast(c, 224, 6, 14, 34, 12, 0.25);
     }
     items.push({ y: P(12, 86)[1], draw: () => prop('archiveL', (q) => archiveStatic(q)) });
-    for (const [u, v, big, seed] of [[84, 132, true, 7], [232, 112, false, 5], [100, 10, false, 9], [70, 60, false, 13]] as [number, number, boolean, number][]) items.push({ y: P(u + 4, v - 4)[1], draw: () => prop(`plant${u}${v}`, (q) => plant(q, u, v, big, seed)) });
+    // plants stand against walls and in corners, beside something: the board, the lead's office, the cooler, the shelf bay
+    for (const [u, v, big, seed] of [[84, 132, true, 7], [6, 100, false, 13], [30, 4, false, 9], [233, 122, false, 5]] as [number, number, boolean, number][]) items.push({ y: P(u + 4, v - 4)[1], draw: () => prop(`plant${u}${v}`, (q) => plant(q, u, v, big, seed)) });
     // people
     const actors = this.actors.get(d.id);
     if (actors) for (const ac of actors.values()) {
@@ -532,12 +586,12 @@ export class City {
         const frame = ac.mode === 'walk' ? Math.floor(ac.walkT * 8) % 4 : 0;
         const typing = seated && ac.status === 'running' ? Math.floor(t * 8) % 2 : 0;
         const sp = getSprite(ac.look, { dir: seated ? 'b' : ac.dir, frame, seated, type: typing });
+        const hop = ac.greetAt !== undefined ? hopOf(t - ac.greetAt, seated) : 0;
         px.push(ac.status === 'disconnected' ? 0.55 : 1);
-        px.sprite(sp.img, sp.sil, foot[0] - AX, foot[1] - AY, seated ? false : ac.flip);
+        px.sprite(sp.img, sp.sil, foot[0] - AX, foot[1] - AY - hop, seated ? false : ac.flip);
         px.pop();
         pip(px, ac.status, ground[0], ground[1] - 39);
         emote(px, ac, t, ground[0] + 6, ground[1] - 66);
-        if (ac.waveAt !== undefined && t - ac.waveAt < 2.4) wave(px, L, ground[0], ground[1] - (seated ? 19 : 24), t - ac.waveAt, ac.flip, ac.look);
         if (ac.bubble > 0) this.thinking(ground[0] + 12, ground[1] - 46, ac.bubble);
         px.pop();
       } });
@@ -748,20 +802,11 @@ export class City {
 /** How long to hold an agent (touch, pen or mouse) to open the chat. */
 const LONG_PRESS_MS = 500;
 
-/** A waving hand beside the head and a little "hi" sparkle: the answer to a click. */
-function wave(px: Pix, L: Lights, x: number, y: number, age: number, flip: boolean, look: Look) {
-  const side = flip ? -1 : 1, swing = Math.floor(age * 7) % 2 ? 1 : -1;
-  const hx = Math.round(x + side * 11 + swing), hy = Math.round(y - 4);
-  const skin = SKIN[look.skin] ?? SKIN[1]!, edge = shade(skin, -0.45), sleeve = look.shirt;
-  px.push(age > 2 ? Math.max(0, (2.4 - age) / 0.4) : 1);
-  // the raised forearm, from the shoulder up to the hand, so the hand is attached to someone
-  for (let i = 0; i < 6; i++) { const ax = Math.round(x + side * (7 + (i * (4 + swing)) / 6)), ay = hy + 9 - i; px.rect(ax - 1, ay, 3, 1, edge); px.rect(ax, ay, 1, 1, i < 3 ? sleeve : skin); }
-  px.rect(hx - 2, hy - 1, 5, 4, edge); px.rect(hx - 1, hy, 3, 3, skin);           // palm
-  for (let k = -1; k <= 1; k++) px.rect(hx + k, hy - 3, 1, 2, skin);                // fingers
-  px.rect(hx - 2 * side, hy + 1, 1, 1, skin);                                       // thumb
-  if (Math.floor(age * 4) % 2) { px.dot(hx + 4 * side, hy - 4, '#FFE7A0', 1); px.dot(hx + 5 * side, hy - 6, '#FFE7A0', 1); }
-  px.pop();
-  L.add(hx, hy, 10, '#FFE7A0', 0.25);
+/** A happy little double hop (pixels up) after a greeting; a seated agent only bobs in its chair. */
+function hopOf(age: number, seated: boolean): number {
+  if (age < 0 || age > 0.7) return 0;
+  const k = age < 0.35 ? 1 : 0.55, ph = (age % 0.35) / 0.35;
+  return Math.round(Math.sin(ph * Math.PI) * (seated ? 1.5 : 5) * k);
 }
 
 /* Emotes over heads (feature spec 2.5), from what the agent is actually doing: ! failed, ? waiting on configuration,

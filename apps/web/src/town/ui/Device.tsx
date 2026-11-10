@@ -4,7 +4,7 @@
    - Device: the shell (beige for the CEO's things, graphite for the floors' tools) with the maker's badge.
    - Screen: amber CRT (the company), green CRT (markets), reflective LCD (the wallet), LED (code).
    - Key: a physical key; `hot` is the device's one main action (pink, lit). Renders a link when given `href`.
-   - Gauge: a needle meter. Grille: a speaker grille. */
+   - Grille: a speaker grille. */
 import type { ReactNode } from 'react';
 
 export function Mark({ size = 16 }: { size?: number }) {
@@ -44,28 +44,4 @@ export function Key({ children, hot, lit, disabled, onClick, href, title, type =
 
 export function Grille({ className = '' }: { className?: string }) {
   return <div className={`dev-grille ${className}`} aria-hidden="true" />;
-}
-
-/** A needle meter from 0 to `max`; `value` null parks the needle at zero and dims it. */
-export function Gauge({ value, max, ticks, label }: { value: number | null; max: number; ticks: number[]; label: string }) {
-  const cx = 115, cy = 112, r = 95;
-  const at = (v: number) => { const a = Math.PI * (1 - Math.min(Math.max(v, 0), max) / max); return [cx + r * Math.cos(a), cy - r * Math.sin(a)] as const; };
-  const tip = (v: number) => { const a = Math.PI * (1 - Math.min(Math.max(v, 0), max) / max); return [cx + 80 * Math.cos(a), cy - 80 * Math.sin(a)] as const; };
-  const [nx, ny] = tip(value ?? 0);
-  const [rx, ry] = at(max * 0.7);
-  return (
-    <svg className={`dev-gauge${value === null ? ' idle' : ''}`} viewBox="0 0 230 140" role="img" aria-label={`${label}: ${value ?? 'unknown'}`}>
-      <path d={`M${cx - r} ${cy} A${r} ${r} 0 0 1 ${cx + r} ${cy}`} className="arc" />
-      <path d={`M${rx} ${ry} A${r} ${r} 0 0 1 ${cx + r} ${cy}`} className="arc-hi" />
-      {ticks.map((t) => { const [x1, y1] = at(t); const [x2, y2] = tip(t * 1); const k = 0.89; return (
-        <g key={t}>
-          <line x1={x1} y1={y1} x2={cx + (x1 - cx) * k} y2={cy + (y1 - cy) * k} className="tick" />
-          <text x={cx + (x2 - cx) * 0.86} y={cy + (y2 - cy) * 0.86 + 4} className="num">{t}</text>
-        </g>
-      ); })}
-      <line x1={cx} y1={cy} x2={nx} y2={ny} className="needle" />
-      <circle cx={cx} cy={cy} r="6" className="hub" />
-      <text x={cx} y="136" className="lbl">{label}</text>
-    </svg>
-  );
 }

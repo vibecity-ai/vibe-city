@@ -66,16 +66,36 @@ export function StageOverlay({ city }: { city: City | null }) {
       // speech bubbles: an agent's own line shows when it changes, when you point at the agent, and in turn with the
       // others (one at a time), so the office feels alive without a wall of text
       const ids = [...refs.current.keys()].filter((k) => k.startsWith('say:')).map((k) => k.slice(4));
-      const tnow = performance.now(), turn = ids.length ? ids[Math.floor(tnow / 6000) % ids.length] : null, inTurn = tnow % 6000 < 5200;
+      const talkers = ids.filter((id) => refs.current.get('say:' + id)?.dataset.text);
+      const tnow = performance.now(), turn = talkers.length ? talkers[Math.floor(tnow / 6000) % talkers.length] : null, inTurn = tnow % 6000 < 5200;
+      const ui = useStore.getState().ui, bubbles: { el: HTMLElement; x: number; y: number; show: boolean }[] = [];
+      // one bubble at a time besides the ones you point at: the newest line for 8 s, else whoever's turn it is; and
+      // while people talk out loud (a hello, a task handed over), only they speak
+      for (const id of ids) { const text = refs.current.get('say:' + id)!.dataset.text ?? '', st = says.current.get(id); if (!st || st.text !== text) says.current.set(id, { text, since: tnow }); }
+      const fresh = talkers.map((id) => ({ id, since: says.current.get(id)!.since })).filter((x) => tnow - x.since < 8000).sort((p, q) => q.since - p.since)[0]?.id ?? null;
+      const talking = !!ui.floorId && ids.some((id) => city.lineOf(ui.floorId!, id));
       for (const id of ids) {
         const el = refs.current.get('say:' + id)!, text = el.dataset.text ?? '';
-        const st = says.current.get(id);
-        if (!st || st.text !== text) says.current.set(id, { text, since: tnow });
         const at = city.anchors.find((x) => x.kind === 'agent' && x.id === id);
-        const named = city.hoverAgent === id || useStore.getState().ui.agent === id;
-        const show = !!at && at.visible > 0.5 && !useStore.getState().ui.talk && (named || tnow - (says.current.get(id)!.since) < 8000 || (id === turn && inTurn));
-        if (at) el.style.transform = `translate(${Math.round(at.x)}px, ${Math.round(at.y - (named ? 30 : 8))}px) translate(-50%, -100%)`;
+        const named = city.hoverAgent === id || ui.agent === id;
+        // something said out loud (a hello, a task handed over) beats the note on what they are working on
+        const line = ui.floorId ? city.lineOf(ui.floorId, id) : null, spoken = el.lastElementChild as HTMLElement;
+        if (line && spoken.textContent !== line) spoken.textContent = line;
+        el.classList.toggle('spoke', !!line);
+        const show = !!at && at.visible > 0.5 && !ui.talk && (!!line || (!!text && (named || (!talking && (fresh ? id === fresh : id === turn && inTurn)))));
         el.classList.toggle('on', show);
+        if (at) bubbles.push({ el, x: Math.round(at.x), y: Math.round(at.y - (named ? 30 : 8)), show });
+      }
+      // bubbles never sit on top of each other: one further back moves up above the one in front
+      const shown: { x: number; y: number; w: number; h: number }[] = [];
+      for (const bb of bubbles.sort((p, q) => q.y - p.y)) {
+        let y = bb.y;
+        if (bb.show) {
+          const w = bb.el.offsetWidth, h = bb.el.offsetHeight;
+          for (let pass = 0; pass < 3; pass++) for (const o of shown) if (Math.abs(o.x - bb.x) < (o.w + w) / 2 + 4 && y > o.y - o.h - 4 && y - h < o.y + 4) y = o.y - o.h - 4;
+          shown.push({ x: bb.x, y, w, h });
+        }
+        bb.el.style.transform = `translate(${bb.x}px, ${y}px) translate(-50%, -100%)`;
       }
       // hover card follows the agent under the pointer
       const hv = city.hoverAgent;
@@ -152,8 +172,8 @@ export function StageOverlay({ city }: { city: City | null }) {
       {openDept && (
         <div className="says" aria-hidden="true">
           {[...(openDept.chief ? [{ id: 'chief', said: openDept.chief.said }] : []), ...openDept.workers.map((w) => ({ id: w.id, said: w.said }))]
-            .map((a) => ({ id: a.id, text: bubbleText(a.said, now) })).filter((a) => a.text)
-            .map((a) => <div key={a.id} ref={set('say:' + a.id)} className="say" data-text={a.text!}><span>{a.text}</span></div>)}
+            .map((a) => ({ id: a.id, text: bubbleText(a.said, now) ?? '' }))
+            .map((a) => <div key={a.id} ref={set('say:' + a.id)} className="say" data-text={a.text}><span>{a.text}</span><span className="say-line" /></div>)}
         </div>
       )}
       {/* Executive Office: every object is a control; the labels are its keyboard path */}

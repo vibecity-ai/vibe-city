@@ -10,7 +10,8 @@ import type { QuestSync } from './data/company';
 /* World effects: one-shot cues the renderer plays. They are only emitted after the backend reports the change they
    illustrate (data/live.ts diffs consecutive snapshots), so animation may lag the truth but never leads it. */
 export type Fx =
-  | { k: 'delegate'; dept: string; to: string }
+  /** The lead gave a teammate a task: on an open floor the lead walks over and hands it to them. */
+  | { k: 'delegate'; dept: string; to: string; title: string | null }
   | { k: 'taskDone'; dept: string; worker: string }
   | { k: 'taskFail'; dept: string; worker: string }
   | { k: 'plan'; dept: string }

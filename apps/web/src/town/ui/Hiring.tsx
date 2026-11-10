@@ -221,6 +221,7 @@ function InterviewDialogue({ reqId, candId }: { reqId: string; candId: string })
       greeting={c.pitch} baseMood={c.serious ? 'happy' : 'smug'}
       defaultReplies={['Why should I hire you?', 'Test: summarise our floor in one line', 'What would you cost me?']}
       onSend={onSend} onClose={back} inputHint="Ask a question or give a test task…"
+      farewell="Thanks for your time, boss. I hope to hear from you soon!"
       below={stats ? <p className="dlg-stats">Answered in {(stats.ms / 1000).toFixed(1)} s{stats.tokens != null ? ` · ${stats.tokens} tokens` : ''} · {stats.costNote}</p> : null}
       cards={() => <div className="dlg-prop-act"><button className="btn small" onClick={back}>Back to shortlist</button></div>}
     />

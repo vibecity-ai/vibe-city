@@ -8,7 +8,7 @@ import type { Character, ChatMessage, ChatProgress, ChatProposal, Mood } from '@
 import { useStore, type BlockedTalk } from '../store';
 import { api, ApiError } from '../../api';
 import { answerTask, createQuest } from '../data/live';
-import { agentLabel, nameProfiles } from '../data/views';
+import { agentLabel, farewellLine, nameProfiles } from '../data/views';
 import { lookFor, quirkProp, type Look } from '../world/sprites';
 import { portrait, type Gag } from '../world/portrait';
 import { Icon } from './kit';
@@ -75,7 +75,7 @@ export interface Who { name: string; title: string; color: string; voice: number
 
 /** The shared window. The parent owns the conversation (lines, waiting, error); the frame owns paging, typing and input. */
 export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, status = null, error, greeting, notReady, baseMood = 'neutral', defaultReplies = [],
-  onSend, onClose, onProfile, onNewChat, cards, below, hideInput, inputHint }: {
+  onSend, onClose, onProfile, onNewChat, cards, below, hideInput, inputHint, farewell }: {
   who: Who | null; look: Look; gag?: Gag | null; lines: Line[]; ready: boolean; waiting: boolean; error: string | null;
   /** What the speaker is doing while the user waits ("checking the board…"). */
   status?: string | null;
@@ -90,23 +90,29 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   /** A small line under the text bar (interview stats, scouting timer). */
   below?: ReactNode;
   hideInput?: boolean; inputHint?: string;
+  /** Said when the CEO ends a chat they took part in: the speaker signs off before the window closes. */
+  farewell?: string;
 }) {
   const [input, setInput] = useState('');
   const [shown, setShown] = useState(0);
   const [muted, setMuted] = useState(readMuted);
+  // Ending a chat: the speaker types a sign-off, then the window closes by itself (a second Esc or click closes now).
+  const [leaving, setLeaving] = useState(false);
+  const spoke = lines.some((l) => l.from === 'user');
+  const end = () => { if (leaving || !farewell || !spoke || waiting || error || !ready) onClose(); else setLeaving(true); };
   const inputRef = useRef<HTMLInputElement>(null);
 
   const lastAgent = [...lines].reverse().find((m) => m.from === 'agent') ?? null;
   // Long answers (Hermes agents report results in full) would be many pages of clicking: the box types the opening and
   // the whole answer goes in a scrollable panel underneath.
-  const full = !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
-  const speech = error ?? (!ready ? (notReady ?? 'No chat model is set up yet. Finish the first quest (your NEAR AI key and the Chief of Staff model), then we can talk.')
+  const full = !leaving && !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
+  const speech = leaving ? farewell! : error ?? (!ready ? (notReady ?? 'No chat model is set up yet. Finish the first quest (your NEAR AI key and the Chief of Staff model), then we can talk.')
     : full ? `${paginate(full.text).slice(0, LONG_PAGES).join(' ')} …` : lastAgent?.text ?? greeting);
   // The whole reply types into one box that follows the text as it goes (no clicking through pages).
   const text = speech;
   const typing = !waiting && shown < text.length;
   const done = !waiting && !typing;
-  const mood: Mood = waiting ? 'focused' : error ? 'worried' : lastAgent?.mood ?? baseMood;
+  const mood: Mood = leaving ? 'happy' : waiting ? 'focused' : error ? 'worried' : lastAgent?.mood ?? baseMood;
 
   useEffect(() => { setShown(0); }, [speech]);
   const textBox = useRef<HTMLDivElement>(null);
@@ -125,7 +131,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
     return () => window.clearTimeout(id);
   }, [typing, shown, text, muted, who]);
 
-  const advance = () => { if (typing) setShown(text.length); };
+  const advance = () => { if (typing) setShown(text.length); else if (leaving) onClose(); };
+  useEffect(() => {
+    if (!leaving || typing) return;
+    const id = window.setTimeout(onClose, 1500);
+    return () => window.clearTimeout(id);
+  }, [leaving, typing, onClose]);
   const send = async (msg: string) => {
     const m = msg.trim(); if (!m || waiting || !ready) return;
     setInput('');
@@ -134,7 +145,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+      if (e.key === 'Escape') { e.preventDefault(); end(); }
       else if ((e.key === ' ' || e.key === 'Enter') && typing && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
     };
     window.addEventListener('keydown', onKey);
@@ -142,7 +153,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   });
 
   const color = who?.color ?? '#FFC75A';
-  const replies = done && !error && ready ? (lastAgent?.replies.length ? lastAgent.replies : lines.length ? [] : defaultReplies) : [];
+  const replies = done && !leaving && !error && ready ? (lastAgent?.replies.length ? lastAgent.replies : lines.length ? [] : defaultReplies) : [];
   const shownText = waiting ? '' : text.slice(0, shown);
 
   return (
@@ -161,19 +172,19 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
         </div>
         {below}
         {done && full && <FullAnswer key={full.id} text={full.text} />}
-        {done && !error && cards?.(lastAgent)}
+        {done && !leaving && !error && cards?.(lastAgent)}
         <div className="dlg-replies">{replies.map((r) => <button key={r} className="dlg-chip" onClick={() => void send(r)}>{r}</button>)}</div>
         <form className="dlg-input" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
-          {!hideInput && <>
+          {!hideInput && !leaving && <>
             <span className="dlg-you">YOU&gt;</span>
             <input ref={inputRef} value={input} onChange={(e) => setInput(e.target.value)} maxLength={2000} disabled={!ready || waiting} placeholder={ready ? (inputHint ?? 'Say something…') : 'Chat is off right now'} aria-label={`Message ${who?.name ?? 'agent'}`} />
             <button className="btn primary small" type="submit" disabled={!ready || waiting || !input.trim()}>Send</button>
           </>}
-          {hideInput && <span className="dlg-spacer" />}
+          {(hideInput || leaving) && <span className="dlg-spacer" />}
           <button type="button" className="dlg-icon" onClick={() => { const v = !muted; setMuted(v); saveMuted(v); }} aria-label={muted ? 'Turn voice blips on' : 'Turn voice blips off'} title={muted ? 'Sound off' : 'Sound on'}>{muted ? '♪̸' : '♪'}</button>
           {onNewChat && <button type="button" className="dlg-icon" onClick={onNewChat} disabled={waiting} title="New chat" aria-label="Start a new chat"><Icon n="plus" size={14} /></button>}
           {onProfile && <button type="button" className="dlg-icon" onClick={onProfile} title="Open profile" aria-label="Open agent profile"><Icon n="sliders" size={14} /></button>}
-          <button type="button" className="dlg-icon" onClick={onClose} aria-label="Close dialogue (Esc)" title="Close (Esc)"><Icon n="x" size={14} /></button>
+          <button type="button" className="dlg-icon" onClick={end} aria-label="End chat (Esc)" title="End chat (Esc)"><Icon n="x" size={14} /></button>
         </form>
       </div>
     </div>
@@ -278,6 +289,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
       defaultReplies={blocked ? ["What's the problem?", 'What do you need from me?'] : ['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
       onSend={onSend} onClose={close}
+      farewell={farewellLine({ lead: agentKey === 'chief', task: agentKey === 'chief' ? null : worker?.status === 'running' ? worker.task : null, n: messages.length })}
       onNewChat={() => useStore.getState().ui$({ talk: { deptId, agentKey, session: 'new' } })}
       onProfile={() => { close(); useStore.getState().ui$({ agent: agentKey, panel: 'agent' }); }}
       cards={() => {

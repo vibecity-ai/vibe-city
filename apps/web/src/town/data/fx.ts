@@ -17,12 +17,12 @@ export function fxBetween(prev: Dept[], next: Dept[], pq: QuestItem[], nq: Quest
     const had = new Map(p.workers.map((w) => [w.id, w]));
     for (const w of d.workers) {
       const o = had.get(w.id);
-      if (!o) { emit({ k: 'workerJoined', dept: d.id, worker: w.id }); if (w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id }); continue; }
+      if (!o) { emit({ k: 'workerJoined', dept: d.id, worker: w.id }); if (w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id, title: w.said?.title ?? null }); continue; }
       // A teammate keeps its desk across tasks: a new task counts as a change even when the status reads the same.
       const changed = o.status !== w.status || o.taskId !== w.taskId;
       if (changed && w.status === 'completed') emit({ k: 'taskDone', dept: d.id, worker: w.id });
       if (changed && w.status === 'failed') emit({ k: 'taskFail', dept: d.id, worker: w.id });
-      if (changed && w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id });
+      if (changed && w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id, title: w.said?.title ?? null });
     }
   }
   const was = new Map(pq.map((q) => [q.summary.id, q.summary.status]));

@@ -215,6 +215,23 @@ const firstSentence = (x: string) => clip((x.split(/(?<=[.!?])\s|\n/)[0] ?? x).t
  * fresh (agents are told to post one every few steps), else what it is on; a short recap for a few minutes after it
  * finishes; a nudge when it waits on the CEO or is stuck.
  */
+/** How an agent signs off when the CEO ends a chat: back to the task they are on, or a friendly goodbye. */
+export function farewellLine(o: { lead: boolean; task: string | null; n: number }): string {
+  if (o.task) return [`Alright, back to “${clip(o.task, 40)}”. Shout if you need me!`, `Got it. Back to “${clip(o.task, 40)}” then. Talk soon, boss!`][Math.abs(Math.floor(o.n)) % 2]!;
+  if (o.lead) return 'Understood. I’ll keep the floor moving. Talk soon, boss!';
+  return ['Anytime, boss. See you around!', 'Talk soon! I’ll be at my desk.'][Math.abs(Math.floor(o.n)) % 2]!;
+}
+
+/** What an agent says when the CEO clicks them: a short hello, picked by a number so it varies between clicks. */
+export const GREETINGS = ['Hey boss!', 'Hi! Need me?', 'Oh, hello!', 'Hey, CEO!', 'At your service!', 'Hi there!'] as const;
+export const greetingLine = (n: number) => GREETINGS[Math.abs(Math.floor(n)) % GREETINGS.length]!;
+
+/** The lead handing a task to a teammate at their desk: what each says. */
+export function handoffLines(title: string | null, n: number): { lead: string; mate: string } {
+  const replies = ['On it!', 'Sure, leave it to me.', 'Got it!', 'Starting now.'];
+  return { lead: title ? `Can you take “${clip(title, 34)}”?` : 'Got a task for you.', mate: replies[Math.abs(Math.floor(n)) % replies.length]! };
+}
+
 export function bubbleText(s: Said | null | undefined, now: number): string | null {
   if (!s) return null;
   const within = (iso: string | null, minutes: number) => !!iso && now - Date.parse(iso) < minutes * 60_000;
