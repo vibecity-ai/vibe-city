@@ -2,7 +2,7 @@
    and easy to mute (the speaker key in the top bar; remembered in this browser). Browsers only allow sound after the
    player has clicked or typed something, so the first sounds of a visit may be skipped. */
 
-export type Sfx = 'floor' | 'job' | 'done' | 'hire' | 'scout' | 'shortlist' | 'input' | 'tick' | 'fail';
+export type Sfx = 'floor' | 'job' | 'done' | 'hire' | 'scout' | 'shortlist' | 'input' | 'tick' | 'fail' | 'lift' | 'pass' | 'coin';
 
 const KEY = 'vc-sound';
 let muted = (() => { try { return localStorage.getItem(KEY) === 'off'; } catch { return false; } })();
@@ -58,7 +58,7 @@ export function play(kind: Sfx) {
   if (muted) return;
   const c = audio(); if (!c) return;
   // the same sound twice within a beat is one sound (several tasks finishing in one refresh)
-  const now = c.currentTime; if (now - (last.get(kind) ?? -9) < 0.35) return; last.set(kind, now);
+  const now = c.currentTime; if (now - (last.get(kind) ?? -9) < (kind === 'pass' ? 0.08 : 0.35)) return; last.set(kind, now);
   const t = now + 0.02;
   const seq = (notes: string[], step: number, dur: number, type: OscillatorType, vol: number) => notes.forEach((n, i) => note(c, N(n), t + i * step, dur, type, vol));
   switch (kind) {
@@ -86,6 +86,15 @@ export function play(kind: Sfx) {
       break;
     case 'tick': // a task done: a small bright blip
       note(c, N('E6'), t, 0.12, 'square', 0.07); note(c, N('B6'), t + 0.05, 0.14, 'sine', 0.06);
+      break;
+    case 'lift': // the lift arrives: one soft bell
+      note(c, N('E6'), t, 0.9, 'sine', 0.2); note(c, N('E7'), t, 0.18, 'triangle', 0.035);
+      break;
+    case 'pass': // the lift passes a floor: a tiny click
+      note(c, 2400, t, 0.03, 'square', 0.03);
+      break;
+    case 'coin': // money in: two bright notes
+      seq(['B5', 'E6'], 0.07, 0.22, 'square', 0.1);
       break;
     case 'fail': // a soft low thud
       note(c, 180, t, 0.35, 'triangle', 0.3, 90);

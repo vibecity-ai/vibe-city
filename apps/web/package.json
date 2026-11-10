@@ -15,6 +15,7 @@
     "@fontsource/jersey-10": "^5.3.0",
     "@hot-labs/near-connect": "^0.12.0",
     "@vibe-city/shared": "*",
+    "driver.js": "1.10.2",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "zustand": "^5.0.3"

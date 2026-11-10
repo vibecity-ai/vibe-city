@@ -1,15 +1,40 @@
 /* The executive console, the top of the Executive Office panel: the company on an amber screen, three keys (Ops
    board, a new job, the Chief of Staff), the next CEO quest (docs/briefs/05-game-loop.md) with its action, and money
    and runway as four readouts. One flat screen, no device shell, so it reads the same in the side panel and on a phone. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { AiUsageSummary } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api } from '../../api';
 import { Icon } from './kit';
 import { Pips, QuestAction } from './QuestLog';
 import { nextQuest, progressLabel } from '../data/game';
+import { play } from '../sfx';
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
+/** Money rolls to its new value like an odometer (0.9 s, easing out) instead of jumping; `coin` rings when it rises
+    after the first value, and the readout flashes. Reduced motion jumps straight there. */
+function Rolling({ cents, className = '', coin = false }: { cents: number; className?: string; coin?: boolean }) {
+  const [shown, setShown] = useState(cents);
+  const [up, setUp] = useState(false);
+  const from = useRef(cents);
+  useEffect(() => {
+    const start = from.current;
+    if (start === cents) return;
+    from.current = cents;
+    if (cents > start) { setUp(true); if (coin) play('coin'); }
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) { setShown(cents); return; }
+    const t0 = performance.now(); let raf = 0;
+    const step = (t: number) => {
+      const k = Math.min(1, (t - t0) / 900), e = 1 - (1 - k) ** 3;
+      setShown(Math.round(start + (cents - start) * e));
+      if (k < 1) raf = requestAnimationFrame(step); else window.setTimeout(() => setUp(false), 600);
+    };
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [cents, coin]);
+  return <dd className={`${className}${up ? ' rise' : ''}`}>{usd(shown)}</dd>;
+}
 
 export function CeoConsole() {
   const company = useStore((s) => s.company);
@@ -35,7 +60,6 @@ export function CeoConsole() {
         <h1 className="ceo-name" tabIndex={-1}>{company?.name ?? 'Your company'}</h1>
       </header>
       <nav className="ceo-keys" aria-label="Executive keys">
-        <button className="ceo-key" onClick={() => s.openPanel('board', { composer: false, boardDept: null })}><Icon n="board" size={14} />Ops board</button>
         <button className="ceo-key" onClick={() => s.openPanel('board', { composer: true, composerDept: null, boardDept: null })}><Icon n="plus" size={14} />New job</button>
         <button className="ceo-key" onClick={() => s.ui$({ newDept: true })}><Icon n="users" size={14} />Staff</button>
       </nav>
@@ -60,9 +84,9 @@ export function CeoConsole() {
             <dd>{r.days === null ? '—' : `${r.days} d`}</dd>
             <span className="ceo-bar" aria-hidden="true"><i style={{ width: `${pct * 100}%` }} /></span>
           </div>
-          <div><dt>Earned</dt><dd className="up">{usd(r.earnedCents)}</dd></div>
-          <div><dt>Burned today</dt><dd className="down">{usd(usage?.companyTodayCents ?? 0)}</dd></div>
-          <div><dt>Avg / day</dt><dd>{usd(r.dailyBurnCents)}</dd></div>
+          <div><dt>Earned</dt><Rolling cents={r.earnedCents} className="up" coin /></div>
+          <div><dt>Burned today</dt><Rolling cents={usage?.companyTodayCents ?? 0} className="down" /></div>
+          <div><dt>Avg / day</dt><Rolling cents={r.dailyBurnCents} /></div>
         </dl>
       )}
     </section>

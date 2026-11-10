@@ -12,6 +12,7 @@ import { agentLabel, bubbleText } from '../data/views';
 import { PortraitCanvas } from './Dialogue';
 import { lookFor, quirkProp } from '../world/sprites';
 import { SkillBadges } from './Skills';
+import { play } from '../sfx';
 
 /* DOM layer over the canvas: floor signs, the floor rail, HQ card, zoom and toasts.
    Positions come from the renderer's anchors every frame and are written straight to style,
@@ -214,7 +215,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* floor rail */}
       {wide && (
         <nav className="rail" aria-label="Floors">
-          <div className="rail-disp" aria-live="polite" title={`${n + 1} floors: the Executive Office and ${n} more`}><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? n - depts.indexOf(openDept) : ui.execRoom ? 'PH' : n + 1}</div>
+          <LiftDisplay n={n} at={openDept ? n - depts.indexOf(openDept) : ui.execRoom ? n + 1 : null} />
           <button className={`rail-b ph${ui.execRoom ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} title="Executive office" aria-label="PH Executive office: go inside">PH</button>
           {depts.map((d, i) => (
             <button key={d.id} className={`rail-b${ui.floorId === d.id ? ' sel' : ''}`} onClick={() => openFloor(d.id)} title={d.name} aria-label={`F${n - i} ${d.name}`}>
@@ -307,4 +308,27 @@ function holdToTalk(onHold: () => void, onClick: () => void) {
       onClick();
     },
   };
+}
+
+/** The lift's floor display: when you pick a floor it counts through the floors in between (a click each), then
+    rings once on arrival; the tower view shows how many floors there are. PH is the floor above the top one. */
+function LiftDisplay({ n, at }: { n: number; at: number | null }) {
+  const [shown, setShown] = useState<number | null>(at);
+  const [dir, setDir] = useState<'up' | 'down'>('up');
+  useEffect(() => {
+    if (at === null || shown === null || at === shown) { setShown(at); return; }
+    setDir(at > shown ? 'up' : 'down');
+    const id = window.setTimeout(() => {
+      const next = shown + (at > shown ? 1 : -1);
+      setShown(next);
+      play(next === at ? 'lift' : 'pass');
+    }, 150);
+    return () => window.clearTimeout(id);
+  }, [at, shown]);
+  const label = shown === null ? n + 1 : shown === n + 1 ? 'PH' : shown;
+  return (
+    <div className={`rail-disp${shown !== at ? ' moving' : ''}`} aria-live="polite" title={`${n + 1} floors: the Executive Office and ${n} more`}>
+      <span className="rail-arrow" aria-hidden="true">{shown === null ? '▲' : dir === 'up' ? '▲' : '▼'}</span>{label}
+    </div>
+  );
 }

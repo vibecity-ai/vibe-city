@@ -10,7 +10,8 @@ import {
   mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
-import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, templateKiosk, type ExecObjectId } from './execRoom';
+import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, kanbanWall, templateKiosk, type ExecObjectId } from './execRoom';
+import { columnOf } from '../data/company';
 import { execAction, floorAction } from '../execActions';
 import { listedFloors, stationFor, stationKeyOf, type FloorObjectId } from '../data/floor';
 import { STATION_BOX, archiveStatic, clockLive, floorObjects, keySafe, skillShelf, stationLive, stationStatic, toolsRackLive, toolsRackStatic } from './floorRoom';
@@ -632,8 +633,10 @@ export class City {
     const bake = (key: string, fn: (q: IC) => void) => this.bk.draw(px, this.bk.get('exec|' + key + '|' + power, (q) => { bc.px = q; fn(bc); }), 0, T);
     bake('shell', (q) => { shell(q, EXEC_THEME); execProps(q); });
     roomLights(c, lit);
-    orgMap(c, s.depts, t, lit);
-    cast(c, 14, 118, 36, 14, 14, 0.24); cast(c, 0, 70, 16, 18, 20, 0.22); cast(c, 30, 13, 18, 18, 12, 0.2);
+    { const n: [number, number, number, number] = [0, 0, 0, 0], at = { queued: 0, active: 1, attention: 2, finished: 3 } as const;
+      for (const q of s.quests) n[at[columnOf(q.summary.status)]]++;
+      kanbanWall(c, n, t, lit); }
+    cast(c, 14, 118, 36, 14, 14, 0.24); cast(c, 0, 70, 16, 18, 20, 0.22);
     bake('furniture', (q) => execFurniture(q));
     chiefDeskLive(c, 'running', lit);
     templateKiosk(c, lit);

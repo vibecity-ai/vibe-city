@@ -14,21 +14,14 @@ export function execAction(id: ExecObjectId) {
   s.ui$(CLEAR_DESK);
   switch (id) {
     case 'desk': s.openPanel('board', { composer: true, composerDept: null, boardDept: null, boardQuest: null }); break;
-    // the meeting table: the Ops board, every floor's jobs
-    case 'table': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
+    // the kanban board on the wall: the Ops board, every floor's jobs
+    case 'board': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
     case 'trophy': s.ui$({ questLog: true }); break;
-    case 'org': case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
+    case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
     // always a fresh chat with the Chief of Staff's menu ("Hire a new agent" picks up a search already under way)
     case 'assistant': s.ui$({ newDept: true }); break;
     case 'library': s.ui$({ skillLib: { deptId: null, skill: null } }); break;
     case 'templates': s.ui$({ modal: 'create' }); break;
-    case 'phone': {
-      // The phone rings for incoming calls (AR); otherwise it reaches the assistant.
-      const h = s.hiring;
-      if (h && h.state === 'ringing') void api.hiringAnswer(h.id).then((v) => { s.hiring$(v); s.ui$({ call: { mode: 'ar', reqId: v.id } }); }).catch(() => undefined);
-      else s.ui$({ newDept: true });
-      break;
-    }
   }
 }
 

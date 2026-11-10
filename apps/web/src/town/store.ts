@@ -74,7 +74,7 @@ interface UI {
   /** The Chief of Staff drafting the Agent Market listing with the boss. */
   marketDraft: boolean;
   /** Inside the Executive Office (the penthouse opened up, feature spec 3.1), and which of its screens is open. */
-  execRoom: boolean; execModal: 'org' | 'safe' | 'calendar' | null;
+  execRoom: boolean; execModal: 'safe' | 'calendar' | null;
   /** Calendar opened from a floor: show only that floor's schedules. */
   scheduleDept: string | null;
   /** The CEO quest log window (brief 05). */

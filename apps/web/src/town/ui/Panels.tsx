@@ -82,26 +82,33 @@ export function TopBar() {
   const items = useMemo(() => tickerItems(depts, quests), [depts, quests]);
   const agents = depts.reduce((n, d) => n + d.teamSize, 0);
   const down = [!conn.backend && 'Backend', !conn.hermes && 'Hermes', !conn.gateway && 'Gateway'].filter((x): x is string => !!x);
-  const health = down.length === 0 ? 'ok' : conn.backend && conn.hermes ? 'warn' : 'bad';
-  const said = `Backend ${conn.backend ? 'connected' : 'not responding'}. Hermes ${conn.hermes ? 'connected' : 'not responding'}. Gateway ${conn.gateway ? 'running' : 'not running'}.${stale ? ' Showing out-of-date data.' : ''}`;
-  const run = (copy: boolean) => items.map((t, i) => <span key={`${copy}${i}`} className={`tk ${t.tone}`}><i aria-hidden="true" />{t.text}</span>);
+  // a dropped live link is not an outage (floors still refresh every 30 s): the dot turns amber, nothing else shouts
+  const reconnecting = useStore((s) => Object.keys(s.liveDown).length > 0);
+  const health = down.length === 0 ? (reconnecting ? 'warn' : 'ok') : conn.backend && conn.hermes ? 'warn' : 'bad';
+  const said = `Backend ${conn.backend ? 'connected' : 'not responding'}. Hermes ${conn.hermes ? 'connected' : 'not responding'}. Gateway ${conn.gateway ? 'running' : 'not running'}.${reconnecting ? ' Live updates are reconnecting; floors still refresh every 30 seconds.' : ''}${stale ? ' Showing out-of-date data.' : ''}`;
+  // the news line: one item at a time, the next every 6 s (a scrolling marquee trained people to ignore it)
+  const [tick, setTick] = useState(0);
+  useEffect(() => { const id = window.setInterval(() => setTick((x) => x + 1), 6000); return () => window.clearInterval(id); }, []);
+  const item = items.length ? items[tick % items.length]! : null;
   return (
     <header className="top">
-      <button className="brand" title="Back to the tower" aria-label="Vibe City: back to the tower" onClick={closeFloor}><Wordmark height={52} /></button>
+      <button className="brand" title="Back to the tower" aria-label="Vibe City: back to the tower" onClick={closeFloor}><Wordmark height={26} /></button>
       <div className="co"><CompanyName name={company?.name ?? null} /><span>{depts.length} floor{depts.length === 1 ? '' : 's'} · {agents} agent{agents === 1 ? '' : 's'}</span></div>
-      <div className="ticker" role="marquee" aria-label="What is happening in the company">
-        {items.length === 0 ? <span className="tk idle">All quiet. Give a floor a job from the Ops board.</span>
-          : <div className="ticker-track" style={{ ['--dur' as string]: `${Math.max(20, items.length * 7)}s` }}>{run(false)}<span aria-hidden="true" className="ticker-copy">{run(true)}</span></div>}
+      <div className="ticker" aria-label="What is happening in the company">
+        {!item ? <span className="tk idle">All quiet. Give a floor a job from the Ops board.</span>
+          : <span key={tick % items.length} className={`tk ${item.tone}`}><i aria-hidden="true" />{item.text}</span>}
+        {items.length > 1 && <span className="tk-n" aria-hidden="true">{(tick % items.length) + 1}/{items.length}</span>}
       </div>
-      {game && <button className="topkey" aria-pressed={questLogOpen} aria-label={`Quest log: ${progressLabel(game)}`} onClick={() => useStore.getState().ui$({ questLog: true })}>
+      <div id="hud-phone" className="hud-phone" />
+      {game && <button className="topkey quests" aria-pressed={questLogOpen} aria-label={`Quest log: ${progressLabel(game)}`} onClick={() => useStore.getState().ui$({ questLog: true })}>
         <span aria-hidden="true">Quests</span>
       </button>}
-      <button className="topkey" aria-pressed={onBoard} aria-label={`Ops board: your agents' jobs${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
+      <button className="topkey ops" aria-pressed={onBoard} aria-label={`Ops board: your agents' jobs${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
         <span aria-hidden="true">Ops board</span>{attn > 0 && <b className="bad" title="Jobs that need attention" aria-hidden="true">{attn}</b>}
       </button>
       <SoundKey />
       {stale && <span className="stale" title="The last refresh failed; floors show the last data received">Out of date</span>}
-      <span className={`health ${health}`} title={said}><i aria-hidden="true" /><span>{down.length ? `${down.join(' · ')} off` : 'Live'}</span></span>
+      <span className={`health ${health}`} title={said}><i aria-hidden="true" /><span>{down.length ? `${down.join(' · ')} off` : reconnecting ? 'Reconnecting' : 'Live'}</span></span>
       <span className="sr" aria-live="polite">{said}</span>
     </header>
   );
@@ -119,8 +126,9 @@ export function ExecPanel() {
         <PendingRequests />
         <StatusBoard />
         <Directory />
+        {/* one pink button per screen (the quest's): adding a floor is a plain action here and the ghost floor on the tower */}
+        <section className="pane-sec"><button className="btn secondary block" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add floor</button></section>
       </div>
-      <div className="pane-foot"><button className="btn primary block lg" onClick={() => ui$({ modal: 'create' })}><Icon n="plus" sw={3} />Add floor</button></div>
     </div>
   );
 }
@@ -143,15 +151,12 @@ export function DeptPanel() {
     <div className="pane">
       <div className="pane-scroll">
         <section className="pane-head">
-          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>Floor</Where><button className="x" onClick={s.closeFloor} aria-label="Close floor"><Icon n="x" /></button></div>
+          <div className="head-row"><Where n={'F' + floorNum(s.depts, d.id)}>Floor</Where><span className="head-tools"><button className="x" onClick={() => s.openPanel('settings')} aria-label="Floor settings" title="Settings"><Icon n="sliders" /></button><button className="x" onClick={s.closeFloor} aria-label="Close floor"><Icon n="x" /></button></span></div>
           <div className="title-row"><h1 className="display" tabIndex={-1}>{d.name}</h1><Chip k={st.k} label={st.label} /></div>
           <Purpose text={d.purpose} />
           <div className="actions">
             <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs the floor in sync with Hermes, and Hermes reachable'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New job</button>
-            <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Jobs on the board</Btn>
-            <Btn kind="secondary" onClick={() => s.openPanel('settings')}><Icon n="sliders" size={14} />Settings</Btn>
             <Btn kind="secondary" onClick={() => void callAr(d.id)}><Icon n="phone" size={14} />Hire</Btn>
-            <Btn kind="secondary" onClick={() => s.ui$({ execModal: 'calendar', scheduleDept: d.id })}>Schedules</Btn>
           </div>
           {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New jobs need the floor to be in sync with Hermes.' : 'New jobs need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new jobs wait in Queued until it starts.</p>}
@@ -160,7 +165,6 @@ export function DeptPanel() {
         </section>
         <div id="dept-panel" role="tabpanel" aria-labelledby={`dept-tab-${tab}`}>
           <div aria-live="polite">
-            {s.liveDown[d.id] && <div className="banner warn"><Glyph k="disconnected" /><div><b>Live updates reconnecting</b><p>The live link to the backend dropped. The floor still refreshes every 30 seconds.</p></div></div>}
             {d.state === 'offline' && (
               <div className="banner bad"><Glyph k="disconnected" /><div><b>Hermes resources not verified</b><p>{d.attention}. Agents can’t receive new work until this floor is verified again.</p>
                 <Btn kind="destructive" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>
@@ -195,7 +199,7 @@ export function DeptPanel() {
                   ))}
                   {d.workers.length === 0 && <div className="empty-w">No teammates: the lead does the work itself. Hire to add agents that work in parallel.</div>}
                 </div>
-                <p className="mono muted small">{running + (d.chief.status === 'running' ? 1 : 0)} of {d.teamSize} agent{d.teamSize === 1 ? '' : 's'} working · each is its own Hermes profile{d.teamSize > d.workers.length + 1 ? ` · ${d.teamSize - d.workers.length - 1} not drawn (no free desk)` : ''}</p></>}
+                <p className="mono muted small">{running + (d.chief.status === 'running' ? 1 : 0)} of {d.teamSize} agent{d.teamSize === 1 ? '' : 's'} working{d.teamSize > d.workers.length + 1 ? ` · ${d.teamSize - d.workers.length - 1} not drawn (no free desk)` : ''}</p></>}
               </section>
               {d.view.agents.length > 0 && <TeamModels d={d} />}
               <section className="pane-sec">
@@ -214,7 +218,7 @@ export function DeptPanel() {
           {tab === 'env' && <DeptEnvTab d={d} />}
           {tab === 'quests' && (
             <section className="pane-sec">
-              <p className="fine">You give and manage jobs on the company Ops board. This floor’s own Hermes board belongs to its agents; this list is read-only.</p>
+              <p className="fine">This floor’s jobs. You give and change jobs on the Ops board.</p>
               {s.questSync[d.id] === 'not_loaded' && <p className="field-err"><Glyph k="disconnected" />Jobs for this floor are not loaded yet, so this list is incomplete.</p>}
               <div className="stack">{quests.map((q) => <QuestMini key={q.summary.id} q={q} />)}{quests.length === 0 && s.questSync[d.id] !== 'not_loaded' && <p className="muted">No jobs yet.</p>}</div>
               <Btn kind="secondary" onClick={() => s.openPanel('board', { composer: false, boardDept: d.id })}>Open on the Ops board</Btn>

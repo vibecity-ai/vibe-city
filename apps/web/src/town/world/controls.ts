@@ -32,17 +32,15 @@ export function floorObjects(stationName: string | null): FloorObject[] {
 
 /* ---------------- the Executive Office ---------------- */
 
-export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'assistant' | 'library' | 'templates';
+export type ExecObjectId = 'desk' | 'board' | 'safe' | 'calendar' | 'trophy' | 'assistant' | 'library' | 'templates';
 /** Against the back wall, where a floor's kitchen counter used to be: the same spot in every room. */
 export const LIBRARY_BOX: Box6 = [192, 127, 0, 34, 13, 38];
 export const EXEC_OBJECTS: Control<ExecObjectId>[] = [
-  { id: 'phone', label: 'Phone', b: [23, 118, 13, 10, 7, 6] },
   { id: 'desk', label: 'Your desk', b: [13, 117, 0, 38, 16, 26] },
   { id: 'trophy', label: 'Quest log', b: [0, 118, 0, 8, 20, 46] },
   { id: 'safe', label: 'Safe', b: [0, 70, 0, 16, 18, 20] },
   { id: 'calendar', label: 'Calendar', b: [-1, 76, 21, 2, 15, 19] },
-  { id: 'org', label: 'Tower map', b: [92, 138, 6, 88, 2, 38] },
-  { id: 'table', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
+  { id: 'board', label: 'Ops board', b: [92, 138, 6, 88, 2, 38] },
   { id: 'assistant', label: 'Chief of Staff', b: [104, 92, 0, 8, 8, 34] },
   { id: 'library', label: 'Skill library', b: LIBRARY_BOX },
   { id: 'templates', label: 'Templates', b: [206, 12, 0, 22, 18, 40] },

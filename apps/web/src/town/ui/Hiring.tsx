@@ -3,6 +3,7 @@
    candidates (two serious, two joke); you can interview any of them, then hire one. Every number on a card comes from
    the backend: loadouts are built from what Hermes really offers, and the joke candidates' numbers are honestly bad. */
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Candidate, ChatMessage, HiringRequestView, InterviewReply } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
@@ -53,14 +54,22 @@ function useNow(active: boolean) {
   return now;
 }
 
+/** The phone slot in the top bar (TopBar renders it): calls and the scouting status sit there, never over the game. */
+function useHudSlot() {
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useEffect(() => { setEl(document.getElementById('hud-phone')); }, []);
+  return el;
+}
+
 export function HiringLayer() {
   useHiringPoll();
   const h = useStore((s) => s.hiring);
   const c = useStore((s) => s.ui.call);
+  const slot = useHudSlot();
   return (
     <>
-      {h && !c && h.state === 'ringing' && <IncomingCall h={h} />}
-      {h && !c && (h.state === 'scouting' || h.state === 'shortlist') && <ScoutBanner h={h} />}
+      {slot && h && !c && h.state === 'ringing' && createPortal(<IncomingCall h={h} />, slot)}
+      {slot && h && !c && (h.state === 'scouting' || h.state === 'shortlist') && createPortal(<ScoutBanner h={h} />, slot)}
       {c?.mode === 'ar' && <ArDialogue key={c.reqId} reqId={c.reqId} />}
       {c?.mode === 'interview' && c.candId && <InterviewDialogue key={c.candId} reqId={c.reqId} candId={c.candId} />}
       {c?.mode === 'shortlist' && <Shortlist reqId={c.reqId} />}
@@ -77,28 +86,29 @@ export async function callAr(departmentId?: string) {
   } catch (e) { useStore.getState().toast(e instanceof ApiError ? e.message : 'Could not reach the Chief of Staff.', 'bad'); }
 }
 
+/** The Chief of Staff calling: a small phone in the top bar that rings three times and then waits quietly. It never
+    takes the keyboard and never covers the game; the reason shows on hover or focus. */
 function IncomingCall({ h }: { h: HiringRequestView }) {
   const look = useMemo(() => arLook(h), [h]);
   useEffect(() => {
     if (readMuted()) return;
-    const ring = () => { blip(880, 0.03, 0.08); window.setTimeout(() => blip(660, 0.03, 0.08), 140); };
-    ring(); const id = window.setInterval(ring, 2200);
+    let n = 0;
+    const ring = () => { blip(880, 0.03, 0.08); window.setTimeout(() => blip(660, 0.03, 0.08), 140); if (++n >= 3) window.clearInterval(id); };
+    const id = window.setInterval(ring, 2200); ring();
     return () => window.clearInterval(id);
   }, []);
   const answer = async () => { try { set(await api.hiringAnswer(h.id)); call({ mode: 'ar', reqId: h.id }); } catch { /* the poll will retry */ } };
   const decline = async () => { try { set(await api.hiringDecline(h.id)); } catch { /* ignore */ } set(null); };
   return (
-    <div className="ring" role="alertdialog" aria-labelledby="ring-t" aria-describedby="ring-d">
+    <div className="ring" role="status" aria-labelledby="ring-t" aria-describedby="ring-d">
       <div className="ring-face"><PortraitCanvas look={look} mood="worried" talking={false} size={96} gag="clipboard" className="ring-portrait" /></div>
       <div className="ring-body">
-        <span className="ring-tag"><Icon n="bell" size={12} /> Incoming call · Chief of Staff</span>
+        <span className="ring-tag"><Icon n="phone" size={11} /> Calling</span>
         <b id="ring-t">{h.ar.name}</b>
-        <span id="ring-d">{h.trigger.reason}</span>
       </div>
-      <div className="ring-act">
-        <button className="btn primary small" onClick={() => void answer()} autoFocus>Answer</button>
-        <button className="btn small" onClick={() => void decline()}>Decline</button>
-      </div>
+      <button className="ring-yes" onClick={() => void answer()}>Answer</button>
+      <button className="ring-no" onClick={() => void decline()} aria-label="Decline the call" title="Decline"><Icon n="x" size={13} /></button>
+      <p className="ring-why" id="ring-d">{h.trigger.reason}</p>
     </div>
   );
 }

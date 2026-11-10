@@ -495,23 +495,3 @@ export function roomLights(c: IC, lit: boolean) {
   for (let v = 15; v < V; v += 40) L.add(...P(0, v, 50), 46, '#FF3EA5', 0.26, 0.9);
   for (let u = 20; u < U; u += 44) L.add(...P(u, V, 50), 46, '#FF3EA5', 0.24, 0.9);
 }
-/** Meeting nook in the front-left: table, stools, a rolling whiteboard with scribbles. */
-export function meetingStatic(c: IC) {
-  const { P, px } = c;
-  for (const [u, v] of [[26, 22], [52, 22], [39, 8], [39, 36]] as Pt[]) {
-    px.line(P(u, v, 0), P(u, v, 7), '#3A3458');
-    box(c, u - 3, v - 3, 7, 6, 6, 2, '#3A2448', { top: '#5A3A6A' });
-  }
-  box(c, 37, 20, 0, 4, 4, 10, '#3A3458', { edge: false });
-  box(c, 30, 13, 10, 18, 18, 2, '#C9C3EA', { top: '#E8E3FA' });
-  box(c, 34, 16, 12, 6, 4, 1, '#2A2440', { top: '#4A4370', edge: false });
-  box(c, 43, 24, 12, 3, 3, 3, '#EDE8FF', { top: '#5A3020', edge: false });
-  box(c, 38, 26, 12, 5, 4, 1, '#FFC75A', { edge: false });
-  // whiteboard on wheels, facing the room
-  for (const v of [10, 34]) { px.line(P(66, v, 0), P(66, v, 14), '#4A4370'); px.dot(...(P(66, v, 0).map(Math.floor) as Pt), '#140F22', 0, 2); }
-  box(c, 64, 8, 14, 2, 28, 20, '#8C84B8', { right: '#F4F0FF', top: '#B8B0E0' });
-  const W = (v: number, h: number) => P(66, v, h);
-  px.line(W(12, 30), W(22, 30), '#2EB8F0'); px.line(W(12, 27), W(26, 27), '#2EB8F0'); px.line(W(12, 24), W(19, 24), '#FF3EA5');
-  px.line(W(25, 21), W(32, 31), '#2A2440'); px.line(W(28, 22), W(31, 22), '#2A2440');
-  px.poly([W(12, 18), W(16, 18), W(16, 20), W(12, 20)], '#7CF5B4'); px.poly([W(18, 18), W(22, 18), W(22, 20), W(18, 20)], '#FFB547');
-}

@@ -162,7 +162,7 @@ export function QuestAction({ q, onGo, compact }: { q: CeoQuest; onGo?: () => vo
     case 'connector': return <ConnectorQuest name={t.name} />;
     case 'quest-board': return <button className="btn primary small" onClick={go(() => s.openPanel('board', { composer: true, boardDept: null }))}>Give Treasury Ops the launch</button>;
     case 'cos': return compact
-      ? <button className="btn primary small" onClick={go(() => s.ui$({ questLog: true }))}>Set it up</button>
+      ? <span className="ql-cos"><button className="btn primary small" onClick={go(() => s.ui$({ questLog: true }))}>Set it up</button><a className="ql-keylink" href="https://cloud.near.ai" target="_blank" rel="noreferrer">Get a key at cloud.near.ai ↗</a></span>
       : <ChiefOfStaffSetup />;
     case 'market': return <MarketQuest />;
     case 'note': return <span className="ql-note">{t.text}</span>;

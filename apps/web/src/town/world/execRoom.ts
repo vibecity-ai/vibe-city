@@ -2,10 +2,8 @@
    company's control room, and every object is a control (see EXEC_OBJECTS and ui/ExecRoom.tsx for what each opens).
    Built from the same pieces as a department office (shell, desk, shelf, meeting nook) plus a few exec-only props;
    the wall map is drawn live from the real floors. */
-import type { Dept } from '../data/types';
 import type { Pt } from './pix';
-import { box, chiefDeskStatic, shelfItem, meetingStatic, plant, chairItem, C, STATUS_COL, type IC } from './interior';
-import { shade } from './sprites';
+import { box, chiefDeskStatic, shelfItem, plant, chairItem, C, STATUS_COL, type IC } from './interior';
 
 export { EXEC_OBJECTS, LIBRARY_BOX, type ExecObjectId } from './controls';
 export const ASSISTANT_SPOT: Pt = [108, 96];
@@ -59,21 +57,11 @@ export function libraryCabinet(c: IC) {
   px.poly([P(201, 130, 39), P(217, 130, 39), P(217, 130, 42), P(201, 130, 42)], C.gold, 1);
 }
 
-/** The phone on the desk, cherry red with a cord: drawn after the desk (and beside its notepad) so nothing covers it. */
-function deskPhone(c: IC) {
-  const { P, px } = c;
-  box(c, 24, 119, 14, 8, 5, 2, '#A82848', { top: '#E0406A' });
-  box(c, 24, 120, 16, 8, 2, 1.5, '#C8325A', { top: '#FF5C8A', edge: false });
-  px.line(P(32, 122, 14), P(36, 125, 14), '#6A1A30');
-}
-
 export function execFurniture(c: IC) {
   libraryCabinet(c);
   chiefDeskStatic(c);
-  deskPhone(c);
   shelfItem(c);
-  meetingStatic(c);
-  plant(c, 84, 132, true, 7); plant(c, 12, 8, true, 11); plant(c, 232, 112, false, 5); plant(c, 100, 10, false, 9);
+  plant(c, 84, 132, true, 7); plant(c, 12, 8, true, 11); plant(c, 232, 112, false, 5);
 }
 
 /** The template kiosk on the lounge rug: a holo projector fanning three floating floor cards (gold, cyan, pink) that
@@ -106,27 +94,33 @@ export function templateKiosk(c: IC, lit: boolean) {
   L.add(...P(217, 18, 22), 60, C.cyan, 0.45, 0.8);
 }
 
-/** The tower map on the back wall: one lit row per floor, coloured by its state. Drawn live. */
-export function orgMap(c: IC, depts: Dept[], t: number, lit: boolean) {
+/** The kanban board on the back wall: the Ops board's four columns (Order in, On the line, Your call, Served), each
+    with a card per job (up to five, then a "+"), coloured like the real board. Jobs waiting on you blink. Drawn live. */
+export function kanbanWall(c: IC, counts: [number, number, number, number], t: number, lit: boolean) {
   const { P, px, L } = c;
   const WR = (u: number, h: number) => P(u, 140, h);
-  px.poly([WR(94, 10), WR(178, 10), WR(178, 40), WR(94, 40)], '#0A0618');
+  // the board: a dark felt panel in a light frame
+  px.poly([WR(93, 9), WR(179, 9), WR(179, 41), WR(93, 41)], '#3A3458');
+  px.poly([WR(94, 10), WR(178, 10), WR(178, 40), WR(94, 40)], lit ? '#120C22' : '#0A0618');
   if (!lit) return;
-  px.text('TOWER', (a, b) => WR(97 + a, 38 - b), 1, C.gold, 1);
-  const rows = [{ label: 'PH', col: C.gold, n: 0 }, ...depts.map((d, i) => ({ label: `F${depts.length - i}`, col: d.state === 'unconfigured' ? C.amber : d.state === 'offline' ? '#6A6488' : d.workers.some((w) => w.status === 'failed') ? C.red : d.workers.some((w) => w.status === 'running') || d.chief?.status === 'running' ? C.cyan : C.lav, n: d.workers.length }))].slice(0, 6);
-  const rh = 22 / Math.max(rows.length, 1);
-  rows.forEach((r, i) => {
-    const h1 = 31 - i * rh, h0 = h1 - rh + 1;
-    px.poly([WR(97, h0), WR(130, h0), WR(130, h1), WR(97, h1)], shade(r.col, -0.55));
-    px.poly([WR(97, h0), WR(99, h0), WR(99, h1), WR(97, h1)], r.col, 1);
-    for (let k = 0; k < Math.min(6, r.n); k++) { const blink = Math.floor(t * 2 + k + i) % 5 === 0 ? 0.5 : 1; px.push(blink); px.poly([WR(102 + k * 4, h0 + 1), WR(104.5 + k * 4, h0 + 1), WR(104.5 + k * 4, h1 - 1), WR(102 + k * 4, h1 - 1)], r.col, 1); px.pop(); }
+  const cols = [C.lav, C.cyan, C.amber, C.mint];
+  cols.forEach((col, i) => {
+    const u0 = 96 + i * 20.5, u1 = u0 + 18;
+    px.poly([WR(u0, 35), WR(u1, 35), WR(u1, 38), WR(u0, 38)], col, 1);            // the column's header strip
+    const n = counts[i]!;
+    for (let k = 0; k < Math.min(5, n); k++) {
+      const h1 = 33 - k * 4.4, h0 = h1 - 3.4;
+      const blink = i === 2 && Math.floor(t * 2) % 2 === 0 ? 0.55 : 1;
+      px.push(blink);
+      px.poly([WR(u0 + 1, h0), WR(u1 - 1, h0), WR(u1 - 1, h1), WR(u0 + 1, h1)], '#EDE6D2');           // the paper ticket
+      px.poly([WR(u0 + 1, h1 - 1), WR(u0 + 3, h1 - 1), WR(u0 + 3, h1), WR(u0 + 1, h1)], col, 1);       // its status clip
+      px.line(WR(u0 + 4.5, h1 - 1.6), WR(u1 - 3 - (k % 3) * 2, h1 - 1.6), '#7A7290');                  // a line of text
+      px.pop();
+    }
+    if (n > 5) px.text('+', (a, b) => WR(u1 - 3 + a, 12.5 - b), 1, col, 1);
   });
-  // right half: a tiny bar chart of agents per floor
-  depts.slice(0, 8).forEach((d, i) => {
-    const hgt = 3 + Math.min(18, (d.workers.length + 1) * 3);
-    px.poly([WR(136 + i * 5, 12), WR(139 + i * 5, 12), WR(139 + i * 5, 12 + hgt), WR(136 + i * 5, 12 + hgt)], i % 2 ? C.pink : C.cyan, 1);
-  });
-  L.add(...P(136, 140, 25), 70, C.cyan, 0.35, 0.8);
+  L.add(...P(136, 140, 25), 80, C.cyan, 0.32, 0.8);
+  if (counts[2] > 0) L.add(...P(147, 140, 22), 40, C.amber, 0.25 + 0.15 * Math.sin(t * 4), 0.7);
 }
 
 /** Corners of a footprint box, projected (for hit tests and outlines). */
