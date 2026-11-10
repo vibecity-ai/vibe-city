@@ -1,16 +1,16 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from './db/db.ts';
-import { DAO_DEPOSIT, IpoService, PAYOUT, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, shares, units } from './domain/ipoService.ts';
+import { DAO_DEPOSIT, IpoService, PAYOUT, TOKEN_FACTORY, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, shares, units } from './domain/ipoService.ts';
 import type { AccountInfo, NearReader } from './near/rpc.ts';
 import { ConflictError, UpstreamError } from './domain/errors.ts';
 
-const WALLET = 'a'.repeat(64), CEO = 'boss.near', DAO = 'acme-labs.sputnik-dao.near', TOKEN = 'acme.tkn.near', USDC = PAYOUT.USDC.contract;
+const WALLET = 'a'.repeat(64), CEO = 'boss.near', DAO = 'acme-labs.sputnik-dao.near', TOKEN = `acme.${TOKEN_FACTORY}`, USDC = PAYOUT.USDC.contract;
 const decode = (b64: string) => JSON.parse(Buffer.from(b64, 'base64').toString());
 
 /** A tiny mainnet: accounts, the DAO's policy, token balances, and what the company wallet's calls do to them. */
 function fakeChain() {
-  const accounts = new Map<string, AccountInfo>([['tkn.near', { amount: '0', codeHash: TOKEN_FACTORY_HASH, globalCodeHash: null }]]);
+  const accounts = new Map<string, AccountInfo>([[TOKEN_FACTORY, { amount: '0', codeHash: TOKEN_FACTORY_HASH, globalCodeHash: null }]]);
   const keys = new Map<string, number>();
   const policies = new Map<string, unknown>();
   const tokens = new Map<string, { owner_id: string }>();
@@ -50,9 +50,9 @@ function fakeChain() {
       if (method === 'create_token') {
         const a = args.args as { owner_id: string; total_supply: string; metadata: { symbol: string } };
         const id = a.metadata.symbol.toLowerCase();
-        accounts.set(`${id}.tkn.near`, { amount: '0', codeHash: TOKEN_HASH, globalCodeHash: null });
+        accounts.set(`${id}.${TOKEN_FACTORY}`, { amount: '0', codeHash: TOKEN_HASH, globalCodeHash: null });
         tokens.set(id, { owner_id: a.owner_id });
-        setBal(`${id}.tkn.near`, a.owner_id, BigInt(a.total_supply));
+        setBal(`${id}.${TOKEN_FACTORY}`, a.owner_id, BigInt(a.total_supply));
       }
       return { status: 'success' as const, txHash: `tx${++n}`, result: method === 'add_proposal' ? n : null };
   };
@@ -98,7 +98,7 @@ test('unlocked: creates the DAO (CEO approves, wallet only proposes), registers 
   assert.equal((await ipo.view(true)).state, 'ready');
   const s = await ipo.launch(LAUNCH, true);
   assert.deepEqual(chain.calls.map((c) => `${c.receiver} ${c.method}`), [
-    'sputnik-dao.near create', `${USDC} storage_deposit`, 'wrap.near storage_deposit', 'tkn.near create_token',
+    'sputnik-dao.near create', `${USDC} storage_deposit`, 'wrap.near storage_deposit', `${TOKEN_FACTORY} create_token`,
   ]);
   const create = chain.calls[0]!;
   assert.equal(create.args.name, 'acme-labs');
@@ -152,7 +152,7 @@ test('a DAO name or token symbol someone else owns is refused, not adopted', asy
 
 test('a factory or token that is not the code we checked is not paid / not marked done', async () => {
   const chain = fakeChain();
-  chain.accounts.set('tkn.near', { amount: '0', codeHash: 'other', globalCodeHash: null });
+  chain.accounts.set(TOKEN_FACTORY, { amount: '0', codeHash: 'other', globalCodeHash: null });
   const { ipo } = service(chain);
   await assert.rejects(ipo.launch(LAUNCH, true), /different code/);
   assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 0);
@@ -236,4 +236,22 @@ test('a wallet that needs approvals: each step waits, Continue never sends a cal
   s = await ipo.view(true);
   assert.equal(s.proposals[0]!.awaitingWalletApproval, false);
   assert.ok(s.proposals[0]!.id !== null && s.proposals[0]!.txHash, 'filed once approved');
+});
+
+test('an IPO that ran on tkn.near (no events) keeps its DAO and creates the token again on our factory', async () => {
+  const { ipo, chain, db } = service();
+  db.prepare('INSERT INTO ipo (id, state_json) VALUES (1, ?)').run(JSON.stringify({
+    ceoAccountId: CEO, symbol: 'ACME', daoAccountId: DAO, tokenAccountId: 'acme.tkn.near', txHashes: ['old'], holders: ['ann.near'],
+    proposals: [{ id: 0, kind: 'allocate', title: 'old', txHash: 'old', at: 'x' }], error: null, done: true, pending: null,
+  }));
+  chain.accounts.set(DAO, { amount: '1', codeHash: '1', globalCodeHash: null });
+  (chain.rpc as { view: Function }).view = ((orig) => async (c: string, m: string, a?: Record<string, unknown>) =>
+    (m === 'get_policy' && c === DAO ? { roles: [{ name: 'Approver', kind: { Group: [CEO] } }, { name: 'Requestor', kind: { Group: [CEO, WALLET] } }] } : orig(c, m, a)))(chain.rpc.view.bind(chain.rpc));
+  assert.equal((await ipo.view(false)).state, 'ready');
+  const s = await ipo.launch(LAUNCH, false);
+  assert.equal(s.state, 'done');
+  assert.equal(s.tokenAccountId, TOKEN);
+  assert.deepEqual(s.holders, []);
+  assert.deepEqual(s.proposals, []);
+  assert.deepEqual(chain.calls.filter((c) => c.method === 'create').length, 0, 'the DAO is kept');
 });

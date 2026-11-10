@@ -1,5 +1,5 @@
 /* The IPO card (docs/briefs/06-ipo.md), under the wallet in the safe: the company wallet creates the Sputnik DAO and a
-   tkn.near city token, then the CEO shares revenue by DAO proposals approved in Trezu. */
+   city token from the Vibe City token factory, then the CEO shares revenue by DAO proposals approved in Trezu. */
 import { useEffect, useState } from 'react';
 import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState } from '@vibe-city/shared';
 import { useStore } from '../store';
@@ -56,8 +56,8 @@ function LaunchForm({ ipo, ceo, company, busy, onLaunch }: { ipo: IpoState; ceo:
   return (
     <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (ok) onLaunch({ ceoAccountId: account.trim(), symbol }); }}>
       <label className="field"><span className="lbl">Your NEAR account (approves DAO proposals)</span><input className="input mono" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="you.near" /></label>
-      <label className="field"><span className="lbl">City token symbol (tkn.near factory token)</span><input className="input mono" value={symbol} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
-      <p className="fine">About 3.4 NEAR from the company wallet: 1 NEAR to the DAO, ~2.23 NEAR for the token.</p>
+      <label className="field"><span className="lbl">City token symbol</span><input className="input mono" value={symbol} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
+      <p className="fine">About 3.4 NEAR from the company wallet: 1 NEAR to the DAO, about 2 NEAR for the token.</p>
       {ipo.state === 'error' && ipo.error && <p className="field-err" role="alert">{ipo.error}</p>}
       <button className="btn primary small" type="submit" disabled={busy || !ok}>{busy ? 'Working…' : ipo.state === 'error' ? 'Retry IPO' : 'IPO'}</button>
     </form>
@@ -76,7 +76,7 @@ function Done({ ipo, busy, run }: { ipo: IpoState; busy: boolean; run: (f: () =>
     <>
       <dl className="kv">
         <div><dt>DAO</dt><dd>{ext(`${NB}/address/${dao}`, dao)} · {ext(trezu(dao), 'Open in Trezu')}</dd></div>
-        <div><dt>Token</dt><dd>{ipo.tokenAccountId && ext(`${NB}/address/${ipo.tokenAccountId}`, ipo.tokenAccountId)} · {ipo.symbol} · tkn.near factory token</dd></div>
+        <div><dt>Token</dt><dd>{ipo.tokenAccountId && ext(`${NB}/address/${ipo.tokenAccountId}`, ipo.tokenAccountId)} · {ipo.symbol} · Vibe City factory token</dd></div>
         {ipo.txHashes.length > 0 && <div><dt>Transactions</dt><dd>{ipo.txHashes.map((h, i) => <span key={h}>{i > 0 && ' · '}{ext(`${NB}/txns/${h}`, `${h.slice(0, 8)}…`)}</span>)}</dd></div>}
       </dl>
       <h4>Revenue share by DAO vote</h4>

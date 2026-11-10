@@ -1,6 +1,6 @@
 /* The IPO (docs/briefs/06-ipo.md). The company OutLayer wallet signs every call; Vibe City holds no NEAR key.
      launch:   a Sputnik DAO on sputnik-dao.near (CEO approves and administers, the wallet only proposes), the DAO
-               registered on the payout tokens, then a city token on the tkn.near factory with the whole supply owned
+               registered on the payout tokens, then a city token from our factory (contracts/token-factory) with the whole supply owned
                by the DAO. Each step checks what is already on chain first, so a retry never creates a second one.
      allocate: a DAO proposal sending city tokens to one account (the demo's holders).
      dividend: one DAO proposal paying every holder its share of a payout, pro rata to its city tokens.
@@ -23,11 +23,12 @@ export interface ContractCaller {
 class Waiting extends Error {}
 
 export const DAO_FACTORY = 'sputnik-dao.near';
-export const TOKEN_FACTORY = 'tkn.near';
-/** Read on mainnet 2026-11-10: the tkn.near factory's code, and the code of every token it had created (no keys, NEP-141
-    methods only). If either changes we stop: the factory has a full-access key, so its owner can change what it deploys. */
-export const TOKEN_FACTORY_HASH = 'GqJ8R7fWXGvPQYTUcVBNbbTiMs3fZTdZAJVbQGvJCq9N';
-export const TOKEN_HASH = '4AVV1KUVgi17XoXkqxUPzyMhERXu15mGawriPQvWmBKD';
+/** Our factory (contracts/token-factory), deployed with its key deleted. Its tokens write NEP-297 ft_mint / ft_transfer
+    events, so indexers and Trezu see the balances (tkn.near's tokens write none: Trezu could not pay one out). The
+    hashes are base58 sha256 of contracts/res/*.wasm; if the chain reports another, the IPO stops. */
+export const TOKEN_FACTORY = 'tokens.vibecity.near';
+export const TOKEN_FACTORY_HASH = '2T714ij2kZ7qW8HsR1VVkWXh6oS1tKrHUh5EFhbLcsNC';
+export const TOKEN_HASH = '47Zib5N9S3nNtNPXVEtdERY1mFXJsUkoRbWc3HfbsbNd';
 const YOCTO = 10n ** 24n, TGAS = 10n ** 12n;
 /** Attached to `create` and forwarded to the DAO: with a zero proposal bond, the DAO pays for proposal storage and
     the holder registrations its proposals make. A 0.09 NEAR DAO has 0.0035 NEAR to spend. */
@@ -108,7 +109,11 @@ export class IpoService {
 
   private read(): Stored {
     const row = this.db.prepare('SELECT state_json FROM ipo WHERE id = 1').get() as { state_json: string } | undefined;
-    return { ...empty(), ...(row ? (JSON.parse(row.state_json) as Partial<Stored>) : {}) };
+    const s = { ...empty(), ...(row ? (JSON.parse(row.state_json) as Partial<Stored>) : {}) };
+    // ponytail: one-off for the 2026-11-10 mainnet run on tkn.near (no events, invisible to Trezu): keep the DAO, make
+    // the token step run again on our factory. Its holders and proposals were for that token. Delete after the hackathon.
+    if (s.tokenAccountId?.endsWith('.tkn.near')) Object.assign(s, { tokenAccountId: null, done: false, holders: [], proposals: [] });
+    return s;
   }
   private save(s: Stored) {
     this.db.prepare('INSERT INTO ipo (id, state_json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET state_json = excluded.state_json').run(JSON.stringify(s));
@@ -234,13 +239,13 @@ export class IpoService {
     const id = symbol.toLowerCase(), account = `${id}.${TOKEN_FACTORY}`;
     if (!(await this.rpc.account(account))) {
       const factory = await this.rpc.account(TOKEN_FACTORY);
-      if (factory?.codeHash !== TOKEN_FACTORY_HASH) throw new UpstreamError('tkn.near runs different code than the code we checked, so the IPO will not pay it. See docs/briefs/06-ipo.md.');
+      if (factory?.codeHash !== TOKEN_FACTORY_HASH) throw new UpstreamError(`${TOKEN_FACTORY} runs different code than contracts/res/token_factory.wasm, so the IPO will not pay it.`);
       const args = {
         owner_id: dao, total_supply: units(TOKEN_SUPPLY, TOKEN_DECIMALS).toString(),
         metadata: { spec: 'ft-1.0.0', name: `${this.companyName()} City Token`.slice(0, 60), symbol, decimals: TOKEN_DECIMALS, icon: null, reference: null, reference_hash: null },
       };
       // the factory keeps any overpayment (it has no refund path): attach exactly what it asks for
-      const deposit = await this.rpc.view<string>(TOKEN_FACTORY, 'get_required_deposit', { args, account_id: wallet });
+      const deposit = await this.rpc.view<string>(TOKEN_FACTORY, 'get_required_deposit');
       await this.call(st, TOKEN_FACTORY, 'create_token', { args }, 200n, BigInt(deposit));
     }
     const token = await this.settle(() => this.rpc.view<{ owner_id?: string } | null>(TOKEN_FACTORY, 'get_token', { token_id: id }).catch(() => null), (t) => !!t);
