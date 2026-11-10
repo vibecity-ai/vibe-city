@@ -1,14 +1,15 @@
 /* The IPO (docs/briefs/06-ipo.md). The company OutLayer wallet signs every call; Vibe City holds no NEAR key.
      launch:   a Sputnik DAO on sputnik-dao.near (CEO approves and administers, the wallet only proposes), the DAO
-               registered on the payout tokens, then a city token from our factory (contracts/token-factory) with the whole supply owned
-               by the DAO. Each step checks what is already on chain first, so a retry never creates a second one.
-     allocate: a DAO proposal sending city tokens to one account (the demo's holders).
-     dividend: one DAO proposal paying every holder its share of a payout, pro rata to its city tokens.
+               registered on the payout tokens, then the city token from our factory (contracts/token-factory): 60% to
+               the DAO, 40% offered to the public by the token itself at a price set from the game's numbers, the NEAR
+               going to the DAO. Each step checks the chain first, so a retry never creates a second one.
+     dividend: one DAO proposal paying the offering's buyers their share of a payout, pro rata to their tokens.
+     end sale: a DAO proposal closing the offering; the unsold float returns to the DAO.
    Proposals execute only when the CEO approves them in Trezu.
    A wallet whose OutLayer policy needs approvers answers `pending`: the request id is kept and the IPO waits
    (awaiting_approval); Continue asks OutLayer where that request stands and never sends the call a second time. */
 import type { DatabaseSync } from 'node:sqlite';
-import type { IpoAllocate, IpoDividend, IpoLaunch, IpoProposal, IpoState } from '@vibe-city/shared';
+import type { IpoDividend, IpoLaunch, IpoOffer, IpoProposal, IpoSale, IpoState } from '@vibe-city/shared';
 import type { NearReader } from '../near/rpc.ts';
 import type { CallOutcome } from './walletService.ts';
 import { ConflictError, InvalidInputError, UpstreamError } from './errors.ts';
@@ -24,17 +25,36 @@ class Waiting extends Error {}
 
 export const DAO_FACTORY = 'sputnik-dao.near';
 /** Our factory (contracts/token-factory), deployed with its key deleted. Its tokens write NEP-297 ft_mint / ft_transfer
-    events, so indexers and Trezu see the balances (tkn.near's tokens write none: Trezu could not pay one out). The
-    hashes are base58 sha256 of contracts/res/*.wasm; if the chain reports another, the IPO stops. */
+    events, so indexers and wallets see the balances (tkn.near's tokens write none). The hashes are base58 sha256 of
+    contracts/res/*.wasm; if the chain reports another, the IPO stops. */
 export const TOKEN_FACTORY = 'tokens.vibecity.near';
-export const TOKEN_FACTORY_HASH = '2T714ij2kZ7qW8HsR1VVkWXh6oS1tKrHUh5EFhbLcsNC';
-export const TOKEN_HASH = '47Zib5N9S3nNtNPXVEtdERY1mFXJsUkoRbWc3HfbsbNd';
+export const TOKEN_FACTORY_HASH = '2dHBNXcffRamdQp5GbjR6jufxsZf5YETCqZvUtF2WyMA';
+export const TOKEN_HASH = '69kCfhQEzxBzbyrvUoyLCLzDUdvJRh9wSC5G83cvXCem';
+/** The token version a saved IPO must have; an older one (tkn.near, or ours before the offering) is created again. */
+const TOKEN_VERSION = 2;
 const YOCTO = 10n ** 24n, TGAS = 10n ** 12n;
 /** Attached to `create` and forwarded to the DAO: with a zero proposal bond, the DAO pays for proposal storage and
     the holder registrations its proposals make. A 0.09 NEAR DAO has 0.0035 NEAR to spend. */
 export const DAO_DEPOSIT = YOCTO;
 export const TOKEN_DECIMALS = 6;
 export const TOKEN_SUPPLY = 1_000_000;
+/** The offering: this share of the supply is sold to the public; the price comes from the game's numbers.
+    ponytail: a fixed revenue multiple with a floor; a real IPO prices on book-building. */
+export const FLOAT_SHARE = 0.4;
+export const REVENUE_MULTIPLE = 20;
+export const MIN_VALUATION_USD = 1000;
+
+/** The offering's terms from what the company earned (game runway, cents) and NEAR's price in USD. */
+export function offerFrom(earnedCents: number, nearUsd: number): IpoOffer {
+  const earnedUsd = Math.max(0, earnedCents) / 100;
+  const valuationUsd = Math.max(MIN_VALUATION_USD, earnedUsd * REVENUE_MULTIPLE);
+  const nano = Math.max(1, Math.round((valuationUsd / TOKEN_SUPPLY / nearUsd) * 1e9)); // nanoNEAR per token: exact in a double
+  const priceYocto = BigInt(nano) * 10n ** 15n;
+  return {
+    valuationUsd, earnedUsd, multiple: REVENUE_MULTIPLE, supply: TOKEN_SUPPLY, floatTokens: Math.round(TOKEN_SUPPLY * FLOAT_SHARE),
+    priceYocto: priceYocto.toString(), priceNear: nano / 1e9, nearUsd,
+  };
+}
 /** One NEP-145 registration, with room: `registration_only` refunds what the token does not keep (USDC keeps 0.00125). */
 const REGISTER = 125n * 10n ** 20n;
 export const PAYOUT = {
@@ -42,17 +62,20 @@ export const PAYOUT = {
   wNEAR: { contract: 'wrap.near', decimals: 24 },
 } as const;
 /** A dividend registers and pays each holder (25 Tgas) inside the approver's 300 Tgas act_proposal.
-    ponytail: one proposal per payout; split into batches if the demo ever has more holders. */
+    ponytail: one proposal per payout, the largest holders first; batch it if the company gets more buyers. */
 export const MAX_HOLDERS = 8;
 
 type StoredProposal = Omit<IpoProposal, 'awaitingWalletApproval'> & { requestId?: string };
 interface Stored {
   ceoAccountId: string | null; symbol: string | null; daoAccountId: string | null; tokenAccountId: string | null;
-  txHashes: string[]; holders: string[]; proposals: StoredProposal[]; error: string | null; done: boolean;
+  txHashes: string[]; proposals: StoredProposal[]; error: string | null; done: boolean;
+  /** fixed when the IPO starts */
+  offer: IpoOffer | null;
+  tokenVersion?: number;
   /** The IPO step's wallet request waiting for the owner's approval in OutLayer. */
   pending: { requestId: string; what: string } | null;
 }
-const empty = (): Stored => ({ ceoAccountId: null, symbol: null, daoAccountId: null, tokenAccountId: null, txHashes: [], holders: [], proposals: [], error: null, done: false, pending: null });
+const empty = (): Stored => ({ ceoAccountId: null, symbol: null, daoAccountId: null, tokenAccountId: null, txHashes: [], proposals: [], error: null, done: false, pending: null, offer: null });
 const proposalId = (r: unknown) => (typeof r === 'number' ? r : typeof r === 'string' && /^\d+$/.test(r) ? Number(r) : null);
 
 /** The DAO's sub-account name: the company name as a NEAR account segment. */
@@ -99,20 +122,20 @@ const action = (method: string, args: unknown, deposit: bigint, tgas: bigint) =>
 
 export class IpoService {
   private db: DatabaseSync; private wallet: ContractCaller; private rpc: NearReader;
-  private walletAccount: () => string | null; private companyName: () => string; private pauseMs: number;
+  private walletAccount: () => string | null; private companyName: () => string; private nearUsd: () => Promise<number>; private pauseMs: number;
   private running = false;
 
-  constructor(deps: { db: DatabaseSync; wallet: ContractCaller; rpc: NearReader; walletAccount: () => string | null; companyName: () => string; pauseMs?: number }) {
+  constructor(deps: { db: DatabaseSync; wallet: ContractCaller; rpc: NearReader; walletAccount: () => string | null; companyName: () => string; nearUsd: () => Promise<number>; pauseMs?: number }) {
     this.db = deps.db; this.wallet = deps.wallet; this.rpc = deps.rpc; this.walletAccount = deps.walletAccount; this.companyName = deps.companyName;
-    this.pauseMs = deps.pauseMs ?? 2000;
+    this.nearUsd = deps.nearUsd; this.pauseMs = deps.pauseMs ?? 2000;
   }
 
   private read(): Stored {
     const row = this.db.prepare('SELECT state_json FROM ipo WHERE id = 1').get() as { state_json: string } | undefined;
     const s = { ...empty(), ...(row ? (JSON.parse(row.state_json) as Partial<Stored>) : {}) };
-    // ponytail: one-off for the 2026-11-10 mainnet run on tkn.near (no events, invisible to Trezu): keep the DAO, make
-    // the token step run again on our factory. Its holders and proposals were for that token. Delete after the hackathon.
-    if (s.tokenAccountId?.endsWith('.tkn.near')) Object.assign(s, { tokenAccountId: null, done: false, holders: [], proposals: [] });
+    // ponytail: the 2026-11-10 mainnet runs made tokens without the offering (tkn.near, then our first factory): keep
+    // the DAO, create the token again. Its proposals and offer were for that token. Delete after the hackathon.
+    if (s.tokenAccountId && s.tokenVersion !== TOKEN_VERSION) Object.assign(s, { tokenAccountId: null, done: false, proposals: [], offer: null });
     return s;
   }
   private save(s: Stored) {
@@ -121,20 +144,34 @@ export class IpoService {
 
   isDone(): boolean { return this.read().done; }
 
-  async view(unlocked: boolean): Promise<IpoState> {
+  /** `earnedCents`: the game's earnings so far, for the offer before the IPO fixes it. */
+  async view(unlocked: boolean, earnedCents: number): Promise<IpoState> {
     const s = this.read();
     if (s.proposals.some((p) => p.requestId)) await this.settleProposals(s);
     const started = s.txHashes.length > 0 || !!s.daoAccountId || !!s.pending;
     const state = this.running ? 'running' : s.pending ? 'awaiting_approval' : s.done ? 'done' : s.error ? 'error' : unlocked || started ? 'ready' : 'locked';
-    const holders = await Promise.all(s.holders.map(async (accountId) => {
-      if (!s.tokenAccountId) return { accountId, balance: null };
-      const raw = await this.rpc.view<string>(s.tokenAccountId, 'ft_balance_of', { account_id: accountId }).catch(() => null);
-      return { accountId, balance: raw === null ? null : Number(raw) / 10 ** TOKEN_DECIMALS };
-    }));
+    const offer = s.offer ?? (await this.nearUsd().then((p) => offerFrom(earnedCents, p)).catch(() => null));
+    const token = s.done ? s.tokenAccountId : null;
+    const [sale, holders] = token ? await Promise.all([this.sale(token).catch(() => null), this.holders(token).catch(() => [])]) : [null, []];
     return {
       state, awaiting: s.pending?.what ?? null, ceoAccountId: s.ceoAccountId, daoAccountId: s.daoAccountId, tokenAccountId: s.tokenAccountId, symbol: s.symbol,
-      txHashes: s.txHashes, holders, proposals: s.proposals.map(({ requestId, ...p }) => ({ ...p, awaitingWalletApproval: !!requestId })), error: s.error,
+      txHashes: s.txHashes, offer, sale,
+      holders: holders.map((h) => ({ accountId: h.accountId, balance: Number(h.balance) / 10 ** TOKEN_DECIMALS })),
+      proposals: s.proposals.map(({ requestId, ...p }) => ({ ...p, awaitingWalletApproval: !!requestId })), error: s.error,
     };
+  }
+
+  private async sale(token: string): Promise<IpoSale> {
+    const i = await this.rpc.view<{ sold: string; remaining: string; raised: string; buyers: number; open: boolean }>(token, 'sale_info');
+    const whole = (u: string) => Number(u) / 10 ** TOKEN_DECIMALS;
+    return { open: i.open, sold: whole(i.sold), remaining: whole(i.remaining), raisedNear: Number(BigInt(i.raised) / 10n ** 15n) / 1e9, buyers: i.buyers };
+  }
+
+  /** The offering's buyers and their balances now, largest first. ponytail: the first 100 buyers. */
+  private async holders(token: string): Promise<{ accountId: string; balance: bigint }[]> {
+    const ids = await this.rpc.view<string[]>(token, 'get_buyers', { from_index: 0, limit: 100 });
+    const all = await Promise.all(ids.map(async (accountId) => ({ accountId, balance: BigInt(await this.rpc.view<string>(token, 'ft_balance_of', { account_id: accountId })) })));
+    return all.sort((a, b) => (b.balance > a.balance ? 1 : b.balance < a.balance ? -1 : 0));
   }
 
   /** Proposals whose filing waited for the owner's approval in OutLayer: read where each stands (best effort). */
@@ -156,7 +193,7 @@ export class IpoService {
   }
 
   /** Runs (or resumes) the IPO. `unlocked`: the game says the IPO is open; a started IPO may resume either way (it spent the funds that unlocked it). */
-  async launch(input: IpoLaunch, unlocked: boolean): Promise<IpoState> {
+  async launch(input: IpoLaunch, unlocked: boolean, earnedCents: number): Promise<IpoState> {
     const s = this.read();
     if (s.done) throw new ConflictError('The company is already public.');
     if (this.running) throw new ConflictError('The IPO is already running.');
@@ -167,7 +204,9 @@ export class IpoService {
     const ceo = s.daoAccountId ? s.ceoAccountId! : input.ceoAccountId;
     const symbol = s.tokenAccountId ? s.symbol! : input.symbol;
     if (ceo === wallet) throw new InvalidInputError('The CEO account must be your own NEAR account, not the company wallet.');
-    const st: Stored = { ...s, ceoAccountId: ceo, symbol, error: null };
+    // the price is fixed when the IPO starts, from the numbers at that moment
+    const offer = s.offer ?? offerFrom(earnedCents, await this.nearUsd().catch(() => { throw new UpstreamError('The NEAR price is unavailable, so the offering cannot be priced. Try again in a minute.'); }));
+    const st: Stored = { ...s, ceoAccountId: ceo, symbol, error: null, offer };
     this.save(st);
     this.running = true;
     try {
@@ -183,16 +222,16 @@ export class IpoService {
       }
       await this.createDao(st, ceo, wallet);
       await this.registerDao(st, st.daoAccountId!);
-      await this.createToken(st, st.daoAccountId!, symbol, wallet);
+      await this.createToken(st, st.daoAccountId!, symbol, offer);
       st.done = true;
       this.save(st);
     } catch (e) {
-      if (e instanceof Waiting) { this.running = false; return this.view(true); }
+      if (e instanceof Waiting) { this.running = false; return this.view(true, earnedCents); }
       st.error = scrub((e as Error).message, 300) ?? 'The IPO failed.';
       this.save(st);
       throw e;
     } finally { this.running = false; }
-    return this.view(true);
+    return this.view(true, earnedCents);
   }
 
   private async call(st: Stored, receiver: string, method: string, args: Record<string, unknown>, tgas: bigint, deposit: bigint) {
@@ -235,16 +274,16 @@ export class IpoService {
     }
   }
 
-  private async createToken(st: Stored, dao: string, symbol: string, wallet: string) {
+  private async createToken(st: Stored, dao: string, symbol: string, offer: IpoOffer) {
     const id = symbol.toLowerCase(), account = `${id}.${TOKEN_FACTORY}`;
     if (!(await this.rpc.account(account))) {
       const factory = await this.rpc.account(TOKEN_FACTORY);
       if (factory?.codeHash !== TOKEN_FACTORY_HASH) throw new UpstreamError(`${TOKEN_FACTORY} runs different code than contracts/res/token_factory.wasm, so the IPO will not pay it.`);
       const args = {
-        owner_id: dao, total_supply: units(TOKEN_SUPPLY, TOKEN_DECIMALS).toString(),
+        owner_id: dao, total_supply: units(offer.supply, TOKEN_DECIMALS).toString(), sale_amount: units(offer.floatTokens, TOKEN_DECIMALS).toString(), price: offer.priceYocto,
         metadata: { spec: 'ft-1.0.0', name: `${this.companyName()} City Token`.slice(0, 60), symbol, decimals: TOKEN_DECIMALS, icon: null, reference: null, reference_hash: null },
       };
-      // the factory keeps any overpayment (it has no refund path): attach exactly what it asks for
+      // exactly what the factory asks for (it refunds any excess, but there is no reason to send one)
       const deposit = await this.rpc.view<string>(TOKEN_FACTORY, 'get_required_deposit');
       await this.call(st, TOKEN_FACTORY, 'create_token', { args }, 200n, BigInt(deposit));
     }
@@ -254,6 +293,7 @@ export class IpoService {
     const [info, keys] = await Promise.all([this.rpc.account(account), this.rpc.keyCount(account)]);
     if (info?.codeHash !== TOKEN_HASH || keys !== 0) throw new UpstreamError(`${account} is not the token code we checked (or someone holds a key to it), so it is not marked done.`);
     st.tokenAccountId = account;
+    st.tokenVersion = TOKEN_VERSION;
     this.save(st);
   }
 
@@ -267,7 +307,7 @@ export class IpoService {
       if (r.txHash) st.txHashes.push(r.txHash);
     }
     this.save(st);
-    return this.view(true);
+    return this.view(true, 0);
   }
 
   private publicState(): Stored & { daoAccountId: string; tokenAccountId: string; symbol: string } {
@@ -276,37 +316,33 @@ export class IpoService {
     return s as Stored & { daoAccountId: string; tokenAccountId: string; symbol: string };
   }
 
-  /** A DAO proposal giving `amount` city tokens to one account, which becomes a recorded holder. */
-  async allocate(input: IpoAllocate): Promise<IpoState> {
+  /** A DAO proposal closing the offering: the token moves the unsold float back to the DAO. */
+  async endSale(): Promise<IpoState> {
     const s = this.publicState();
-    const raw = units(input.amount, TOKEN_DECIMALS);
-    const daoHas = BigInt(await this.rpc.view<string>(s.tokenAccountId, 'ft_balance_of', { account_id: s.daoAccountId }));
-    if (daoHas < raw) throw new InvalidInputError(`The DAO holds ${Number(daoHas) / 10 ** TOKEN_DECIMALS} ${s.symbol}.`);
-    if (!s.holders.includes(input.accountId)) { s.holders.push(input.accountId); this.save(s); }
-    const title = `Allocate ${input.amount} ${s.symbol} to ${input.accountId}`;
-    return this.propose('allocate', title, title, s.tokenAccountId, [
-      action('storage_deposit', { account_id: input.accountId, registration_only: true }, REGISTER, 10n),
-      action('ft_transfer', { receiver_id: input.accountId, amount: raw.toString(), memo: `${s.symbol} allocation` }, 1n, 15n),
-    ]);
+    const sale = await this.sale(s.tokenAccountId);
+    if (!sale.open) throw new ConflictError('The offering is already closed.');
+    const title = `End the ${s.symbol} offering: ${sale.sold} sold, ${sale.remaining} unsold return to the DAO`;
+    return this.propose('end_sale', title, title, s.tokenAccountId, [action('end_sale', {}, 0n, 30n)]);
   }
 
-  /** One DAO proposal paying `amount` of a payout token to the recorded holders, pro rata over the circulating supply
-      (the DAO's own city tokens excluded; shares of holders we do not know stay in the DAO). */
+  /** One DAO proposal paying `amount` of a payout token to the offering's buyers, pro rata over the circulating supply
+      (the DAO's tokens and the unsold float excluded; shares of holders we do not know stay in the DAO). */
   async dividend(input: IpoDividend): Promise<IpoState> {
     const s = this.publicState();
     const p = PAYOUT[input.token];
     const pool = units(input.amount, p.decimals);
     const held = BigInt(await this.rpc.view<string>(p.contract, 'ft_balance_of', { account_id: s.daoAccountId }));
     if (held < pool) throw new InvalidInputError(`The DAO holds ${Number(held) / 10 ** p.decimals} ${input.token}: move revenue into it first.`);
-    const [supply, daoTokens] = await Promise.all([
+    const [supply, daoTokens, float, balances] = await Promise.all([
       this.rpc.view<string>(s.tokenAccountId, 'ft_total_supply'),
       this.rpc.view<string>(s.tokenAccountId, 'ft_balance_of', { account_id: s.daoAccountId }),
+      this.rpc.view<string>(s.tokenAccountId, 'ft_balance_of', { account_id: s.tokenAccountId }),
+      this.holders(s.tokenAccountId),
     ]);
-    const circulating = BigInt(supply) - BigInt(daoTokens);
-    const balances = await Promise.all(s.holders.map(async (accountId) => ({ accountId, balance: BigInt(await this.rpc.view<string>(s.tokenAccountId, 'ft_balance_of', { account_id: accountId })) })));
+    const circulating = BigInt(supply) - BigInt(daoTokens) - BigInt(float);
     const pay = shares(pool, balances, circulating);
-    if (!pay.length) throw new InvalidInputError(`Nobody holds ${s.symbol} yet: allocate some, and approve that in Trezu, first.`);
-    if (pay.length > MAX_HOLDERS) throw new InvalidInputError(`One payout reaches at most ${MAX_HOLDERS} holders.`);
+    if (!pay.length) throw new InvalidInputError(`Nobody holds ${s.symbol} yet: share the buy link first.`);
+    if (pay.length > MAX_HOLDERS) throw new InvalidInputError(`One payout reaches at most ${MAX_HOLDERS} holders; this company has ${pay.length}.`);
     const fmt = (n: bigint) => Number(n) / 10 ** p.decimals;
     const title = `Revenue share: ${input.amount} ${input.token} to ${pay.length} ${s.symbol} holder${pay.length === 1 ? '' : 's'}, pro rata`;
     const description = [title, ...pay.map((x) => `${x.accountId}: ${fmt(x.amount)} ${input.token}`)].join('\n');

@@ -1127,17 +1127,32 @@ export const GameStateSchema = z.object({
 }).strict();
 export type GameState = z.infer<typeof GameStateSchema>;
 
-/** The IPO (docs/briefs/06-ipo.md): a Sputnik DAO and a tkn.near city token, then revenue share by DAO vote. */
+/** The IPO (docs/briefs/06-ipo.md): a Sputnik DAO and a city token whose public float is sold for NEAR at a price
+    set from the game's numbers (proceeds to the DAO); then revenue share to the buyers by DAO vote. */
 export const IPO_SYMBOL_RE = /^[A-Z][A-Z0-9]{1,7}$/;
 /** What the DAO can pay holders in (NEP-141 on NEAR). */
 export const PAYOUT_TOKENS = ['USDC', 'wNEAR'] as const;
 export const IpoProposalSchema = z.object({
   /** The DAO's proposal id (null if the wallet's answer did not carry it). */
-  id: z.number().int().nullable(), kind: z.enum(['allocate', 'dividend']), title: z.string(), txHash: z.string().nullable(), at: z.string(),
+  id: z.number().int().nullable(), kind: z.enum(['dividend', 'end_sale']), title: z.string(), txHash: z.string().nullable(), at: z.string(),
   /** Filing it waits for the wallet owner's approval in OutLayer (its policy needs approvers). */
   awaitingWalletApproval: z.boolean(),
 }).strict();
 export type IpoProposal = z.infer<typeof IpoProposalSchema>;
+/** The offering's terms: set from the game's numbers until the IPO starts, then fixed. */
+export const IpoOfferSchema = z.object({
+  /** max(minimum, earned revenue x multiple), in USD */
+  valuationUsd: z.number(), earnedUsd: z.number(), multiple: z.number(),
+  supply: z.number().int(), floatTokens: z.number().int(),
+  /** yoctoNEAR per whole token (a decimal string), and the same in NEAR for display */
+  priceYocto: z.string().regex(/^\d+$/), priceNear: z.number(), nearUsd: z.number(),
+}).strict();
+export type IpoOffer = z.infer<typeof IpoOfferSchema>;
+/** The public offering as the token reports it (whole tokens; NEAR). */
+export const IpoSaleSchema = z.object({
+  open: z.boolean(), sold: z.number(), remaining: z.number(), raisedNear: z.number(), buyers: z.number().int(),
+}).strict();
+export type IpoSale = z.infer<typeof IpoSaleSchema>;
 export const IpoStateSchema = z.object({
   state: z.enum(['locked', 'ready', 'running', 'awaiting_approval', 'done', 'error']),
   /** The wallet call waiting for the owner's approval in OutLayer (state awaiting_approval), e.g. "sputnik-dao.near create". */
@@ -1146,7 +1161,10 @@ export const IpoStateSchema = z.object({
   ceoAccountId: z.string().nullable(),
   daoAccountId: z.string().nullable(), tokenAccountId: z.string().nullable(), symbol: z.string().nullable(),
   txHashes: z.array(z.string()),
-  /** Accounts the DAO allocated city tokens to, with their live balance in whole tokens (null: unread). */
+  /** null when the NEAR price could not be read (preview only) */
+  offer: IpoOfferSchema.nullable(),
+  sale: IpoSaleSchema.nullable(),
+  /** The offering's buyers, with their live balance in whole tokens (null: unread). */
   holders: z.array(z.object({ accountId: z.string(), balance: z.number().nullable() }).strict()),
   proposals: z.array(IpoProposalSchema),
   error: z.string().nullable(),
@@ -1157,11 +1175,6 @@ export const IpoLaunchSchema = z.object({
   symbol: z.string().trim().regex(IPO_SYMBOL_RE, '2 to 8 capital letters or digits, starting with a letter'),
 }).strict();
 export type IpoLaunch = z.infer<typeof IpoLaunchSchema>;
-/** A DAO proposal sending whole city tokens to one account. */
-export const IpoAllocateSchema = z.object({
-  accountId: z.string().regex(NEAR_ACCOUNT_RE, 'not a NEAR account id'), amount: z.number().int().positive().max(1_000_000),
-}).strict();
-export type IpoAllocate = z.infer<typeof IpoAllocateSchema>;
 /** A DAO proposal paying `amount` (whole units of `token`) to the holders, pro rata. */
 export const IpoDividendSchema = z.object({ token: z.enum(PAYOUT_TOKENS), amount: z.number().positive().max(1_000_000) }).strict();
 export type IpoDividend = z.infer<typeof IpoDividendSchema>;

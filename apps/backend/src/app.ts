@@ -612,7 +612,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv,
     ipo: new IpoService({
       db, wallet, rpc: new NearRpc(DEFAULT_RPC.mainnet),
-      walletAccount: () => readSettings(db).outlayerAccountId, companyName: () => company.view().name,
+      walletAccount: () => readSettings(db).outlayerAccountId, companyName: () => company.view().name, nearUsd: () => wallet.nearUsd(),
     }),
   };
   // hackathon route modules (docs/briefs): one line each

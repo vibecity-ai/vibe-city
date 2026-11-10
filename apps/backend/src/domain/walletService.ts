@@ -57,14 +57,26 @@ export class WalletService {
   }
   constructor(db: DatabaseSync, fetch_: typeof fetch = fetch, api = OUTLAYER_API) { this.db = db; this.fetch_ = fetch_; this.api = api; }
 
-  /** The wallet's Intents holdings, every token at once: one 1Click token list (cached), one intents.near view call. */
-  private async intents(accountId: string): Promise<WalletState['balances']> {
+  /** 1Click's token list (symbols, decimals, USD prices), cached for five minutes. */
+  private async tokenList(): Promise<IntentsToken[]> {
     if (!this.tokens || Date.now() - this.tokens.at > TOKENS_TTL_MS) {
       const r = await this.fetch_(INTENTS_TOKENS_URL, { signal: AbortSignal.timeout(15_000) }).catch(() => null);
       if (!r?.ok) throw new UpstreamError('The NEAR Intents token list is unreachable.');
       this.tokens = { at: Date.now(), list: (await r.json()) as IntentsToken[] };
     }
-    const list = this.tokens.list;
+    return this.tokens.list;
+  }
+
+  /** NEAR's USD price (wNEAR on 1Click). */
+  async nearUsd(): Promise<number> {
+    const p = (await this.tokenList()).find((t) => t.assetId === 'nep141:wrap.near')?.price;
+    if (typeof p !== 'number' || !(p > 0)) throw new UpstreamError('1Click did not report a NEAR price.');
+    return p;
+  }
+
+  /** The wallet's Intents holdings, every token at once: one 1Click token list (cached), one intents.near view call. */
+  private async intents(accountId: string): Promise<WalletState['balances']> {
+    const list = await this.tokenList();
     const amounts = await new NearRpc(DEFAULT_RPC.mainnet, { fetch: this.fetch_ })
       .view<string[]>('intents.near', 'mt_batch_balance_of', { account_id: accountId, token_ids: list.map((t) => t.assetId) });
     const held = list.flatMap((t, i) => (amounts[i] && amounts[i] !== '0' ? [{ t, amount: amounts[i] }] : []));
