@@ -8,6 +8,7 @@ import type { WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Device, Grille, Key, Screen } from './Device';
+import { IpoCard } from './IpoCard';
 
 const NEW_WALLET_URL = 'https://app.outlayer.ai/wallet/new';
 /** Native USDC on NEAR (what the trading connectors settle in, through Intents). */
@@ -34,6 +35,7 @@ export function MoneyScreen() {
   return (
     <div className="money">
       <WalletPager w={w} loadError={error} onChange={done} onRefresh={() => void load()} />
+      <IpoCard ceo={w.binding.accountId} />
       <p className="fine">Vibe City keeps the wallet's agent key on its server and gives it only to the floors that trade (Trading Desk, Prediction Desk, Treasury Ops). Spending limits are yours to set in OutLayer; Vibe City cannot read them back.</p>
     </div>
   );

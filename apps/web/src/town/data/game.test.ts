@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { GameState } from '@vibe-city/shared';
-import { decisionTarget, nextQuest, questTarget } from './game.ts';
+import { decisionTarget, ipoSymbol, nextQuest, questTarget } from './game.ts';
+import { IPO_SYMBOL_RE } from '@vibe-city/shared';
 
 const fixture: GameState = {
   quests: [
@@ -24,7 +25,7 @@ test('the quest log highlights the first quest not done, and its button opens th
   assert.equal(questTarget('policy'), null, 'the self-confirmed policy quest is gone');
   assert.equal(questTarget('connect-ai')?.kind, 'cos');
   assert.deepEqual(questTarget('dao-funds'), { kind: 'safe' });
-  assert.deepEqual(questTarget('ipo'), { kind: 'quest-board' }, 'Treasury Ops does the launch');
+  assert.deepEqual(questTarget('ipo'), { kind: 'safe' }, 'the IPO card sits in the safe');
   assert.equal(nextQuest({ ...fixture, quests: fixture.quests.map((q) => ({ ...q, done: !q.side })) }), null);
 });
 
@@ -45,4 +46,15 @@ test('the quest log groups quests into three acts in order, and counts progress'
   assert.deepEqual(a[2]!.quests.map((q) => q.id), ['ipo']);
   assert.deepEqual(sideQuests(g).map((q) => q.id), ['connect-hyperliquid']);
   assert.equal(progressLabel(g), '1 of 5 done', 'side quests do not count');
+});
+
+test('the IPO symbol is the company initials, 2 to 8 capitals, always a valid symbol', () => {
+  assert.equal(ipoSymbol('Vibe City Labs'), 'VCL');
+  assert.equal(ipoSymbol('acme'), 'ACME');
+  assert.equal(ipoSymbol('Acme Robotics & Co.'), 'ARC');
+  assert.equal(ipoSymbol('42 Widgets'), 'WIDGETS');
+  assert.equal(ipoSymbol('Supercalifragilistic'), 'SUPERCAL');
+  assert.equal(ipoSymbol(''), 'VCT');
+  assert.equal(ipoSymbol('x'), 'VCT');
+  for (const n of ['Vibe City Labs', 'acme', '42 Widgets', '', 'a b c d e f g h i j']) assert.match(ipoSymbol(n), IPO_SYMBOL_RE);
 });

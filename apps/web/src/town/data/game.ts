@@ -11,11 +11,10 @@ export const nextQuest = (g: GameState): CeoQuest | null => g.quests.find((q) =>
 
 export function questTarget(id: string): QuestTarget | null {
   switch (id) {
-    case 'treasury': case 'dao-funds': return { kind: 'safe' };
+    case 'treasury': case 'dao-funds': case 'ipo': return { kind: 'safe' };
     case 'hire': return { kind: 'hire' };
     case 'connect-hyperliquid': return { kind: 'connector', name: 'hyperliquid' };
     case 'connect-polymarket': return { kind: 'connector', name: 'polymarket' };
-    case 'ipo': return { kind: 'quest-board' };
     case 'connect-ai': return { kind: 'cos' };
     case 'market': case 'first-job': return { kind: 'market' };
     default: return null;
@@ -36,8 +35,8 @@ export function decisionTarget(href: string): DecisionTarget {
 /** The main line's three acts, in order. Side quests are listed apart (sideQuests). */
 export const ACTS: readonly { title: string; blurb: string; ids: readonly string[] }[] = [
   { title: 'Set up the company', blurb: 'Your Chief of Staff, the treasury, your first floor, and a listing on the Agent Market.', ids: ['connect-ai', 'treasury', 'hire', 'market'] },
-  { title: 'Earn', blurb: 'Win your first job and put enough in the treasury for the DAO vault.', ids: ['first-job', 'dao-funds'] },
-  { title: 'Go public', blurb: 'Treasury Ops launches the Sputnik DAO vault. Then you ring the bell.', ids: ['ipo'] },
+  { title: 'Earn', blurb: 'Win your first job and put enough NEAR in the treasury for the IPO.', ids: ['first-job', 'dao-funds'] },
+  { title: 'Go public', blurb: 'Press IPO: the company wallet creates the Sputnik DAO and the city token. Then you share revenue by DAO vote.', ids: ['ipo'] },
 ];
 
 export function acts(g: GameState) {
@@ -57,3 +56,13 @@ export const progressLabel = (g: GameState) => {
   const main = g.quests.filter((q) => !q.side), done = main.filter((q) => q.done).length;
   return done === main.length ? `All ${done} quests done` : `${done} of ${main.length} done`;
 };
+
+/** The IPO form's symbol suggestion: the company name's initials, uppercase, 2 to 8 characters (IPO_SYMBOL_RE).
+    A one-word name gives its first letters instead. */
+export function ipoSymbol(name: string): string {
+  const words = name.toUpperCase().replace(/[^A-Z0-9 ]/g, ' ').split(' ').filter(Boolean);
+  while (words.length && !/^[A-Z]/.test(words[0]!)) words.shift();
+  const initials = words.map((w) => w[0]).join('');
+  const s = (initials.length >= 2 ? initials : words.join('')).slice(0, 8);
+  return s.length >= 2 ? s : 'VCT';
+}

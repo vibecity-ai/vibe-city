@@ -18,6 +18,7 @@ import {
 } from '@vibe-city/shared';
 import { DepartmentEnvSchema, DepartmentFilesSchema, type DepartmentEnv, type DepartmentFiles } from '@vibe-city/shared';
 import { AiUsageSummarySchema, CompanySettingsSchema, ConnectorCheckReplySchema, type ConnectorCheckReply, type ConnectorName, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
+import { IpoStateSchema, type IpoAllocate, type IpoDividend, type IpoLaunch, type IpoState } from '@vibe-city/shared';
 import {
   MarketViewSchema, type MarketRegister, type MarketView, MarketAdoptionSchema, type MarketAdoption, MarketProfileSchema, type MarketProfile,
 } from '@vibe-city/shared';
@@ -154,6 +155,10 @@ export const api = {
   checkConnector: (name: ConnectorName): Promise<ConnectorCheckReply> => request('POST', `/api/wallet/connectors/${name}/check`, ConnectorCheckReplySchema),
   wallet: (): Promise<WalletState> => request('GET', '/api/wallet', WalletStateSchema),
   walletKey: (apiKey: string): Promise<WalletState> => request('POST', '/api/wallet/key', WalletStateSchema, { apiKey }),
+  ipo: (): Promise<IpoState> => request('GET', '/api/ipo', IpoStateSchema),
+  ipoLaunch: (input: IpoLaunch): Promise<IpoState> => request('POST', '/api/ipo', IpoStateSchema, input),
+  ipoAllocate: (input: IpoAllocate): Promise<IpoState> => request('POST', '/api/ipo/allocate', IpoStateSchema, input),
+  ipoDividend: (input: IpoDividend): Promise<IpoState> => request('POST', '/api/ipo/dividend', IpoStateSchema, input),
   market: (): Promise<MarketView> => request('GET', '/api/market', MarketViewSchema),
   marketProfile: (deptId: string): Promise<MarketProfile> => request('GET', `/api/market/${encodeURIComponent(deptId)}/profile`, MarketProfileSchema),
   marketAdoption: (deptId: string): Promise<MarketAdoption> => request('POST', `/api/market/${encodeURIComponent(deptId)}/adoption`, MarketAdoptionSchema),
