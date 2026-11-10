@@ -1800,34 +1800,20 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .mk-paste { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #ffffff06; border: 1px dashed #3A2D66; }
 .mk-paste > div { display: flex; align-items: center; gap: 8px; font-size: 13px; } .mk-paste i { font-style: normal; font-size: 11px; text-transform: uppercase; color: var(--ink-mute); min-width: 74px; } .mk-paste span { flex: 1; color: var(--ink); }
 
-/* IPO progress (IpoCard) */
-.ipo-steps { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
-.ipo-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; }
-.ipo-step-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.ipo-step-t b { font: 600 13px var(--f-ui); color: var(--ink); }
-.ipo-step-t small { font-size: 12px; color: var(--ink-mute); overflow-wrap: anywhere; }
-.ipo-steps li.todo b { color: var(--ink-dim); }
-.ipo-dot { width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--line2); display: grid; place-items: center; font: 700 11px/1 var(--f-ui); color: var(--n900); }
-.ipo-steps li.done .ipo-dot { border-color: var(--mint); background: var(--mint); }
-.ipo-steps li.working .ipo-dot { border-color: var(--cyan); border-top-color: transparent; animation: ipoSpin .8s linear infinite; }
-.ipo-steps li.approval .ipo-dot { border-color: var(--amber); background: rgba(240,165,60,.15); animation: ipoPulse 1.6s ease-in-out infinite; }
-.ipo-steps li.failed .ipo-dot { border-color: var(--red); background: var(--red); }
-.ipo-chip { font: 600 11px/20px var(--f-ui); color: var(--ink-mute); white-space: nowrap; }
-.ipo-steps li.done .ipo-chip { color: var(--mint); }
-.ipo-steps li.working .ipo-chip { color: var(--cyan); }
-.ipo-steps li.approval .ipo-chip { color: var(--amber); }
-.ipo-steps li.failed .ipo-chip { color: var(--red); }
-.ipo-approve { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 12px; margin-bottom: 10px; border: 1px solid rgba(240,165,60,.35); background: rgba(240,165,60,.06); border-radius: 8px; font-size: 12px; color: var(--ink-dim); }
-.ipo-approve p { margin: 0; }
-@keyframes ipoSpin { to { transform: rotate(360deg); } }
-@keyframes ipoPulse { 50% { box-shadow: 0 0 0 4px rgba(240,165,60,.18); } }
-@media (max-width: 420px) { .ipo-approve { flex-direction: column; align-items: stretch; } .ipo-chip { display: none; } }
-.sale-bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: var(--n500); overflow: hidden; }
-.sale-bar > span { display: block; height: 100%; background: var(--mint); }
-
-/* ---------- public invest page (/invest) ---------- */
-.invest { max-width: 520px; margin: 0 auto; padding: 32px 16px; display: flex; flex-direction: column; gap: 14px; }
-.invest h1 { margin: 0; font: 600 24px/1.2 var(--f-display); }
-.invest p { margin: 0; }
-.invest .row { flex-wrap: wrap; align-items: center; }
-.invest .row .input { flex: 1; min-width: 140px; width: auto; }
+/* ---------- IPO share ticker (IpoCard) and the public share terminal (/invest): the safe's device kit ---------- */
+.ipo-dev { margin-top: 16px; }
+.ipo-lcd-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.ipo-lcd-steps .scr-mono { font-size: 11px; opacity: .8; overflow-wrap: anywhere; }
+.ipo-lcd-steps li.todo { opacity: .55; }
+.ipo-lcd-steps li.working .scr-row > span:last-child, .ipo-lcd-steps li.approval .scr-row > span:last-child { animation: blink 1.1s steps(2, start) infinite; }
+.ipo-lcd-steps li.failed .scr-mono { opacity: 1; font-weight: 700; }
+.ipo-lcd-form { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.ipo-lcd-form label { display: flex; flex-direction: column; gap: 2px; }
+.ipo-lcd-form .scr-row { font-size: 10px; opacity: .75; }
+.dev-screen input.scr-input:disabled { opacity: .6; border-bottom-style: solid; }
+.lcd-bar { display: grid; grid-template-columns: repeat(20, 1fr); gap: 3px; margin: 4px 0 2px; }
+.lcd-bar i { height: 10px; background: color-mix(in srgb, var(--scr) 12%, transparent); }
+.lcd-bar i.on { background: var(--scr); box-shadow: 1.5px 1.5px 0 rgba(30,39,22,.16); }
+.dev-screen a { color: inherit; text-underline-offset: 2px; }
+.invest { min-height: 100vh; box-sizing: border-box; display: grid; place-items: center; padding: 32px 16px; background: var(--n900); }
+.invest-dev { width: min(620px, 100%); }

@@ -1,19 +1,29 @@
-/* The IPO card (docs/briefs/06-ipo.md), under the wallet in the safe: the company wallet creates the Sputnik DAO and a
-   city token from the Vibe City token factory, then the CEO shares revenue by DAO proposals approved in Trezu. */
+/* The IPO device (docs/briefs/06-ipo.md), under the wallet pager in the safe: a share ticker in the same device kit.
+   Before the IPO its LCD shows the offer (priced from the game's numbers), the three on-chain steps and the launch
+   fields; after it, the offering (price, float sold, NEAR raised for the DAO), the shareholders and the DAO's
+   proposals. Keys switch the screen like the pager's: payout (revenue share by DAO vote) and end sale. */
 import { useEffect, useRef, useState } from 'react';
 import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
-import { PixelSelect } from './kit';
+import { Device, Digits, Grille, Key, LcdBar, Screen } from './Device';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.');
 const NB = 'https://nearblocks.io';
-const ext = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>;
+const OUTLAYER_APP = 'https://app.outlayer.ai';
 const trezu = (dao: string) => `https://trezu.app/${dao}`;
 /** While a step waits for the owner's approval in OutLayer, ask again this often (the server never resends the call). */
 const APPROVAL_POLL_MS = 5000;
-const CHIP: Record<IpoStep['status'], string> = { done: 'Done', working: 'Working…', approval: 'Approve in OutLayer', failed: 'Failed', todo: '' };
+const MARK: Record<IpoStep['status'], string> = { done: '✓', working: '…', approval: '◆', failed: '!', todo: '·' };
+const STATUS: Record<IpoStep['status'], string> = { done: 'Done', working: 'Working', approval: 'Approve', failed: 'Failed', todo: '' };
+
+/** A NEAR amount with enough decimals to show three significant digits of small prices. */
+export const fmtNear = (n: number) => n.toFixed(n >= 1 || n === 0 ? 2 : Math.min(9, 2 - Math.floor(Math.log10(n))));
+const whole = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+const short = (a: string) => (a.length > 30 ? `${a.slice(0, 14)}…${a.slice(-12)}` : a);
+const ext = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>;
 
 export function IpoCard({ ceo }: { ceo: string | null }) {
   const company = useStore((s) => s.company?.name ?? '');
@@ -44,118 +54,147 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
   }, [ipo?.state]);
 
   if (!ipo) return err ? <p className="field-err" role="alert">{err}</p> : null;
-  const steps = ipoSteps(ipo, busy);
-  const waiting = steps.find((s) => s.status === 'approval');
-  return (
-    <section className="ipo">
-      <h3>IPO</h3>
-      {ipo.state === 'locked' && <>
-        <button className="btn primary small" disabled title="Unlocks after your first paid market job and 4 NEAR in the company wallet">IPO</button>
-        <p className="fine">Unlocks after your first paid market job and 4 NEAR in the company wallet.</p>
-      </>}
-      {ipo.state !== 'locked' && ipo.state !== 'done' && <><Offer ipo={ipo} /><Steps steps={steps} error={ipo.error} /></>}
-      {waiting && (
-        <div className="ipo-approve" role="status">
-          <p>Your OutLayer wallet asks you to approve each call. Approve <b>{waiting.label.toLowerCase()}</b> at {ext('https://app.outlayer.ai', 'app.outlayer.ai')}; this continues by itself.</p>
-          <button className="btn secondary small" disabled={checking} onClick={() => void check()}>{checking ? 'Checking…' : 'Check now'}</button>
-        </div>
-      )}
-      {!busy && (ipo.state === 'ready' || ipo.state === 'error') && <LaunchForm ipo={ipo} ceo={ceo} company={company} onLaunch={(x) => void run(() => api.ipoLaunch(x))} />}
-      {ipo.state === 'done' && <Done ipo={ipo} busy={busy} run={run} />}
-      {err && err !== ipo.error && <p className="field-err" role="alert">{err}</p>}
-    </section>
-  );
+  if (ipo.state === 'done') return <Ticker ipo={ipo} busy={busy} run={run} err={err} />;
+  return <Launcher ipo={ipo} ceo={ceo} company={company} busy={busy} checking={checking} err={err} onLaunch={(x) => void run(() => api.ipoLaunch(x))} onCheck={() => void check()} />;
 }
 
-const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
-
-function Offer({ ipo }: { ipo: IpoState }) {
-  const o = ipo.offer;
-  if (!o) return <p className="fine">NEAR price unavailable; the price is set when you press IPO.</p>;
-  return (
-    <p className="fine">
-      Valuation {usd(o.valuationUsd)} (earned {usd(o.earnedUsd)} × {o.multiple}, minimum $1,000) · 40% float: {o.floatTokens.toLocaleString()} tokens
-      at {o.priceNear} NEAR each (≈ ${(o.priceNear * o.nearUsd).toFixed(4)})
-    </p>
-  );
-}
-
-function Steps({ steps, error }: { steps: IpoStep[]; error: string | null }) {
-  return (
-    <ol className="ipo-steps" aria-live="polite">
-      {steps.map((s) => (
-        <li key={s.id} className={s.status}>
-          <span className="ipo-dot" aria-hidden="true">{s.status === 'done' ? '✓' : s.status === 'failed' ? '!' : ''}</span>
-          <span className="ipo-step-t"><b>{s.label}</b><small className={s.status === 'failed' ? 'field-err' : undefined}>{s.status === 'failed' && error ? error : s.detail}</small></span>
-          <span className="ipo-chip">{CHIP[s.status]}</span>
-        </li>
-      ))}
-    </ol>
-  );
-}
-
-function LaunchForm({ ipo, ceo, company, onLaunch }: { ipo: IpoState; ceo: string | null; company: string; onLaunch: (x: { ceoAccountId: string; symbol: string }) => void }) {
+/** Before and during the IPO: the offer, the steps, the launch fields. */
+function Launcher({ ipo, ceo, company, busy, checking, err, onLaunch, onCheck }: {
+  ipo: IpoState; ceo: string | null; company: string; busy: boolean; checking: boolean; err: string | null;
+  onLaunch: (x: { ceoAccountId: string; symbol: string }) => void; onCheck: () => void;
+}) {
   const [account, setAccount] = useState(ipo.ceoAccountId ?? ceo ?? '');
   const [symbol, setSymbol] = useState(ipo.symbol ?? ipoSymbol(company));
-  const ok = !!account.trim() && IPO_SYMBOL_RE.test(symbol);
+  const locked = ipo.state === 'locked';
+  const steps = ipoSteps(ipo, busy);
+  const waiting = steps.find((s) => s.status === 'approval');
+  const started = busy || ipo.state === 'running' || ipo.state === 'awaiting_approval';
   // fixed on chain once the DAO (the council) or the token (the symbol) exists
   const daoFixed = !!ipo.daoAccountId, tokenFixed = !!ipo.tokenAccountId;
+  const ok = !locked && !started && !!account.trim() && IPO_SYMBOL_RE.test(symbol);
+  const launch = () => { if (ok) onLaunch({ ceoAccountId: account.trim(), symbol }); };
+  const o = ipo.offer;
+  const problem = (err && err !== ipo.error ? err : null);
   return (
-    <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (ok) onLaunch({ ceoAccountId: account.trim(), symbol }); }}>
-      <label className="field"><span className="lbl">Your NEAR account (approves DAO proposals)</span><input className="input mono" value={account} disabled={daoFixed} onChange={(e) => setAccount(e.target.value)} placeholder="you.near" /></label>
-      <label className="field"><span className="lbl">City token symbol</span><input className="input mono" value={symbol} disabled={tokenFixed} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
-      <p className="fine">{daoFixed ? 'The DAO exists; the token needs about 2.3 NEAR in the company wallet.' : 'About 3.3 NEAR in the company wallet: 1 NEAR to the DAO, about 2.3 NEAR for the token.'}</p>
-      <button className="btn primary small" type="submit" disabled={!ok}>{ipo.state === 'error' ? 'Retry IPO' : daoFixed ? 'Continue IPO' : 'IPO'}</button>
-    </form>
+    <Device model="IPO-1" name="share ticker" shell="graphite" led={locked ? 'off' : waiting ? 'amber' : started ? 'green' : 'pink'} className="safe-dev ipo-dev">
+      <div className="safe-body">
+        <Screen kind="lcd" className="safe-lcd" label="IPO display">
+          <div className="scr-row"><span>Initial public offering</span><span>{locked ? '○ Locked' : waiting ? '◆ Approve' : started ? '● Going public' : ipo.state === 'error' ? '! Stopped' : '● Ready'}</span></div>
+          {o ? <>
+            <div className="scr-row safe-lbl"><span>Valuation</span><span>Earned {usd(o.earnedUsd)} × {o.multiple} · min $1,000</span></div>
+            <div><Digits value={usd(o.valuationUsd)} /></div>
+            <div className="scr-row"><span>{o.floatTokens.toLocaleString()} shares offered</span><span>{fmtNear(o.priceNear)} NEAR each</span></div>
+          </> : <p className="scr-mono safe-hint">NEAR price unavailable: the offering is priced when you press IPO.</p>}
+          <div className="scr-rule" />
+          {locked ? <p className="scr-mono safe-hint">Unlocks after your first paid market job and 4 NEAR in the company wallet.</p> : <>
+            <ol className="ipo-lcd-steps" aria-live="polite">
+              {steps.map((s) => (
+                <li key={s.id} className={s.status}>
+                  <div className="scr-row"><span>{MARK[s.status]} {s.label}</span><span>{STATUS[s.status]}</span></div>
+                  <div className="scr-mono">{s.status === 'failed' && ipo.error ? `! ${ipo.error}` : s.status === 'approval' ? 'Approve it in OutLayer; this continues by itself.' : s.detail}</div>
+                </li>
+              ))}
+            </ol>
+            {!started && (
+              <form className="ipo-lcd-form" onSubmit={(e) => { e.preventDefault(); launch(); }}>
+                <label><span className="scr-row"><span>Your NEAR account · approves</span></span>
+                  <input className="scr-input scr-mono" value={account} disabled={daoFixed} onChange={(e) => setAccount(e.target.value)} placeholder="you.near" spellCheck={false} /></label>
+                <label><span className="scr-row"><span>Share symbol</span></span>
+                  <input className="scr-input scr-mono" value={symbol} disabled={tokenFixed} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} spellCheck={false} /></label>
+              </form>
+            )}
+          </>}
+          {problem && <p className="scr-mono safe-err" role="alert">! {problem}</p>}
+          <div className="scr-row safe-foot"><span>{daoFixed ? 'Token: ~2.3 NEAR' : 'DAO 1 + token ~2.3 NEAR'}</span><span>Signed by the company wallet</span></div>
+        </Screen>
+        <div className="safe-keys" role="group" aria-label="IPO keys">
+          {waiting
+            ? <Key hot disabled={checking} onClick={onCheck}>{checking ? 'Checking' : 'Check'}</Key>
+            : <Key hot disabled={!ok} onClick={launch}>{started ? 'Working' : ipo.state === 'error' ? 'Retry' : daoFixed ? 'Continue' : 'IPO'}</Key>}
+          <Key href={OUTLAYER_APP} title="Approve the company wallet's calls on OutLayer">OutLayer</Key>
+          {ipo.daoAccountId && <Key href={trezu(ipo.daoAccountId)} title="The company's DAO on Trezu">Trezu</Key>}
+          <Grille className="safe-grille" />
+        </div>
+      </div>
+    </Device>
   );
 }
 
-function Done({ ipo, busy, run }: { ipo: IpoState; busy: boolean; run: (f: () => Promise<IpoState>) => Promise<boolean> }) {
-  const dao = ipo.daoAccountId ?? '';
-  const sale = ipo.sale;
-  const float = sale ? sale.sold + sale.remaining : 0;
-  const buyLink = `${window.location.origin}/invest`;
+/** After the IPO: the offering and the shareholders, revenue share and closing the offering. */
+function Ticker({ ipo, busy, run, err }: { ipo: IpoState; busy: boolean; run: (f: () => Promise<IpoState>) => Promise<boolean>; err: string | null }) {
+  const [mode, setMode] = useState<'view' | 'payout' | 'end'>('view');
   const [payToken, setPayToken] = useState<(typeof PAYOUT_TOKENS)[number]>('USDC');
   const [payAmount, setPayAmount] = useState('');
+  const [copied, setCopied] = useState(false);
+  const dao = ipo.daoAccountId ?? '';
+  const sale = ipo.sale, offer = ipo.offer;
+  const float = sale ? sale.sold + sale.remaining : 0;
+  const buyLink = `${window.location.origin}/invest`;
   const payOk = Number(payAmount) > 0;
+  const copy = () => { void navigator.clipboard?.writeText(buyLink).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); }); };
+  const payout = () => { if (payOk) void run(() => api.ipoDividend({ token: payToken, amount: Number(payAmount) })).then((ok) => { if (ok) { setPayAmount(''); setMode('view'); } }); };
+  const endSale = () => void run(() => api.ipoEndSale()).then((ok) => { if (ok) setMode('view'); });
+  const recent = ipo.proposals.slice(-3).reverse();
   return (
-    <>
-      <dl className="kv">
-        <div><dt>DAO</dt><dd>{ext(`${NB}/address/${dao}`, dao)} · {ext(trezu(dao), 'Open in Trezu')}</dd></div>
-        <div><dt>Token</dt><dd>{ipo.tokenAccountId && ext(`${NB}/address/${ipo.tokenAccountId}`, ipo.tokenAccountId)} · {ipo.symbol} · Vibe City factory token</dd></div>
-        {ipo.txHashes.length > 0 && <div><dt>Transactions</dt><dd>{ipo.txHashes.map((h, i) => <span key={h}>{i > 0 && ' · '}{ext(`${NB}/txns/${h}`, `${h.slice(0, 8)}…`)}</span>)}</dd></div>}
-      </dl>
-      <h4>Offering</h4>
-      {!sale ? <p className="muted">The offering could not be read right now.</p> : <>
-        <dl className="kv">
-          <div><dt>Status</dt><dd>{sale.open ? 'Open' : 'Closed'}</dd></div>
-          <div><dt>Sold</dt><dd>{sale.sold.toLocaleString()} / {float.toLocaleString()} {ipo.symbol}<SaleBar sold={sale.sold} float={float} /></dd></div>
-          <div><dt>Raised</dt><dd>{sale.raisedNear.toLocaleString()} NEAR · {sale.buyers} buyer{sale.buyers === 1 ? '' : 's'}</dd></div>
-          <div><dt>Buy link</dt><dd><a href="/invest" target="_blank" rel="noreferrer">/invest</a> · <span className="mono">{buyLink}</span> <button className="btn small" type="button" onClick={() => void navigator.clipboard?.writeText(buyLink)}>Copy</button></dd></div>
-        </dl>
-        {sale.open && <button className="btn secondary small" disabled={busy} onClick={() => void run(() => api.ipoEndSale())}>End the offering</button>}
-      </>}
-      <h4>Revenue share by DAO vote</h4>
-      <p className="fine">Shareholders are the offering's buyers. Payouts are DAO proposals you approve in Trezu. No promised returns.</p>
-      {ipo.holders.length === 0 ? <p className="muted">No buyers yet. Share the buy link.</p> : (
-        <ul>{ipo.holders.map((h) => <li key={h.accountId}><span className="mono">{h.accountId}</span> · {h.balance === null ? '?' : h.balance.toLocaleString()} {ipo.symbol}</li>)}</ul>
-      )}
-      <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (payOk) void run(() => api.ipoDividend({ token: payToken, amount: Number(payAmount) })).then((ok) => { if (ok) setPayAmount(''); }); }}>
-        <span className="lbl">Distribute revenue</span>
-        <div className="row">
-          <PixelSelect value={payToken} onChange={(v) => setPayToken(v as typeof payToken)} options={PAYOUT_TOKENS.map((t) => ({ value: t, label: t }))} aria-label="Payout token" />
-          <input className="input" aria-label="Amount to distribute" inputMode="decimal" placeholder="0.00" value={payAmount} onChange={(e) => setPayAmount(e.target.value.trim())} />
-          <button className="btn small" type="submit" disabled={busy || !payOk}>Propose</button>
+    <Device model="IPO-1" name="share ticker" shell="graphite" led={sale?.open ? 'green' : 'off'} className="safe-dev ipo-dev">
+      <div className="safe-body">
+        <Screen kind="lcd" className="safe-lcd" label="Share ticker display">
+          <div className="scr-row"><span>{ipo.symbol} · city shares</span><span>{sale ? (sale.open ? '● Offering open' : '○ Offering closed') : '…'}</span></div>
+          <div className="scr-mono safe-acct">{ipo.tokenAccountId && ext(`${NB}/address/${ipo.tokenAccountId}`, short(ipo.tokenAccountId))}</div>
+          {mode === 'view' && <>
+            <div className="scr-row safe-lbl"><span>Price per share</span><span>{offer && `≈ $${(offer.priceNear * offer.nearUsd).toFixed(4)}`}</span></div>
+            <div><Digits value={offer ? fmtNear(offer.priceNear) : '-'} /> <span className="scr-mono">NEAR</span></div>
+            {sale ? <>
+              <div className="scr-row safe-lbl"><span>Sold</span><span>{whole(sale.sold)} / {whole(float)}</span></div>
+              <LcdBar value={sale.sold} max={float} label="Shares sold" />
+              <div className="scr-row safe-lbl"><span>Raised · to the DAO</span><span>{fmtNear(sale.raisedNear)} NEAR</span></div>
+            </> : <p className="scr-mono safe-hint">The offering could not be read right now.</p>}
+            <div className="scr-row safe-lbl"><span>Shareholders · {ipo.holders.length}</span><span>{ipo.symbol}</span></div>
+            {ipo.holders.length === 0 ? <p className="scr-mono safe-hint">No buyers yet. Press Buy link and share it.</p> : (
+              <ul className="safe-holdings">
+                {ipo.holders.map((h) => <li key={h.accountId} className="scr-row"><span>{short(h.accountId)}</span><span>{h.balance === null ? '?' : whole(h.balance)}</span></li>)}
+              </ul>
+            )}
+            {recent.length > 0 && <>
+              <div className="scr-row safe-lbl"><span>DAO proposals</span><span>{ext(`${trezu(dao)}/requests`, 'Approve in Trezu ▸')}</span></div>
+              <ul className="safe-holdings">
+                {recent.map((p, i) => <li key={`${p.id ?? 'x'}-${i}`} className="scr-row"><span>{p.kind === 'end_sale' ? 'End sale' : 'Payout'}{p.id !== null && ` #${p.id}`}</span><span>{p.awaitingWalletApproval ? 'OutLayer approval' : 'In Trezu'}</span></li>)}
+              </ul>
+            </>}
+          </>}
+          {mode === 'payout' && (
+            <form onSubmit={(e) => { e.preventDefault(); payout(); }}>
+              <div className="scr-row safe-lbl"><span>Revenue share · by DAO vote</span><span>{payToken}</span></div>
+              <input className="scr-input lcd-seg" inputMode="decimal" autoFocus placeholder="0.00" aria-label={`${payToken} to distribute`} value={payAmount} onChange={(e) => setPayAmount(e.target.value.trim())} />
+              <p className="scr-mono safe-hint">One DAO proposal pays the {ipo.holders.length} shareholder{ipo.holders.length === 1 ? '' : 's'} pro rata to their shares, from the DAO's {payToken}. You approve it in Trezu. Nothing is promised to holders.</p>
+            </form>
+          )}
+          {mode === 'end' && sale && <>
+            <div className="scr-row safe-lbl"><span>End the offering</span></div>
+            <p className="scr-mono safe-hint">{whole(sale.remaining)} unsold {ipo.symbol} return to the DAO and nobody can buy after. This files a DAO proposal you approve in Trezu.</p>
+          </>}
+          {err && <p className="scr-mono safe-err" role="alert">! {err}</p>}
+          <div className="scr-row safe-foot"><span>{ext(trezu(dao), short(dao))}</span><span>Payouts by DAO vote</span></div>
+        </Screen>
+        <div className="safe-keys" role="group" aria-label="Share ticker keys">
+          {mode === 'view' && <>
+            <Key hot onClick={copy} title={buyLink}>{copied ? 'Copied' : 'Buy link'}</Key>
+            <Key onClick={() => setMode('payout')}>Payout</Key>
+            {sale?.open && <Key onClick={() => setMode('end')}>End sale</Key>}
+            <Key href={trezu(dao)} title="The company's DAO on Trezu">Trezu</Key>
+          </>}
+          {mode === 'payout' && <>
+            <Key hot disabled={busy || !payOk} onClick={payout}>{busy ? 'Filing' : 'Propose'}</Key>
+            {PAYOUT_TOKENS.map((t) => <Key key={t} lit={payToken === t} pressed={payToken === t} onClick={() => setPayToken(t)}>{t}</Key>)}
+            <Key onClick={() => setMode('view')}>Back</Key>
+          </>}
+          {mode === 'end' && <>
+            <Key hot disabled={busy} onClick={endSale}>{busy ? 'Filing' : 'Propose'}</Key>
+            <Key onClick={() => setMode('view')}>Back</Key>
+          </>}
+          <Grille className="safe-grille" />
         </div>
-      </form>
-      {ipo.proposals.length > 0 && (
-        <ul>{ipo.proposals.map((p, i) => <li key={`${p.id ?? 'x'}-${i}`}>{p.kind === 'end_sale' ? 'End the offering' : 'Dividend'}{p.id !== null && ` #${p.id}`} · {p.title} · {p.awaitingWalletApproval ? 'waiting for your OutLayer approval' : ext(`${trezu(dao)}/requests`, 'approve in Trezu')}</li>)}</ul>
-      )}
-    </>
+      </div>
+    </Device>
   );
-}
-
-export function SaleBar({ sold, float }: { sold: number; float: number }) {
-  const pct = float > 0 ? Math.min(100, (sold / float) * 100) : 0;
-  return <span className="sale-bar" role="progressbar" aria-label="Float sold" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /></span>;
 }

@@ -7,7 +7,7 @@ import { useEffect, useState } from 'react';
 import type { WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Device, Grille, Key, Screen } from './Device';
+import { Device, Digits, Grille, Key, Screen } from './Device';
 import { IpoCard } from './IpoCard';
 
 const NEW_WALLET_URL = 'https://app.outlayer.ai/wallet/new';
@@ -19,7 +19,6 @@ const errText = (e: unknown) => (e instanceof ApiError ? e.message : e instanceo
 const human = (raw: string, d: number) => (d >= 4 ? Number(BigInt(raw) / 10n ** BigInt(d - 4)) / 1e4 : Number(raw) / 10 ** d).toLocaleString(undefined, { maximumFractionDigits: 4 });
 const usd = (n: number) => n.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 2 });
 /** LCD digits with their unlit segments behind: every digit's ghost is an 8. */
-const Digits = ({ value, md }: { value: string; md?: boolean }) => <span className={`lcd-seg${md ? ' md' : ''}`} data-ghost={value.replace(/[0-9]/g, '8')}>{value}</span>;
 const refreshGame = () => void api.game().then((game) => useStore.setState({ game })).catch(() => undefined);
 
 export function MoneyScreen() {

@@ -1,10 +1,11 @@
 /* The public buy page (/invest): anyone connects a NEAR wallet and calls `buy` on the company's city token, which
    sends tokens at the fixed offering price and forwards the NEAR to the company's DAO. */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { NearConnector } from '@hot-labs/near-connect';
 import type { IpoState } from '@vibe-city/shared';
 import { api, ApiError } from '../api';
-import { SaleBar } from '../town/ui/IpoCard';
+import { fmtNear } from '../town/ui/IpoCard';
+import { Device, Digits, Grille, Key, LcdBar, Screen } from '../town/ui/Device';
 import { estimateTokens, nearToYocto } from './buy';
 import '../town/fonts.css';
 import '../town/styles.css';
@@ -58,8 +59,18 @@ export function InvestPage() {
     balanceOf(token, account).then(setBalance, () => setBalance(null));
   }, [token, account, tx]);
 
-  if (!ipo) return <main className="invest">{err ? <p className="field-err" role="alert">{err}</p> : <p className="muted">Loading…</p>}</main>;
-  if (!token) return <main className="invest"><h1>{name || 'Vibe City'}</h1><p>This company has not gone public yet.</p></main>;
+  const shell = (body: ReactNode, keys: ReactNode, led: 'green' | 'amber' | 'off' = 'off') => (
+    <main className="invest">
+      <Device model="IPO-1" name={`${name || 'Vibe City company'} · share terminal`} shell="graphite" led={led} className="safe-dev invest-dev">
+        <div className="safe-body">
+          <Screen kind="lcd" className="safe-lcd" label="Share terminal display">{body}</Screen>
+          <div className="safe-keys" role="group" aria-label="Terminal keys">{keys}<Grille className="safe-grille" /></div>
+        </div>
+      </Device>
+    </main>
+  );
+  if (!ipo) return shell(err ? <p className="scr-mono safe-err" role="alert">! {err}</p> : <p className="scr-mono">Loading…</p>, null);
+  if (!token) return shell(<><div className="scr-row"><span>{name || 'Vibe City'}</span><span>○ Private</span></div><p className="scr-mono safe-hint">This company has not gone public yet.</p></>, null);
 
   const sale = ipo.sale, offer = ipo.offer;
   const float = sale ? sale.sold + sale.remaining : 0;
@@ -82,40 +93,35 @@ export function InvestPage() {
     finally { setBusy(false); void load(); }
   };
 
-  return (
-    <main className="invest">
-      <h1>{name || 'Vibe City company'} · {ipo.symbol}</h1>
-      <dl className="kv">
-        <div><dt>Token</dt><dd><a href={`${NB}/address/${token}`} target="_blank" rel="noreferrer">{token}</a></dd></div>
-        <div><dt>Price</dt><dd>{offer ? `${offer.priceNear} NEAR per ${ipo.symbol}` : 'unavailable'}</dd></div>
-        {sale && <>
-          <div><dt>Offering</dt><dd>{sale.open ? 'Open' : 'Closed'}</dd></div>
-          <div><dt>Sold</dt><dd>{sale.sold.toLocaleString()} / {float.toLocaleString()} ({sale.remaining.toLocaleString()} left)<SaleBar sold={sale.sold} float={float} /></dd></div>
-          <div><dt>Raised</dt><dd>{sale.raisedNear.toLocaleString()} NEAR · {sale.buyers} buyer{sale.buyers === 1 ? '' : 's'}</dd></div>
-        </>}
-      </dl>
-
-      {account ? (
-        <div className="row">
-          <span className="mono grow">{account} · {balance === null ? '?' : balance.toLocaleString()} {ipo.symbol}</span>
-          <button className="btn small" onClick={() => void near().disconnect()}>Disconnect</button>
-        </div>
-      ) : <button className="btn primary" onClick={() => void near().connect().catch((e) => setErr(errText(e)))}>Connect wallet</button>}
-
+  const connect = () => void near().connect().catch((e) => setErr(errText(e)));
+  return shell(<>
+    <div className="scr-row"><span>{ipo.symbol} · city shares</span><span>{sale ? (sale.open ? '● Offering open' : '○ Offering closed') : '…'}</span></div>
+    <div className="scr-mono safe-acct"><a href={`${NB}/address/${token}`} target="_blank" rel="noreferrer">{token}</a></div>
+    <div className="scr-row safe-lbl"><span>Price per share</span><span>{offer && `≈ $${(offer.priceNear * offer.nearUsd).toFixed(4)}`}</span></div>
+    <div><Digits value={offer ? fmtNear(offer.priceNear) : '-'} /> <span className="scr-mono">NEAR</span></div>
+    {sale && <>
+      <div className="scr-row safe-lbl"><span>Sold</span><span>{sale.sold.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {float.toLocaleString()}</span></div>
+      <LcdBar value={sale.sold} max={float} label="Shares sold" />
+      <div className="scr-row safe-lbl"><span>Raised by the company</span><span>{fmtNear(sale.raisedNear)} NEAR · {sale.buyers} holder{sale.buyers === 1 ? '' : 's'}</span></div>
+    </>}
+    <div className="scr-rule" />
+    <div className="scr-row"><span>Your wallet</span><span>{account ? `${balance === null ? '?' : balance.toLocaleString()} ${ipo.symbol}` : '○ Not connected'}</span></div>
+    {account && <div className="scr-mono safe-acct">{account}</div>}
+    {sale?.open ? (
       <form onSubmit={(e) => { e.preventDefault(); if (canBuy) void buy(); }}>
-        <label className="field"><span className="lbl">NEAR to invest</span>
-          <div className="row">
-            <input className="input" inputMode="decimal" placeholder="1.0" value={amount} disabled={!sale?.open} onChange={(e) => setAmount(e.target.value.trim())} />
-            <button className="btn primary" type="submit" disabled={!canBuy}>{busy ? 'Buying…' : 'Buy'}</button>
-          </div>
-        </label>
-        {deposit && offer && <p className="fine">≈ {estimate.toLocaleString(undefined, { maximumFractionDigits: 6 })} {ipo.symbol}{!balance && ' (after the ~0.0033 NEAR first-buy storage fee)'}</p>}
-        {sale && !sale.open && <p className="fine">The offering is closed.</p>}
+        <div className="scr-row safe-lbl"><span>Invest · NEAR</span><span>{deposit && offer ? `≈ ${estimate.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${ipo.symbol}` : ''}</span></div>
+        <input className="scr-input lcd-seg md" inputMode="decimal" placeholder="0.00" aria-label="NEAR to invest" value={amount} onChange={(e) => setAmount(e.target.value.trim())} />
+        {deposit && !balance && <p className="scr-mono safe-hint">A first purchase keeps ~0.0033 NEAR for your share account.</p>}
       </form>
-
-      {tx && <p role="status">{tx.ok ? 'Bought.' : 'The transaction failed.'} {tx.hash && <a href={`${NB}/txns/${tx.hash}`} target="_blank" rel="noreferrer">View transaction</a>}</p>}
-      {err && <p className="field-err" role="alert">{err}</p>}
-      <p className="fine">You pay NEAR to the company's DAO and receive city tokens. Revenue share is decided by the DAO; nothing is promised.</p>
-    </main>
-  );
+    ) : sale && <p className="scr-mono safe-hint">The offering is closed.</p>}
+    {tx && <p className="scr-mono" role="status">{tx.ok ? '✓ Bought.' : '! The transaction failed.'} {tx.hash && <a href={`${NB}/txns/${tx.hash}`} target="_blank" rel="noreferrer">View ▸</a>}</p>}
+    {err && <p className="scr-mono safe-err" role="alert">! {err}</p>}
+    <div className="scr-row safe-foot"><span>Your NEAR goes to the company's DAO</span><span>Payouts by DAO vote · nothing promised</span></div>
+  </>, <>
+    {account
+      ? <Key hot type="button" disabled={!canBuy} onClick={() => void buy()}>{busy ? 'Buying' : 'Buy'}</Key>
+      : <Key hot onClick={connect}>Connect</Key>}
+    {account && <Key onClick={() => void near().disconnect()}>Disconnect</Key>}
+    <Key href={`${NB}/address/${token}`} title="The token on NearBlocks">Token</Key>
+  </>, sale?.open ? 'green' : 'off');
 }
