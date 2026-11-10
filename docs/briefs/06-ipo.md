@@ -56,7 +56,7 @@ price, which is not an IPO, and the DAO moving its own unpriced token was someth
   holders per proposal inside the approver's 300 Tgas). The batch is atomic, hence the registration in the same
   proposal. The DAO is registered on USDC and wNEAR at IPO so revenue can be sent to it. `add_proposal` attaches
   exactly 0 (bond 0). Token-weighted voting needs the separate staking contract; out of scope.
-- NEP-141 has no holder enumeration. Our holders are the accounts the DAO allocated VCT to, which we record.
+- NEP-141 has no holder enumeration. Our holders are the offering's buyers, which the token records (`get_buyers`).
 - Trezu has no API; it lists every `*.sputnik-dao.near`. meme.cooking has no documented contract; not code.
 - **Budget:** about 3.3 NEAR (1 DAO, 2.2337 token, 0.025 registrations mostly refunded, gas), mainnet; the
   game asks for 4.
@@ -116,7 +116,7 @@ counts). `dao-funds` stays done after the IPO spends the funds.
 
 - "Revenue share by DAO vote". Payouts are proposals the CEO approves in Trezu, not an automatic stream.
 - The council governs, not token holders (no staking contract).
-- Holders are team-owned demo accounts the DAO allocated tokens to. No sale, no promised returns.
+- Shareholders are whoever bought in the offering. The price is a formula on game numbers, not a market price. No promised returns.
 - The token is a "tkn.near factory token, no keys at check time". If the hackathon needs our own contract, deploy it
   once by hand from a full-access key, delete the key, and the rest of the flow is unchanged.
 
