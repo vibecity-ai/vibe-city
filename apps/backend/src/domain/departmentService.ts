@@ -1,11 +1,12 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  CHIEF_OF_STAFF, InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, templateById,
+  CHIEF_OF_STAFF, InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, isInternalOnly, templateById,
   type DepartmentAgent, type DepartmentCreate, type DepartmentUpdate, type DepartmentView, type Inventory, type InventoryPatch, type ModelChoice,
 } from '@vibe-city/shared';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
 import { generateCharacter } from './characters.ts';
+import { WORKER_SKILL } from './marketService.ts';
 
 interface Row {
   id: string; company_id: string; name: string; purpose: string; floor_order: number;
@@ -349,10 +350,20 @@ export class DepartmentService {
     this.db.prepare('UPDATE department_agent SET verified_at = NULL WHERE department_id = ?').run(id);
   }
 
+  /** The stored inventory plus the skills game flow needs on this floor, so no patch, draft or old floor can drop them. */
   getInventory(id: string): Inventory {
-    this.row(id);
+    const locked = this.lockedSkills(id);
     const r = this.db.prepare('SELECT inventory_json FROM department_inventory WHERE department_id = ?').get(id) as unknown as { inventory_json: string };
-    return InventorySchema.parse(migrateInventory(JSON.parse(r.inventory_json)));
+    const inv = InventorySchema.parse(migrateInventory(JSON.parse(r.inventory_json)));
+    return locked.length ? { ...inv, allowedSkillIds: [...new Set([...inv.allowedSkillIds, ...locked])] } : inv;
+  }
+
+  /** A wallet floor moves money only through agent-custody; the floor listed on the market reads jobs and messages
+      buyers only through marketplace-worker. */
+  lockedSkills(id: string): string[] {
+    const out = isInternalOnly(this.row(id).template_id) ? ['agent-custody'] : [];
+    if (this.db.prepare('SELECT 1 FROM market_agent WHERE department_id = ?').get(id)) out.push(WORKER_SKILL);
+    return out;
   }
 
   patchInventory(id: string, patch: InventoryPatch): Inventory {

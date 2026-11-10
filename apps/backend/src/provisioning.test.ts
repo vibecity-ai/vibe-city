@@ -51,8 +51,8 @@ test('inventory is applied: toolsets, skills, instructions; other profiles and u
   const w = t.hermes.profiles.get(worker)!;
   const c = t.hermes.profiles.get(chief)!;
   const on = (p: typeof w) => Object.entries(p.toolsets).filter(([, v]) => v).map(([k]) => k).sort();
-  assert.deepEqual(on(w), ['file', 'kanban', 'terminal', 'todo'], 'teammate: allowed minus delegation, plus kanban');
-  assert.deepEqual(on(c), ['file', 'kanban', 'terminal', 'todo'], 'lead: the same allowance');
+  assert.deepEqual(on(w), ['file', 'kanban', 'skills', 'terminal', 'todo'], 'teammate: allowed minus delegation, plus the required ones');
+  assert.deepEqual(on(c), ['file', 'kanban', 'skills', 'terminal', 'todo'], 'lead: the same allowance');
   assert.deepEqual(Object.entries(w.skills).filter(([, v]) => v).map(([k]) => k), ['hermes-agent', 'pdf'], 'allowed + Hermes essential');
   assert.ok(w.soul.startsWith('# Soul\nBe helpful.\n'), 'existing instructions preserved');
   assert.ok(w.soul.includes('You are an agent of this department (seat W-01)') && c.soul.includes('(seat chief). New quests'));
@@ -253,10 +253,10 @@ test('reconcile detects capability drift in Hermes and re-applies the inventory'
   const d = await t.create('Eng', { inventory: { allowedToolsets: ['file'] } });
   await t.provision(d.id);
   const { worker } = profiles(d.id);
-  t.hermes.profiles.get(worker)!.toolsets.terminal = true; // someone enabled a tool by hand
+  t.hermes.profiles.get(worker)!.toolsets.web = true; // someone enabled a tool by hand
   await t.provisioning.reconcile(d.id);
   assert.equal((await t.status(d.id)).state, 'ready');
-  assert.equal(t.hermes.profiles.get(worker)!.toolsets.terminal, false, 'restriction restored');
+  assert.equal(t.hermes.profiles.get(worker)!.toolsets.web, false, 'restriction restored');
 });
 
 // ---- API surface -----------------------------------------------------------------------
