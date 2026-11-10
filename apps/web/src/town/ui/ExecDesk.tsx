@@ -9,7 +9,21 @@ import { Device, Screen } from './Device';
 import { deptStatus, statusColor } from './kit';
 import { blockedQuests } from '../data/company';
 import { KIND, openDecision } from './DecisionsList';
-import { useUsage } from './RunwayCard';
+import { useEffect, useState } from 'react';
+import type { AiUsageSummary } from '@vibe-city/shared';
+import { api } from '../../api';
+
+/** Today's model spend, refreshed every 30 s; null until the first answer. */
+function useUsage(): AiUsageSummary | null {
+  const [usage, setUsage] = useState<AiUsageSummary | null>(null);
+  useEffect(() => {
+    let live = true;
+    const load = () => api.aiUsage().then((u) => { if (live) setUsage(u); }).catch(() => undefined);
+    void load(); const t = setInterval(load, 30_000);
+    return () => { live = false; clearInterval(t); };
+  }, []);
+  return usage;
+}
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 const Led = ({ value, tone, label, alert }: { value: number; tone: string; label: string; alert?: boolean }) => (
@@ -122,7 +136,7 @@ export function Directory() {
             );
           })}
         </ul>
-        {loaded && depts.length === 0 && <p className="dir-empty">No departments yet. The next floor goes up when you add one.</p>}
+        {loaded && depts.length === 0 && <p className="dir-empty">No floors yet. The next one goes up when you add one.</p>}
       </div>
     </section>
   );

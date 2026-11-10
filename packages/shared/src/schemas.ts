@@ -171,7 +171,6 @@ export const CompanyRenameSchema = z.object({
   name: z.string().trim().min(1, 'Give the company a name.').max(24, 'Keep it to 24 characters so it fits on the sign.')
     .regex(/^[A-Za-z0-9 &.-]+$/, 'The sign can only show letters, digits, spaces and & . -'),
 }).strict();
-export type CompanyRename = z.infer<typeof CompanyRenameSchema>;
 
 export const DEPARTMENT_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const boardSlugForDepartment = (id: string) => `vc-${id}`;
@@ -247,7 +246,6 @@ export const AgentConfigSchema = z.object({
   profileRef: z.string().nullable(),
   entries: z.array(CapabilityEntrySchema),
 }).strict();
-export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
 export const EffectiveInventorySchema = z.object({
   departmentId: z.string(),
@@ -313,7 +311,6 @@ export type ProfilesView = z.infer<typeof ProfilesViewSchema>;
 
 /** Persona flavour only (title, colour): the lead seat or a teammate desk. Both are the same kind of agent. */
 export const AGENT_ROLES = ['chief', 'worker'] as const;
-export type AgentRole = (typeof AGENT_ROLES)[number];
 
 /** One Hermes session of a profile, reduced to safe fields (no cwd, prompt preview, origin, billing endpoints). */
 export const AgentSessionSchema = z.object({
@@ -476,7 +473,6 @@ export type TaskNode = z.infer<typeof TaskNodeSchema>;
 
 /** The boss's answer to a blocked task: posted as a comment, then the task is unblocked so the agent picks it up again. */
 export const TaskAnswerSchema = z.object({ message: z.string().trim().min(1, 'write an answer').max(4000) }).strict();
-export type TaskAnswer = z.infer<typeof TaskAnswerSchema>;
 
 export const CancellationStatusSchema = z.object({
   /**
@@ -571,7 +567,6 @@ export type AttachmentView = z.infer<typeof AttachmentViewSchema>;
 
 /** POST /api/departments/:id/quests/:questId/files (raw bytes, name in the x-filename header). */
 export const QuestFileAddedSchema = z.object({ attachment: AttachmentViewSchema }).strict();
-export type QuestFileAdded = z.infer<typeof QuestFileAddedSchema>;
 
 export const QuestResultsSchema = z.object({
   questId: z.string(),
@@ -600,7 +595,6 @@ export type QuestCreated = z.infer<typeof QuestCreatedSchema>;
 // Every list/wrapper response has a strict schema so the backend and the browser validate the same shape.
 
 export const DepartmentListSchema = z.object({ departments: z.array(DepartmentViewSchema) }).strict();
-export type DepartmentList = z.infer<typeof DepartmentListSchema>;
 
 /** DELETE /api/departments/:id. Archiving never deletes anything in Hermes. */
 export const DepartmentArchivedSchema = z.object({
@@ -622,7 +616,6 @@ export const QuestTasksSchema = z.object({
 export type QuestTasks = z.infer<typeof QuestTasksSchema>;
 
 export const QuestActivitySchema = z.object({ questId: z.string(), events: z.array(ActivityEventSchema) }).strict();
-export type QuestActivity = z.infer<typeof QuestActivitySchema>;
 
 // ---- live events relayed to the frontend ------------------------------------
 
@@ -946,81 +939,8 @@ export type ScheduleCreate = z.infer<typeof ScheduleCreateSchema>;
 export const SchedulePatchSchema = ScheduleCreateSchema.partial().strict();
 export type SchedulePatch = z.infer<typeof SchedulePatchSchema>;
 
-// ---- money: the safe in the Executive Office (feature spec 6.1) ----------------------------------------------------
-// Three pots, shown separately and never added together: credits (what agents spend on models), the founder's NEAR
-// wallets (only they sign), and the company treasury (a Sputnik DAO; only human signers move it, via Trezu).
-// Vibe City stores public account ids only. It never holds keys; every transfer is signed in the user's wallet.
-
-export const NEAR_NETWORKS = ['mainnet', 'testnet'] as const;
-export type NearNetwork = (typeof NEAR_NETWORKS)[number];
 /** NEAR account ids: named (alice.near, x.sputnik-dao.near) or implicit (64 hex / 0x + 40 hex). */
 export const NEAR_ACCOUNT_RE = /^(?=.{2,64}$)(([a-z\d]+[-_])*[a-z\d]+\.)*([a-z\d]+[-_])*[a-z\d]+$/;
-
-export const MoneySettingsSchema = z.object({
-  network: z.enum(NEAR_NETWORKS),
-  daoAccountId: z.string().regex(NEAR_ACCOUNT_RE).nullable(),
-  /** The treasury's page in Trezu, where signers approve proposals. */
-  trezuUrl: z.string().url().max(300).nullable(),
-}).strict();
-export type MoneySettings = z.infer<typeof MoneySettingsSchema>;
-export const MoneySettingsPatchSchema = MoneySettingsSchema.partial().strict();
-
-export const WalletViewSchema = z.object({
-  accountId: z.string(),
-  primary: z.boolean(),
-  /** Balance in yoctoNEAR (decimal string), or null when it could not be read. */
-  /** One per company: hiring it again is refused while an active floor of it exists. */
-  single: z.boolean().default(false),
-  balance: z.string().nullable(),
-  error: z.string().nullable(),
-}).strict();
-export type WalletView = z.infer<typeof WalletViewSchema>;
-
-export const DaoProposalViewSchema = z.object({
-  id: z.number().int(),
-  proposer: z.string(),
-  description: z.string(),
-  /** Plain words, e.g. "Transfer 5 NEAR to bob.near". */
-  kind: z.string(),
-  status: z.string(),
-  approve: z.number().int(), reject: z.number().int(),
-  submittedAt: z.string().nullable(),
-}).strict();
-export type DaoProposalView = z.infer<typeof DaoProposalViewSchema>;
-
-export const TreasuryViewSchema = z.object({
-  daoAccountId: z.string(),
-  balance: z.string().nullable(),
-  /** Deposit (yoctoNEAR) the DAO asks with every proposal. */
-  proposalBond: z.string().nullable(),
-  roles: z.array(z.object({ name: z.string(), members: z.number().int().nullable() }).strict()),
-  proposals: z.array(DaoProposalViewSchema),
-  error: z.string().nullable(),
-}).strict();
-export type TreasuryView = z.infer<typeof TreasuryViewSchema>;
-
-export const CreditsViewSchema = z.object({
-  connected: z.boolean(),
-  /** USD amounts as NEAR AI Cloud formats them; null when unknown. */
-  remaining: z.string().nullable(),
-  spent: z.string().nullable(),
-  requests: z.number().int().nullable(),
-  tokens: z.number().int().nullable(),
-  lastUsageAt: z.string().nullable(),
-  error: z.string().nullable(),
-}).strict();
-export type CreditsView = z.infer<typeof CreditsViewSchema>;
-
-export const MoneyViewSchema = z.object({
-  settings: MoneySettingsSchema,
-  rpcUrl: z.string(),
-  wallets: z.array(WalletViewSchema),
-  treasury: TreasuryViewSchema.nullable(),
-  credits: CreditsViewSchema,
-  readAt: z.string(),
-}).strict();
-export type MoneyView = z.infer<typeof MoneyViewSchema>;
-export const WalletLinkSchema = z.object({ accountId: z.string().regex(NEAR_ACCOUNT_RE) }).strict();
 
 // ---- hackathon foundation (docs/briefs/00-foundation.md) -------------------------------------------------------------
 
@@ -1049,6 +969,8 @@ export const TemplateSchema = z.object({
   dailyBudgetCredits: z.number().int().min(0),
   /** Not offered in the hire grid (the Chief of Staff). */
   hidden: z.boolean().default(false),
+  /** One per company: hiring it again is refused while an active floor of it exists. */
+  single: z.boolean().default(false),
 }).strict();
 export type Template = z.infer<typeof TemplateSchema>;
 /** `hired`: a single template the company already has a floor of (the grid shows it taken). */
@@ -1244,7 +1166,6 @@ export type DepartmentEnv = z.infer<typeof DepartmentEnvSchema>;
 export const EnvVarSetSchema = z.object({
   value: z.string().min(1, 'value is required').max(4096).refine((v) => !/[\r\n\0]/.test(v), 'one line, no line breaks'),
 }).strict();
-export type EnvVarSet = z.infer<typeof EnvVarSetSchema>;
 
 // ---- the department's file archive -------------------------------------------
 /** GET /api/departments/:id/files: every file on the department's jobs (agents' output and the CEO's references). */

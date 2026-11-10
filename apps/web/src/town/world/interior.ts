@@ -513,8 +513,6 @@ export function roomLights(c: IC, lit: boolean) {
   for (let v = 15; v < V; v += 40) L.add(...P(0, v, 50), 46, '#FF3EA5', 0.26, 0.9);
   for (let u = 20; u < U; u += 44) L.add(...P(u, V, 50), 46, '#FF3EA5', 0.24, 0.9);
 }
-export const mixC = mix;
-
 /** Meeting nook in the front-left: table, stools, a rolling whiteboard with scribbles. */
 export function meetingStatic(c: IC) {
   const { P, px } = c;

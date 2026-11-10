@@ -46,7 +46,7 @@ export class ScheduleService {
 
   create(departmentId: string, input: ScheduleCreate): Schedule {
     const dept = this.d.departments.get(departmentId);
-    if (dept.archivedAt) throw new InvalidInputError('department is archived');
+    if (dept.archivedAt) throw new InvalidInputError('floor is archived');
     this.validate(input.cron, input.timezone);
     const id = randomUUID(), now = this.iso();
     this.d.db.prepare('INSERT INTO schedule (id, department_id, name, cron, timezone, title, objective, instructions, enabled, next_run_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')

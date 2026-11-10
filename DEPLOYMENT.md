@@ -60,7 +60,7 @@ On every start, `docker/cont-init.d/03-vibe-city-near` does three things before 
 
 Under the gateway's profile multiplexing a profile reads credentials **only from its own `.env`**. So the backend writes `NEAR_AI_API_KEY` into every agent profile's `.env`: when the floor is provisioned, whenever the key is saved in the game (every existing floor at once), and with the profile's `API_SERVER_KEY` the first time someone chats with an agent. Without any key, provisioning and the UI still work, hiring stays locked behind the first quest, and quests cannot run.
 
-The Chief of Staff (the assistant and AR) is not a Hermes agent: the backend calls NEAR AI directly with the model chosen in the first quest (changeable later in the Executive Office), else `CHAT_MODEL` / `NEAR_AI_MODEL`, else `deepseek/deepseek-v4.1-flash`. Saving a key or a model first makes one tiny NEAR AI call with both, so a wrong key is refused instead of saved.
+The Chief of Staff (who drafts floors and hires) is not a Hermes agent: the backend calls NEAR AI directly with the model chosen in the first quest (changeable later in the Executive Office), else `CHAT_MODEL` / `NEAR_AI_MODEL`, else `deepseek/deepseek-v4.1-flash`. Saving a key or a model first makes one tiny NEAR AI call with both, so a wrong key is refused instead of saved.
 
 The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
 
@@ -74,15 +74,13 @@ Other providers: put their variables in `.env.hermes` (optional, read by compose
 
 In dev the scripts and `docker/skills` are bind-mounted: a change to a script needs `npm run dev:hermes:down && npm run dev:hermes` (a single-file mount keeps the old file until the container is recreated).
 
-### GitHub for the Software Department
-
 ### The Agent Market
 
 The Agent Market quest lists floors on <https://market.near.ai>: each floor the CEO lists (with the Chief of Staff) is registered as its own agent (`POST /v1/agents/register`), with its own `aat_` token in the `market_agent` table. A listed floor's agents holding its token completes the quest. Each token is stored server-side, never returned, and written as `MARKET_AGENT_TOKEN` into that floor's profiles only (for the `marketplace-worker` skill). A self-registered agent sits under a fresh market account: the CEO claims it into theirs with a one-time code from the floor's Marketplace board, then sets a USDC price and goes live under Building → Agents (account-session calls). One poller checks every listed agent's assignments every 45 s, each with its own token: a new job is started and becomes a quest on the listed floor (origin `market`), a completed quest is submitted as the Markdown deliverable, request-changes opens a revision quest, and an accepted job counts as earnings after the 5% fee. No webhook: it needs a public HTTPS URL, and the market asks for polling either way. `MARKET_BASE_URL` overrides the base URL.
 
 ### The company wallet (OutLayer)
 
-The safe in the Executive Office holds one OutLayer custody wallet; its keys stay in OutLayer's TEE. You create the wallet at <https://app.outlayer.ai/wallet/new>, set its policy there, and paste its agent key (`wk_…`) in the safe; it is checked against OutLayer before it is stored. Binding the wallet to your own NEAR account (`POST /api/wallet/bind`, tested, not shown in the UI) is not offered: on mainnet OutLayer cannot build that transaction yet (its wallet contract is not published there, checked 2026-11-08). The key is stored server-side, never returned, and written as `OUTLAYER_API_KEY` / `OUTLAYER_WALLET_ID` into the profiles of the floors whose template has `wallet: 'company'` (Trading Desk, Prediction Desk, Token & Treasury) only. Mainnet (`https://api.outlayer.ai`); set `OUTLAYER_API_URL=https://testnet-api.outlayer.ai` to rehearse. Spending limits are set in OutLayer and cannot be read back.
+The safe in the Executive Office holds one OutLayer custody wallet; its keys stay in OutLayer's TEE. You create the wallet at <https://app.outlayer.ai/wallet/new>, set its policy there, and paste its agent key (`wk_…`) in the safe; it is checked against OutLayer before it is stored. Binding the wallet to your own NEAR account (`POST /api/wallet/bind`, tested, not shown in the UI) is not offered: on mainnet OutLayer cannot build that transaction yet (its wallet contract is not published there, checked 2026-11-08). The key is stored server-side, never returned, and written as `OUTLAYER_API_KEY` / `OUTLAYER_WALLET_ID` into the profiles of the floors whose template has `wallet: 'company'` (Trading Desk, Prediction Desk, Treasury Ops) only. Mainnet (`https://api.outlayer.ai`); set `OUTLAYER_API_URL=https://testnet-api.outlayer.ai` to rehearse. Spending limits are set in OutLayer and cannot be read back.
 
 ### Pinning Hermes
 

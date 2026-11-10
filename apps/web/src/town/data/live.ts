@@ -362,7 +362,7 @@ export async function loadHermesModels(): Promise<{ value: HermesModelsView | nu
 /** Creates the department with its capabilities, then starts syncing it unless asked not to. Returns the new floor
     (null on failure) as soon as it exists: the Hermes sync runs on in the background. */
 export async function createDepartment(input: DepartmentCreate, provisionNow: boolean) {
-  const v = await run('create', 'Could not create the department', () => api.createDepartment(input));
+  const v = await run('create', 'Could not create the floor', () => api.createDepartment(input));
   if (!v) return null;
   await refreshAll();
   st().ui$({ modal: null });
@@ -379,7 +379,7 @@ export async function saveDepartmentSettings(id: string, patch: DepartmentUpdate
   const { value, error } = await attempt(`settings:${id}`, () => api.updateDepartment(id, patch));
   if (!value) return error;
   await refreshOne(id);
-  if (value.state === 'unconfigured' && before && before !== 'unconfigured') st().toast('Settings saved. Sync the department again before agents get new work.', 'warn');
+  if (value.state === 'unconfigured' && before && before !== 'unconfigured') st().toast('Settings saved. Sync the floor again before agents get new work.', 'warn');
   else st().toast('Settings saved.');
   return null;
 }

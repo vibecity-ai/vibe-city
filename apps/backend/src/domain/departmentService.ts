@@ -20,7 +20,6 @@ interface Row {
   template_id?: string | null;
 }
 
-export type DepartmentRow = Row;
 
 /** One agent = one Hermes profile. Seat 0 (key `chief`) is the lead; teammates are W-01, W-02, … */
 export interface AgentRow {
@@ -108,7 +107,7 @@ export class DepartmentService {
 
   private row(id: string): Row {
     const r = this.db.prepare('SELECT * FROM department WHERE id = ?').get(id) as unknown as Row | undefined;
-    if (!r) throw new NotFoundError('department not found');
+    if (!r) throw new NotFoundError('floor not found');
     return r;
   }
 
@@ -116,7 +115,7 @@ export class DepartmentService {
     const hit = this.db
       .prepare('SELECT id FROM department WHERE name_key = ? AND archived_at IS NULL AND id IS NOT ?')
       .get(nameKey(name), exceptId ?? null);
-    if (hit) throw new ConflictError('a department with this name already exists');
+    if (hit) throw new ConflictError('a floor with this name already exists');
   }
 
   /** The floors of the tower. `includeHidden` adds the Chief of Staff's department (hidden template, no floor position). */
@@ -155,13 +154,13 @@ export class DepartmentService {
 
   lead(id: string): AgentRow {
     const a = this.agents(id)[0];
-    if (!a) throw new NotFoundError('department not found');
+    if (!a) throw new NotFoundError('floor not found');
     return a;
   }
 
   /** Internal: provisioning bookkeeping on one agent. */
   patchAgent(id: string, agentKey: string, cols: Partial<Pick<AgentRow, 'profile_ref' | 'origin' | 'verified_at'>>): void {
-    if (this.row(id).archived_at) throw new ConflictError('department is archived');
+    if (this.row(id).archived_at) throw new ConflictError('floor is archived');
     const keys = Object.keys(cols) as (keyof typeof cols)[];
     if (!keys.length) return;
     this.db.prepare(`UPDATE department_agent SET ${keys.map((k) => `${k} = ?`).join(', ')} WHERE department_id = ? AND agent_key = ? AND fired_at IS NULL`)
@@ -175,7 +174,7 @@ export class DepartmentService {
   addAgent(id: string, loadout: { model: ModelChoice | null; skills: string[] }): AgentRow {
     return this.tx(() => {
       const cur = this.row(id);
-      if (cur.archived_at) throw new ConflictError('department is archived');
+      if (cur.archived_at) throw new ConflictError('floor is archived');
       if (this.agents(id).length > MAX_TEAMMATES) throw new ConflictError(`${cur.name} already has the maximum of ${MAX_TEAMMATES} teammates`);
       const seat = (this.db.prepare('SELECT MAX(last_seat, (SELECT COALESCE(MAX(seat), 0) FROM department_agent WHERE department_id = ?)) + 1 AS n FROM department WHERE id = ?').get(id, id) as { n: number }).n;
       this.insertAgent(id, seat, loadout, new Date().toISOString());
@@ -191,7 +190,7 @@ export class DepartmentService {
   setAgentModel(id: string, agentKey: string, model: ModelChoice | null): DepartmentAgent {
     return this.tx(() => {
       const cur = this.row(id);
-      if (cur.archived_at) throw new ConflictError('department is archived');
+      if (cur.archived_at) throw new ConflictError('floor is archived');
       const r = this.db.prepare('UPDATE department_agent SET model_json = ? WHERE department_id = ? AND agent_key = ? AND fired_at IS NULL')
         .run(model ? JSON.stringify(model) : null, id, agentKey);
       if (!r.changes) throw new NotFoundError('agent not found');
@@ -211,7 +210,7 @@ export class DepartmentService {
   fireAgent(id: string, agentKey: string): void {
     this.tx(() => {
       const cur = this.row(id);
-      if (cur.archived_at) throw new ConflictError('department is archived');
+      if (cur.archived_at) throw new ConflictError('floor is archived');
       if (agentKey === LEAD_KEY) throw new ConflictError('the lead cannot be fired');
       const now = new Date().toISOString();
       const r = this.db.prepare('UPDATE department_agent SET fired_at = ? WHERE department_id = ? AND agent_key = ? AND fired_at IS NULL').run(now, id, agentKey);
@@ -228,7 +227,7 @@ export class DepartmentService {
   /** Internal: apply column updates (provisioning bookkeeping). Refuses archived departments. */
   patchRow(id: string, cols: Record<string, string | number | null>): void {
     const cur = this.row(id);
-    if (cur.archived_at) throw new ConflictError('department is archived');
+    if (cur.archived_at) throw new ConflictError('floor is archived');
     const keys = Object.keys(cols);
     if (!keys.length) return;
     if (!keys.every((k) => /^[a-z_]+$/.test(k))) throw new Error('invalid column name');
@@ -253,10 +252,10 @@ export class DepartmentService {
     // a hidden department is not a floor: its name never blocks (or is blocked by) a floor's
     const key = t?.hidden ? hiddenNameKey(input.name) : nameKey(input.name);
     return this.tx(() => {
+      if (!t?.hidden) this.assertUniqueName(input.name);
       if (t?.single && this.db.prepare('SELECT 1 FROM department WHERE template_id = ? AND archived_at IS NULL').get(t.id)) {
         throw new ConflictError(`The company already has ${t.name}: there is one per company.`);
       }
-      if (!t?.hidden) this.assertUniqueName(input.name);
       const id = randomUUID();
       const now = new Date().toISOString();
       // floor_order is monotonic and never reused or renumbered, so existing floors stay stable.
@@ -284,7 +283,7 @@ export class DepartmentService {
   update(id: string, patch: DepartmentUpdate): DepartmentView {
     return this.tx(() => {
       const cur = this.row(id);
-      if (cur.archived_at) throw new ConflictError('department is archived');
+      if (cur.archived_at) throw new ConflictError('floor is archived');
       if (isHidden(cur)) throw new ConflictError('the Chief of Staff is not a floor: it cannot be renamed or edited');
       if (patch.name !== undefined) this.assertUniqueName(patch.name, id);
       const curLead = this.lead(id).profile_ref;
@@ -295,7 +294,7 @@ export class DepartmentService {
       let confirmed: string[] = (JSON.parse(cur.confirmed_profile_refs_json) as string[]).filter((r) => r === lead);
       if (patch.confirmModifyProfiles !== undefined) {
         for (const r of patch.confirmModifyProfiles) {
-          if (r !== lead) throw new InvalidInputError(`cannot confirm "${r}": it is not this department's lead profile`);
+          if (r !== lead) throw new InvalidInputError(`cannot confirm "${r}": it is not this floor's lead profile`);
         }
         confirmed = [...new Set(patch.confirmModifyProfiles)];
       }
@@ -321,7 +320,7 @@ export class DepartmentService {
   archive(id: string): { department: DepartmentView; hermesResourcesRetained: boolean } {
     return this.tx(() => {
       const cur = this.row(id);
-      if (cur.archived_at) throw new NotFoundError('department not found');
+      if (cur.archived_at) throw new NotFoundError('floor not found');
       if (isHidden(cur)) throw new ConflictError('the Chief of Staff cannot be archived');
       const now = new Date().toISOString();
       this.db.prepare('UPDATE department SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
@@ -335,13 +334,13 @@ export class DepartmentService {
   /** Every agent has its own profile: non-reserved, and not shared with another agent of any active department. */
   private assertLeadRef(id: string, ref: string | null) {
     if (!ref) return;
-    if (RESERVED_PROFILES.has(ref)) throw new InvalidInputError(`profile "${ref}" is reserved and cannot be a department profile`);
+    if (RESERVED_PROFILES.has(ref)) throw new InvalidInputError(`profile "${ref}" is reserved and cannot be a floor profile`);
     const hit = this.db.prepare(
       `SELECT a.department_id AS dept, a.seat AS seat FROM department_agent a JOIN department d ON d.id = a.department_id
        WHERE d.archived_at IS NULL AND a.profile_ref = ? AND NOT (a.department_id = ? AND a.seat = 0)`,
     ).get(ref, id) as { dept: string; seat: number } | undefined;
-    if (hit?.dept === id) throw new InvalidInputError(`profile "${ref}" is already one of this department's teammates`);
-    if (hit) throw new ConflictError(`profile "${ref}" is already used by another department`);
+    if (hit?.dept === id) throw new InvalidInputError(`profile "${ref}" is already one of this floor's teammates`);
+    if (hit) throw new ConflictError(`profile "${ref}" is already used by another floor`);
   }
 
   /** Drop verification results (on the department and every agent). */
@@ -372,7 +371,7 @@ export class DepartmentService {
   patchInventory(id: string, patch: InventoryPatch): Inventory {
     return this.tx(() => {
       const cur = this.row(id);
-      if (cur.archived_at) throw new ConflictError('department is archived');
+      if (cur.archived_at) throw new ConflictError('floor is archived');
       const next = mergeInventory(this.getInventory(id), patch);
       this.db.prepare('UPDATE department_inventory SET inventory_json = ?, updated_at = ? WHERE department_id = ?')
         .run(JSON.stringify(next), new Date().toISOString(), id);

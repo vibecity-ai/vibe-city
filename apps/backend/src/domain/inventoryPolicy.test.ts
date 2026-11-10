@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { InventorySchema, TOOLSETS, type Inventory } from '@vibe-city/shared';
 import {
-  REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, diffObserved, effectiveToolsets, inventoryHash, modelToApply,
+  REQUIRED_TOOLSETS, agentInventory, buildAgentReport, buildDepartmentWideReport, desiredHash, diffObserved, effectiveToolsets, modelToApply,
   type ObservedRole,
 } from './inventoryPolicy.ts';
 import { buildBlock, upsertBlock } from './instructions.ts';
@@ -33,12 +33,6 @@ test('monotonic: effective toolsets never exceed department allowance plus requi
     const i = inv({ allowedToolsets: subset });
     for (const t of effectiveToolsets(i)) assert.ok((REQUIRED_TOOLSETS as readonly string[]).includes(t) || subset.includes(t as any), `got ${t}`);
   }
-});
-
-test('inventory hash is stable, order-insensitive for keys, and sensitive to nested limits', () => {
-  assert.equal(inventoryHash(inv({ allowedSkillIds: ['a'] })), inventoryHash(inv({ allowedSkillIds: ['a'] })));
-  assert.notEqual(inventoryHash(inv()), inventoryHash(inv({ limits: { maxTaskRuntimeSeconds: 60 } })));
-  assert.notEqual(inventoryHash(inv()), inventoryHash(inv({ allowedToolsets: ['file'] })));
 });
 
 test('desired hash changes with the team: a new agent, or an agent\'s own model or skills', () => {

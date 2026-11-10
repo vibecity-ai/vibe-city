@@ -39,7 +39,7 @@ export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
       await api.setCompanySettings({ ...(key.trim() ? { nearAiApiKey: key.trim() } : {}), chiefOfStaffModel: model });
       const game = await api.game();
       useStore.setState({ game });
-      useStore.getState().toast(ready ? `Your Chief of Staff now thinks with ${model}.` : 'Your Chief of Staff is ready. You can hire your first department.');
+      useStore.getState().toast(ready ? `Your Chief of Staff now thinks with ${model}.` : 'Your Chief of Staff is ready. You can hire your first floor.');
       setKey(''); setReplacing(false);
       await load();
       onDone?.();

@@ -12,7 +12,7 @@ export type Box6 = [number, number, number, number, number, number];
 export interface FloorObject { id: FloorObjectId; label: string; b: Box6 }
 
 const COMMON: FloorObject[] = [
-  { id: 'board', label: 'Kanban wall', b: [95, 138, 4, 82, 2, 38] },
+  { id: 'board', label: 'Ops board', b: [95, 138, 4, 82, 2, 38] },
   { id: 'lead', label: 'Lead’s office', b: [12, 114, 0, 40, 20, 26] },
   { id: 'archive', label: 'File archive', b: [28, 8, 0, 12, 29, 24] },
   { id: 'rack', label: 'Tools', b: [0, 56, 0, 14, 18, 44] },

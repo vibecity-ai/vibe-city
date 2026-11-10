@@ -214,7 +214,7 @@ test('cancellation polling stops when Hermes goes away and when the view closes'
 test('a failed settings save keeps the last good state and returns the field error', async () => {
   const { b } = backend();
   await refreshAll();
-  b.on('PATCH', D, { status: 409, body: { error: 'conflict', message: 'a department with this name already exists' } });
+  b.on('PATCH', D, { status: 409, body: { error: 'conflict', message: 'a floor with this name already exists' } });
   const err = await saveDepartmentSettings(DEPT_ID, { name: 'Taken' });
   assert.equal(err?.status, 409);
   assert.match(err!.message, /already exists/);
@@ -231,7 +231,7 @@ test('a successful settings save refreshes this department and says when it must
   const s = useStore.getState();
   assert.equal(s.depts[0]!.name, 'Research 2');
   assert.equal(s.depts[0]!.provisioning, 'unconfigured');
-  assert.match(s.toasts.at(-1)!.text, /Sync the department again/);
+  assert.match(s.toasts.at(-1)!.text, /Sync the floor again/);
   assert.equal(b.count('GET', '/api/company'), n, 'only the affected department was refetched');
 });
 

@@ -196,7 +196,6 @@ export function AgentRecord({ d, agentKey }: { d: Dept; agentKey: string }) {
       {!lead && workerTasks.length > 0 && (
         <ul className="stack tight">{workerTasks.slice(-6).reverse().map((t) => { const v = taskStatusView(t); return <li key={t.id}><Glyph k={v.k} /> {t.title} <span className="muted small">· {v.label}</span></li>; })}</ul>
       )}
-      <p className="muted small">Cost per job needs usage records (spec 6.3) and review grades come with AR reviews (spec 7.2): neither is tracked yet, so they are not shown.</p>
     </section>
   );
 }

@@ -218,7 +218,7 @@ export class ProvisioningService {
     const enabled = new Set(o?.enabledSkills ?? []);
     let sessions: AgentView['sessions'] = null;
     let sessionsError: string | null = null;
-    if (!ref) sessionsError = 'This agent has no Hermes profile yet. Sync the department first.';
+    if (!ref) sessionsError = 'This agent has no Hermes profile yet. Sync the floor first.';
     else {
       try {
         const iso = (t: number | null) => (t === null ? null : new Date(t * 1000).toISOString());
@@ -251,9 +251,9 @@ export class ProvisioningService {
    */
   provision(id: string): Promise<ProvisioningStatus> {
     const row = this.depts.getRow(id); // 404 if unknown
-    if (row.archived_at) throw new ConflictError('department is archived');
+    if (row.archived_at) throw new ConflictError('floor is archived');
     const cur = this.inflight.get(id);
-    if (cur?.mode === 'user') throw new ConflictError('a sync is already running for this department');
+    if (cur?.mode === 'user') throw new ConflictError('a sync is already running for this floor');
     if (cur) return cur.p.catch(() => undefined).then(() => this.provision(id));
     return this.start(id, 'user').then((r) => r.status);
   }
@@ -264,7 +264,7 @@ export class ProvisioningService {
    */
   async check(id: string): Promise<SyncCheck> {
     const row = this.depts.getRow(id); // 404 if unknown
-    if (row.archived_at) throw new ConflictError('department is archived');
+    if (row.archived_at) throw new ConflictError('floor is archived');
     const cur = this.inflight.get(id);
     if (cur) await cur.p.catch(() => undefined);
     const { status, differences } = await this.start(id, 'check');
@@ -274,7 +274,7 @@ export class ProvisioningService {
   /** Like provision, but only valid after a failed or interrupted attempt. */
   retry(id: string): Promise<ProvisioningStatus> {
     const s = this.depts.getRow(id).provisioning_state;
-    if (s !== 'error' && s !== 'disconnected') throw new ConflictError(`nothing to retry: department is ${s}`);
+    if (s !== 'error' && s !== 'disconnected') throw new ConflictError(`nothing to retry: floor is ${s}`);
     return this.provision(id);
   }
 
@@ -436,7 +436,7 @@ export class ProvisioningService {
       if (origin === 'associated' && !existing.some((p) => p.name === name)) {
         throw new StepError('validate', 'profile_not_found', `The profile "${name}" of agent ${key} does not exist in Hermes.`, { retryable: false });
       }
-      if (name === 'default') throw new StepError('validate', 'profile_reserved', 'The default profile cannot be a department profile.', { retryable: false });
+      if (name === 'default') throw new StepError('validate', 'profile_reserved', 'The default profile cannot be a floor profile.', { retryable: false });
     }
     // Safeguard: never modify a pre-existing profile without explicit, per-profile consent. Checked before anything
     // is created or changed in Hermes, so a refusal leaves Hermes exactly as it was.
@@ -452,7 +452,7 @@ export class ProvisioningService {
     // 3. board (derived slug; Hermes create is idempotent and we check first)
     await this.step('board', async () => {
       let board = (await this.hermes.listBoards()).find((b) => b.slug === slug);
-      if (board?.archived) throw new StepError('board', 'board_archived', 'The department board exists in Hermes but is archived.', { retryable: false });
+      if (board?.archived) throw new StepError('board', 'board_archived', 'The floor board exists in Hermes but is archived.', { retryable: false });
       if (!board) {
         if (!write('The Kanban board is missing')) return;
         await this.hermes.createBoard(slug, row.name);

@@ -2,10 +2,10 @@ import {
   AgentViewSchema, DepartmentAgentSchema, CancellationStatusSchema, CompanyViewSchema, DepartmentArchivedSchema, DepartmentListSchema, DepartmentViewSchema, EffectiveInventorySchema,
   CharacterSchema, ChatHistorySchema, ChatProgressSchema, ChatReplySchema, type Character, type ChatHistory, type ChatProgress, type ChatReply, type ChatSend,
   HealthViewSchema, HermesDefaultsViewSchema, HermesModelsViewSchema, InventorySchema, LiveMessageSchema, ProfilesViewSchema, ProvisioningStatusSchema, QuestActivitySchema, QuestCreatedSchema,
-  QuestDetailSchema, QuestFileAddedSchema, QuestListSchema, type AttachmentView, QuestResultsSchema, QuestTasksSchema, SyncCheckSchema,
+  QuestDetailSchema, QuestFileAddedSchema, QuestListSchema, type AttachmentView, QuestResultsSchema, SyncCheckSchema,
   type ActivityEvent, type AgentView, type CancellationStatus, type CompanyView, type DepartmentArchived, type DepartmentCreate, type DepartmentUpdate,
   type AgentPatch, type DepartmentAgent, type DepartmentView, type EffectiveInventory, type HealthView, type HermesDefaultsView, type HermesModelsView, type Inventory, type InventoryPatch, type LiveMessage, type ProfilesView,
-  type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary, type QuestTasks,
+  type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary,
 } from '@vibe-city/shared';
 import {
   InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
@@ -138,7 +138,6 @@ export const api = {
   },
   quest: (dept: string, quest: string): Promise<QuestDetail> => request('GET', q(dept, quest), QuestDetailSchema),
   /** Same task tree as `quest()` (which the UI uses); kept for callers that only need the tree. */
-  tasks: (dept: string, quest: string): Promise<QuestTasks> => request('GET', `${q(dept, quest)}/tasks`, QuestTasksSchema),
   activity: async (dept: string, quest: string): Promise<ActivityEvent[]> => (await request('GET', `${q(dept, quest)}/activity`, QuestActivitySchema)).events,
   results: (dept: string, quest: string): Promise<QuestResults> => request('GET', `${q(dept, quest)}/results`, QuestResultsSchema),
   cancel: (dept: string, quest: string): Promise<CancellationStatus> => request('POST', `${q(dept, quest)}/cancel`, CancellationStatusSchema),
@@ -187,7 +186,6 @@ export const api = {
   interviewHistory: (id: string, cand: string): Promise<ChatMessage[]> => request('GET', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewHistorySchema),
   interview: (id: string, cand: string, message: string): Promise<InterviewReply> => request('POST', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewReplySchema, { message }),
   hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
-  chat: (dept: string, agentKey: string, input: ChatSend): Promise<ChatReply> => request('POST', `${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat`, ChatReplySchema, input),
   chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
     chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),
   cancellation: (dept: string, quest: string): Promise<CancellationStatus> => request('GET', `${q(dept, quest)}/cancellation`, CancellationStatusSchema),

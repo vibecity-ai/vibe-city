@@ -17,7 +17,6 @@ const S: Record<StatusKey, { c: string; label: string; bg: string }> = {
   connected: { c: '#7CF5B4', label: 'Connected', bg: 'rgba(124,245,180,0.12)' },
 };
 export const statusColor = (k: StatusKey) => S[k].c;
-export const statusLabel = (k: StatusKey) => S[k].label;
 
 export function Glyph({ k, size = 10 }: { k: StatusKey; size?: number }) {
   const c = S[k].c;

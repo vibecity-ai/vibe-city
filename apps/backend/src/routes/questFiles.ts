@@ -10,7 +10,7 @@ export function register(app: FastifyInstance, deps: AppServices) {
   // the floor's file archive: every file on its jobs (downloads go through each job's own attachment route)
   app.get('/api/departments/:id/files', async (req) => {
     const { id } = req.params as { id: string };
-    if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('department not found');
+    if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('floor not found');
     return DepartmentFilesSchema.parse(await deps.quests.archive(id));
   });
   app.register(async (inst) => {
@@ -18,7 +18,7 @@ export function register(app: FastifyInstance, deps: AppServices) {
     inst.addContentTypeParser('application/octet-stream', { parseAs: 'buffer', bodyLimit: QUEST_FILE_MAX_BYTES }, (_req, body, done) => done(null, body));
     inst.post('/api/departments/:id/quests/:questId/files', async (req, reply) => {
       const { id, questId } = req.params as { id: string; questId: string };
-      if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('department not found');
+      if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('floor not found');
       if (!Buffer.isBuffer(req.body)) throw new InvalidInputError('send the file as application/octet-stream');
       const raw = req.headers['x-filename'];
       let filename = '';
