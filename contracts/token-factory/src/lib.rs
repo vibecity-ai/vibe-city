@@ -1,5 +1,5 @@
 //! Vibe City's token factory. `create_token` makes `<symbol>.<factory>` a city token (contracts/city-token, embedded
-//! below) with the whole supply minted to `owner_id`, in one receipt: create account, fund its storage, deploy, `new`.
+//! below) that mints its supply to `owner_id` and its own public offering, in one receipt: create account, fund its storage, deploy, `new`.
 //! That receipt either all happens or none of it does; the callback then refunds what was attached beyond the cost,
 //! or everything on failure. Tokens get no access key, and the factory has no admin method: deployed with its own
 //! key deleted, nobody can change what it does. Its interface mirrors tkn.near's (create_token { args },
@@ -27,11 +27,14 @@ pub struct Metadata {
     pub decimals: u8,
 }
 
-/// What `new` on the token receives.
+/// What `new` on the token receives: `total_supply - sale_amount` to the owner, `sale_amount` offered at `price`
+/// (yoctoNEAR per whole token) by the token itself.
 #[near(serializers = [json])]
 pub struct TokenArgs {
     pub owner_id: AccountId,
     pub total_supply: U128,
+    pub sale_amount: U128,
+    pub price: U128,
     pub metadata: Metadata,
 }
 
@@ -75,7 +78,7 @@ impl Factory {
         require!(self.tokens.get(&id).is_none(), "This symbol is taken");
         require!(args.metadata.spec == "ft-1.0.0" && !args.metadata.name.is_empty(), "Metadata needs spec ft-1.0.0 and a name");
         require!(args.metadata.reference.is_none() == args.metadata.reference_hash.is_none(), "reference and reference_hash go together");
-        require!(args.total_supply.0 > 0, "total_supply must be positive");
+        require!(args.total_supply.0 > 0 && args.sale_amount.0 <= args.total_supply.0 && args.price.0 > 0, "need total_supply > 0, sale_amount <= total_supply, price > 0");
         let required = self.get_required_deposit();
         let attached = env::attached_deposit();
         require!(attached >= required, format!("Attach at least {} yoctoNEAR", required.as_yoctonear()));
