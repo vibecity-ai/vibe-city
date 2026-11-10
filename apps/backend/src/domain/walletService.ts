@@ -170,6 +170,15 @@ export class WalletService {
     return { present: policy?.present === true, error: null, callsLeft };
   }
 
+  /** One NEAR function call signed by the company wallet (POST /wallet/v1/call), inside the owner's OutLayer policy.
+      `gas` and `deposit` are strings (gas units, yoctoNEAR). Throws unless OutLayer reports success. */
+  async callContract(receiverId: string, method: string, args: Json, gas: string, deposit: string): Promise<{ txHash: string | null; result: unknown }> {
+    if (!this.key()) throw new InvalidInputError('Connect the company wallet in the safe first.');
+    const r = await this.call('/wallet/v1/call', { method: 'POST', body: { receiver_id: receiverId, method_name: method, args, gas, deposit } });
+    if ((r as Json).status !== 'success') throw new UpstreamError(scrub(`The wallet's call to ${receiverId} ${method} did not succeed: ${str(r.error) ?? str(r.message) ?? str(r.status) ?? 'no status'}`, 300)!);
+    return { txHash: str(r.tx_hash), result: r.result };
+  }
+
   /** What a company-wallet floor's agents get in their profile .env; null until there is a wallet. */
   env(): Record<string, string> | null {
     const key = this.key(), id = readSettings(this.db).outlayerWalletId;

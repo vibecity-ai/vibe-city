@@ -54,6 +54,8 @@ import { register as registerQuestFiles } from './routes/questFiles.ts';
 import { register as registerEnv } from './routes/env.ts';
 import { DepartmentEnvService } from './domain/departmentEnv.ts';
 import { MarketService } from './domain/marketService.ts';
+import { IpoService } from './domain/ipoService.ts';
+import { DEFAULT_RPC, NearRpc } from './near/rpc.ts';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
 import { AssistantViewSchema, DeptDraftReplySchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
@@ -91,6 +93,8 @@ export interface AppServices {
   chatModelDefault: string;
   /** Each floor's own env variables (write-only), pushed into its agents' profiles. */
   deptEnv: DepartmentEnvService;
+  /** The IPO (brief 06): DAO, city token, revenue share proposals, signed by the company wallet. */
+  ipo: IpoService;
 }
 
 export interface ServicesExtra {
@@ -606,6 +610,10 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const services: AppServices = {
     app, provisioning, quests: quests_, hub, schedules, db, departments, wallet, pushDepartmentEnv, market, listOnMarket, chiefOfStaffId,
     chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv,
+    ipo: new IpoService({
+      db, wallet, rpc: new NearRpc(DEFAULT_RPC.mainnet),
+      walletAccount: () => readSettings(db).outlayerAccountId, companyName: () => company.view().name,
+    }),
   };
   // hackathon route modules (docs/briefs): one line each
   registerTemplates(app, services); registerCompany(app, services); registerWallet(app, services);
