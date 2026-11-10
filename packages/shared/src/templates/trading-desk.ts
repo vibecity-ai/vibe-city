@@ -4,7 +4,7 @@ const seats = [
   seat('Head of Trading', { skills: ['backtest-expert'] }),
   seat('Market Analyst', { toolsets: ['web'], skills: ['crypto-regime-analyzer'] }),
   seat('Perps Trader', { skills: ['hyperliquid-connector'] }),
-  seat('Risk Officer', { skills: ['agent-custody', 'risk-metrics-calculation'] }),
+  seat('Risk Officer', { skills: ['agent-custody'] }),
 ];
 
 export const tradingDesk = template({

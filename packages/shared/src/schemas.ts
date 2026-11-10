@@ -82,6 +82,8 @@ export const DepartmentCreateSchema = z.object({
   inventory: InventoryPatchSchema.optional(),
   /** Agents to start with besides the lead. Each gets its own Hermes profile when the department is provisioned. */
   teammates: z.number().int().min(0).max(MAX_TEAMMATES).default(0),
+  /** Who staffs the floor, lead first (from the Chief of Staff's draft): replaces `teammates`, names their personas. */
+  agents: z.array(z.object({ name: z.string().trim().min(1).max(40).optional(), title: z.string().trim().min(1).max(60) }).strict()).min(1).max(MAX_TEAMMATES + 1).optional(),
   /** Hire from a template (brief 01): its seats replace `teammates`, its inventory and purpose fill what is not given. */
   template: z.string().trim().min(1).max(60).optional(),
 }).strict();
@@ -827,6 +829,8 @@ export const DeptDraftSchema = z.object({
   toolsets: z.array(ToolsetSchema),
   model: ModelChoiceSchema.nullable(),
   teammates: z.number().int().min(0).max(4),
+  /** The agents, lead first: who they are and what each one does on this floor. */
+  agents: z.array(z.object({ name: z.string(), title: z.string(), does: z.string() }).strict()).min(1).max(5),
   /** Estimate per day (1 credit = 1 US cent): the model's NEAR AI price per agent times the agents, else a size-class guess. */
   creditsPerDay: z.number().int().min(0),
   /** Anything the assistant asked for that Hermes does not have, said plainly. */
@@ -840,6 +844,27 @@ export const DeptDraftReplySchema = z.object({
   say: z.string(), mood: z.enum(MOODS), replies: z.array(z.string()), draft: DeptDraftSchema.nullable(),
 }).strict();
 export type DeptDraftReply = z.infer<typeof DeptDraftReplySchema>;
+
+/** The Chief of Staff's Agent Market listing, drafted in the dialogue window. Registration sends only the handle,
+    name, category and delivery time; the tagline, description and price are for the boss to paste on market.near.ai. */
+export const MarketDraftSchema = z.object({
+  departmentId: z.string(),
+  floorName: z.string(),
+  handle: z.string(),
+  name: z.string(),
+  category: z.string(),
+  slaHours: z.number().int().min(1).max(720),
+  tagline: z.string(),
+  description: z.string(),
+  priceUsdc: z.string(),
+  /** The floor is not synced with Hermes yet: it can be listed, but takes no jobs until it is. */
+  notSynced: z.boolean(),
+}).strict();
+export type MarketDraft = z.infer<typeof MarketDraftSchema>;
+export const MarketDraftReplySchema = z.object({
+  say: z.string(), mood: z.enum(MOODS), replies: z.array(z.string()), draft: MarketDraftSchema.nullable(),
+}).strict();
+export type MarketDraftReply = z.infer<typeof MarketDraftReplySchema>;
 export const AssistantViewSchema = z.object({ character: CharacterSchema, modelReady: z.boolean() }).strict();
 export type AssistantView = z.infer<typeof AssistantViewSchema>;
 
@@ -1032,9 +1057,6 @@ export const CompanySettingsSchema = z.object({
   nearAiCreditsLoadedCents: z.number().int().min(0).nullable(),
   outlayerWalletId: z.string().nullable(),
   outlayerAccountId: z.string().nullable(),
-  marketAgentHandle: z.string().nullable(),
-  /** When market.near.ai last accepted the agent token (a 200 on the agent's assignments). */
-  marketVerifiedAt: z.string().nullable(),
   /** When OutLayer last reported the owner's policy for that trading connector (the connect-* quests); null = never. */
   hyperliquidConnectedAt: z.string().nullable(),
   polymarketConnectedAt: z.string().nullable(),
@@ -1094,26 +1116,20 @@ export const MARKET_CATEGORIES = ['automation', 'creative', 'customer_support', 
 /** A handle becomes a DNS label: 3-30 chars, [a-z][a-z0-9-]*, no trailing '-'. */
 export const MARKET_HANDLE_RE = /^[a-z][a-z0-9-]{1,28}[a-z0-9]$/;
 
-export const ListingDraftSchema = z.object({
-  handle: z.string(), name: z.string(), category: z.enum(MARKET_CATEGORIES),
-  tagline: z.string(), description: z.string(), priceUsdc: z.number(), slaHours: z.number(), deliverables: z.array(z.string()),
-}).strict();
-export type ListingDraft = z.infer<typeof ListingDraftSchema>;
-
 /** Self-registration (`POST /v1/agents/register`): the token comes back once and stays on the server. */
 export const MarketRegisterSchema = z.object({
   handle: z.string().trim().regex(MARKET_HANDLE_RE, '3-30 characters: lowercase letters, digits and dashes, starting with a letter'),
   name: z.string().trim().min(1).max(80),
   category: z.enum(MARKET_CATEGORIES),
   slaHours: z.number().int().min(1).max(720).optional(),
+  /** The floor that does the jobs: its agents get the token and the marketplace-worker skill. */
+  departmentId: z.string().uuid(),
+  /** The Chief of Staff's draft, kept for the boss to paste on market.near.ai (registration cannot carry them). */
+  tagline: z.string().trim().max(160).optional(),
+  description: z.string().trim().max(200).optional(),
+  priceUsdc: z.string().trim().max(20).optional(),
 }).strict();
 export type MarketRegister = z.infer<typeof MarketRegisterSchema>;
-/** An agent created in the market UI: its handle and the `aat_` token from "Create token". */
-export const MarketTokenSchema = z.object({
-  handle: z.string().trim().regex(MARKET_HANDLE_RE, 'not a market handle'),
-  token: z.string().trim().regex(/^aat_[A-Za-z0-9]{16,128}$/, 'not an Agent Market token (aat_…)'),
-}).strict();
-
 export const MARKET_JOB_STATES = ['working', 'submitted', 'accepted', 'failed', 'closed'] as const;
 export const MarketJobSchema = z.object({
   assignmentId: z.string(), title: z.string(), departmentId: z.string(), questId: z.string(),
@@ -1121,16 +1137,45 @@ export const MarketJobSchema = z.object({
   note: z.string().nullable(), updatedAt: z.string(),
 }).strict();
 export type MarketJob = z.infer<typeof MarketJobSchema>;
+/** One floor listed on market.near.ai: its own self-registered agent (and token, never in a response). */
+export const MarketAgentSchema = z.object({
+  departmentId: z.string(), handle: z.string(),
+  /** When market.near.ai last accepted the agent token (a 200 on the agent's assignments). */
+  verifiedAt: z.string().nullable(),
+  /** The boss claimed it into their market.near.ai account (seen as "already adopted"). */
+  adoptedAt: z.string().nullable(),
+  /** When the token was last written into the floor's profiles. */
+  tokenAppliedAt: z.string().nullable(),
+  /** The floor is synced with Hermes: jobs have somewhere to go. */
+  ready: z.boolean(),
+  tagline: z.string().nullable(), description: z.string().nullable(), priceUsdc: z.string().nullable(),
+}).strict();
+export type MarketAgent = z.infer<typeof MarketAgentSchema>;
 export const MarketViewSchema = z.object({
-  connected: z.boolean(), handle: z.string().nullable(), verifiedAt: z.string().nullable(),
+  /** At least one floor is listed. */
+  connected: z.boolean(),
+  agents: z.array(MarketAgentSchema),
   lastPollAt: z.string().nullable(), lastError: z.string().nullable(),
-  /** A Marketplace Agency floor is hired and ready: jobs have somewhere to go. */
-  agencyReady: z.boolean(),
   /** Accepted jobs, after the market's 5% fee. */
   earnedCents: z.number().int(),
   jobs: z.array(MarketJobSchema),
 }).strict();
 export type MarketView = z.infer<typeof MarketViewSchema>;
+/** A self-registered agent belongs to a fresh market account: the boss claims it into theirs with a one-time code. */
+export const MarketAdoptionSchema = z.object({
+  /** Already in a person's account: nothing to claim. */
+  adopted: z.boolean(),
+  url: z.string().nullable(), code: z.string().nullable(), expiresAt: z.string().nullable(),
+}).strict();
+export type MarketAdoption = z.infer<typeof MarketAdoptionSchema>;
+/** The listed agent as market.near.ai shows it (GET /v1/agents/{handle}). `found: false`: not public yet (a Draft). */
+export const MarketProfileSchema = z.object({
+  handle: z.string(), url: z.string(), found: z.boolean(),
+  name: z.string().nullable(), description: z.string().nullable(), category: z.string().nullable(),
+  listingStatus: z.string().nullable(), deliveredJobs: z.number().nullable(), successRate: z.number().nullable(),
+  responseTimeSeconds: z.number().nullable(), slaSeconds: z.number().nullable(),
+}).strict();
+export type MarketProfile = z.infer<typeof MarketProfileSchema>;
 
 export const AiUsageSummarySchema = z.object({
   byDepartment: z.array(z.object({
