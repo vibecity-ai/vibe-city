@@ -24,8 +24,6 @@ export function readSettings(db: DatabaseSync, env: NodeJS.ProcessEnv = process.
     nearAiCreditsLoadedCents: s.nearAiCreditsLoadedCents ?? null,
     outlayerWalletId: s.outlayerWalletId ?? null,
     outlayerAccountId: s.outlayerAccountId ?? null,
-    marketAgentHandle: s.marketAgentHandle ?? null,
-    marketVerifiedAt: s.marketVerifiedAt ?? null,
     hyperliquidConnectedAt: s.hyperliquidConnectedAt ?? null,
     polymarketConnectedAt: s.polymarketConnectedAt ?? null,
     chiefOfStaffModel: s.chiefOfStaffModel ?? null,

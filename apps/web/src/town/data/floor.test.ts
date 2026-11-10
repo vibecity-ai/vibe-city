@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { TEMPLATES } from '@vibe-city/shared';
-import { STATIONS, TOOL_INFO, stationFor, toolsReport } from './floor.ts';
+import { STATIONS, TOOL_INFO, stationFor, stationKeyOf, toolsReport } from './floor.ts';
 
 test('every template has a station whose tools the template actually gives its floor', () => {
   for (const t of TEMPLATES.filter((x) => !x.hidden)) {
@@ -16,7 +16,12 @@ test('every template has a station whose tools the template actually gives its f
   }
   assert.equal(stationFor(null), null);
   assert.equal(stationFor('no-such-template'), null);
-  assert.equal(Object.keys(STATIONS).length, 4);
+  assert.equal(Object.keys(STATIONS).length, 4, 'three templates and the market marketplace board');
+  // the marketplace board stands on the listed floor only; a custom floor otherwise keeps its lounge
+  assert.equal(stationKeyOf({ id: 'a', view: { templateId: null } }, ['a', 'c']), 'market');
+  assert.equal(stationKeyOf({ id: 'c', view: { templateId: null } }, ['a', 'c']), 'market', 'every listed floor has one');
+  assert.equal(stationKeyOf({ id: 'b', view: { templateId: null } }, ['a']), null);
+  assert.equal(stationKeyOf({ id: 'b', view: { templateId: 'trading-desk' } }, []), 'trading-desk');
 });
 
 test('the tools report flags missing needs and risky extras, and stays neutral for floors without a template', () => {

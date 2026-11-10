@@ -1,6 +1,7 @@
 /* Quests between departments (feature spec 2.4). An agent asks another department for work through the Vibe City MCP
    tool `request_quest` (mcp/server.ts). The request becomes an ordinary quest on the target's Hermes board, assigned to
    the target's lead agent, and Vibe City records where it came from. Guardrails, checked here and nowhere else:
+   - a wallet floor (isInternalOnly) takes no work from the floor listed on the market;
    - the target department's allowlist decides who may give it work;
    - no handing work back: if the target has an open request to the requester, the requester cannot ask it back;
    - a daily cap per requesting department: over the cap the request waits for the CEO's approval.
@@ -8,7 +9,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import {
-  QuestPolicySchema, type QuestCreate, type QuestCreated, type QuestOrigin, type QuestPolicy, type QuestRequestView, type QuestSummary,
+  QuestPolicySchema, isInternalOnly, type QuestCreate, type QuestCreated, type QuestOrigin, type QuestPolicy, type QuestRequestView, type QuestSummary,
 } from '@vibe-city/shared';
 import type { DepartmentService } from './departmentService.ts';
 import { ConflictError, NotFoundError } from './errors.ts';
@@ -36,6 +37,9 @@ export class QuestRequestService {
   private d: QuestRequestDeps;
   private now: () => Date;
   constructor(d: QuestRequestDeps) { this.d = d; this.now = d.now ?? (() => new Date()); }
+
+  /** Listed on the Agent Market: it does outside jobs, so internal floors take no work from it. */
+  private listed(deptId: string) { return !!this.d.db.prepare('SELECT 1 FROM market_agent WHERE department_id = ?').get(deptId); }
 
   // ---- MCP identity: one bearer token per department, stored hashed ---------------------------------------------
 
@@ -74,9 +78,10 @@ export class QuestRequestService {
 
   /** Departments an agent can ask, with whether it is allowed (for the MCP list tool). */
   targets(fromDepartmentId: string) {
+    const external = this.listed(fromDepartmentId);
     return this.d.departments.list().filter((d) => d.id !== fromDepartmentId).map((d) => {
-      const p = this.policy(d.id);
-      return { name: d.name, purpose: d.purpose, ready: d.state === 'ready', accepts: p.allowFrom === '*' || p.allowFrom.includes(fromDepartmentId) };
+      const p = this.policy(d.id), internal = isInternalOnly(d.templateId);
+      return { name: d.name, purpose: d.purpose, ready: d.state === 'ready', internal, accepts: !(internal && external) && (p.allowFrom === '*' || p.allowFrom.includes(fromDepartmentId)) };
     });
   }
 
@@ -90,6 +95,9 @@ export class QuestRequestService {
     if (!to) return this.insert(base, 'rejected', `There is no department called "${input.department}".`);
     if (to.id === from.id) return this.insert(base, 'rejected', 'A department cannot request a job from itself. Plan the work on your own board.');
     if (to.state !== 'ready') return this.insert(base, 'rejected', `${to.name} is not ready to take jobs (${to.state}).`);
+    if (isInternalOnly(to.templateId) && this.listed(from.id)) {
+      return this.insert(base, 'rejected', `${to.name} is internal: it takes no work from ${from.name}, the floor that does outside jobs.`);
+    }
     const p = this.policy(to.id);
     if (p.allowFrom !== '*' && !p.allowFrom.includes(from.id)) return this.insert(base, 'rejected', `${to.name} does not accept work from ${from.name}. The CEO can change that in ${to.name}'s settings.`);
     if (await this.openRequestBack(to.id, from.id)) {

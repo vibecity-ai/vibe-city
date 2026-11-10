@@ -7,7 +7,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
-  ChatMessageSchema, ChatProposalSchema, MOODS,
+  CHIEF_OF_STAFF, ChatMessageSchema, ChatProposalSchema, MOODS,
   type Character, type ChatHistory, type ChatMessage, type ChatReply, type ChatSend, type Mood,
 } from '@vibe-city/shared';
 import { ModelUnavailableError } from '../model/chatModel.ts';
@@ -154,7 +154,10 @@ export class ChatService {
       `Your department's Kanban board right now (open tasks first, then the latest finished):\n${board}`,
       '',
       'How to answer:',
-      '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
+      dept.templateId === CHIEF_OF_STAFF ? [
+        '- You run the Executive Office. The one thing you do from this window is list a floor of the company on the NEAR AI Agent Market (market.near.ai), where buyers hire agents for jobs paid in USDC: call list_departments, ask the boss which floor to list, write the listing (name, tagline, description, price in USDC per job, delivery time, deliverables; promise only what that floor does) as plain text the boss can copy, agree the handle, then call list_on_market once the boss confirms. Never call list_on_market before that.',
+        '- Price and going live are set by the boss on market.near.ai afterwards: say so.',
+      ].join('\n') : '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
       '- To see what a task produced, use list_task_files with its task id from the board, then read_task_file to read a file. Read the files before describing or summarising the work.',
       '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',

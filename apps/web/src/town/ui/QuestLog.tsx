@@ -3,10 +3,10 @@
    - QuestLogWindow: the whole journey in three acts and the floors each quest unlocks. Opened from the top bar, the
      current-quest card and the Executive Office's trophy shelf. */
 import { useEffect, useState } from 'react';
-import { MARKET_CATEGORIES, type CeoQuest, type GameState, type ListingDraft, type MarketRegister, type MarketView, type TemplateList } from '@vibe-city/shared';
+import { isInternalOnly, type CeoQuest, type GameState, type MarketView, type TemplateList } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { Icon, PixelSelect } from './kit';
+import { Icon } from './kit';
 import { DeskSheet } from './Desk';
 import { acts, nextQuest, progressLabel, questTarget, sideQuests } from '../data/game';
 import { ChiefOfStaffSetup } from './ChiefOfStaff';
@@ -45,101 +45,91 @@ function ConnectorQuest({ name }: { name: 'hyperliquid' | 'polymarket' }) {
 }
 
 const MARKET = 'https://market.near.ai';
-const errMsg = (e: unknown) => (e instanceof ApiError ? e.message : 'That did not work.');
+/** The boss's own agents on the market, where a claimed listing shows as Draft until they set a price and go Live. */
+const MARKET_AGENTS = 'https://market.near.ai/building/agents';
 
-/** List the company on the NEAR AI Agent Market: register (or paste a token), claim it, set a price and go live there.
-    The backend then polls the agent's jobs and hands each one to a department. */
+/** Self-registration puts the agent under a fresh market account, so the boss sees nothing on market.near.ai until
+    they claim it: a one-time link (opened in a tab made on the click, so no popup blocker) moves it into their account. */
+export function ClaimStep({ deptId, claimed }: { deptId: string; claimed: boolean }) {
+  const [st, setSt] = useState<{ k: 'idle' | 'busy' | 'done' } | { k: 'code'; code: string; url: string | null } | { k: 'err'; msg: string }>(claimed ? { k: 'done' } : { k: 'idle' });
+  useEffect(() => { if (claimed) setSt({ k: 'done' }); }, [claimed]);
+  const claim = async () => {
+    const tab = window.open('', '_blank');
+    setSt({ k: 'busy' });
+    try {
+      const a = await api.marketAdoption(deptId);
+      if (a.adopted) { tab?.close(); setSt({ k: 'done' }); void api.market().then((market) => useStore.setState({ market })).catch(() => undefined); return; }
+      if (a.url && tab) tab.location.href = a.url; else tab?.close();
+      setSt({ k: 'code', code: a.code ?? '', url: a.url });
+    } catch (e) { tab?.close(); setSt({ k: 'err', msg: e instanceof ApiError ? e.message : 'Could not reach the market.' }); }
+  };
+  return (
+    <li className={st.k === 'done' ? 'done' : ''}>
+      <span className="mk-n">{st.k === 'done' ? <Icon n="sparkle" size={11} /> : 1}</span>
+      <span className="mk-t">
+        {st.k === 'done' ? 'The agent is in your market.near.ai account.'
+          : <>Claim the agent into <b>your</b> market.near.ai account (log in there first): it was registered on its own, so you can't see it yet.</>}
+        {st.k === 'code' && <><br />Claim code <b className="mono">{st.code}</b>{st.url && <> · <a href={st.url} target="_blank" rel="noreferrer">open the claim page</a></>}. Claimed? Press the button to check.</>}
+        {st.k === 'err' && <><br /><span className="err-t" role="alert">{st.msg}</span></>}
+      </span>
+      {st.k === 'done' ? <span className="chip sm mk-claimed"><Icon n="check" size={11} /> Claimed</span> : <button className="btn secondary small" type="button" disabled={st.k === 'busy'} onClick={() => void claim()}>{st.k === 'busy' ? 'Checking…' : st.k === 'code' ? 'I claimed it' : 'Claim it'}</button>}
+    </li>
+  );
+}
+
+/** The company's floors on the NEAR AI Agent Market, each its own agent. The Chief of Staff lists one at a time from
+    the dialogue window; the quest is done once a listed floor's agents hold its token. The backend then polls the agent's jobs and hands each one to the floor. */
 function MarketQuest() {
   const [m, setM] = useState<MarketView | null>(null);
-  const [draft, setDraft] = useState<ListingDraft | null>(null);
-  const [form, setForm] = useState<MarketRegister>({ handle: '', name: '', category: 'other' });
-  const [paste, setPaste] = useState({ handle: '', token: '' });
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState<string | null>(null);
   const s = useStore.getState();
+  const depts = useStore((st) => st.depts);
   // the backend polls the market every 45 s; the card follows it (and the quest log, once a job is paid)
   useEffect(() => {
-    const load = () => api.market().then((v) => { setM(v); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
+    const load = () => api.market().then((v) => { setM(v); useStore.setState({ market: v }); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
     void load();
     const t = setInterval(load, 15_000);
     return () => clearInterval(t);
   }, []);
-  const run = <T,>(p: Promise<T>, ok: (v: T) => void) => {
-    setBusy(true); setNote(null);
-    p.then(ok).catch((e) => setNote(errMsg(e))).finally(() => setBusy(false));
-  };
-  const done = (v: MarketView) => { setM(v); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); };
   if (!m) return <span className="ql-note">Loading…</span>;
-
-  const copy = draft && (
-    <details className="ql-note" open>
-      <summary>The Chief of Staff's listing copy</summary>
-      <ul>
-        <li>Tagline: <b>{draft.tagline}</b></li>
-        <li>Description: <b>{draft.description}</b></li>
-        <li>Price: <b>{draft.priceUsdc} USDC</b> per job · delivery in <b>{draft.slaHours} h</b></li>
-        {draft.deliverables.length > 0 && <li>Delivers: {draft.deliverables.join('; ')}</li>}
-      </ul>
-    </details>
-  );
+  const talk = () => s.ui$({ questLog: false, marketDraft: true });
 
   if (!m.connected) {
     return (
       <div className="ql-gh">
-        <p className="ql-note">The company becomes one agent on the <a href={MARKET} target="_blank" rel="noreferrer">Agent Market</a>. Buyers hire it; each job goes to the floor that fits.</p>
+        <p className="ql-note">A floor becomes an agent on the <a href={MARKET} target="_blank" rel="noreferrer">Agent Market</a>. Buyers hire it; each job lands on that floor's board. Your Chief of Staff picks the floor with you, writes the listing and registers it.</p>
         <div className="ql-gh-row">
-          <button className="btn secondary small" type="button" disabled={busy} onClick={() => run(api.marketDraft(), (d) => { setDraft(d); setForm({ handle: d.handle, name: d.name, category: d.category, slaHours: d.slaHours }); })}>
-            Draft with the Chief of Staff
-          </button>
+          <button className="btn primary small" type="button" onClick={talk}>Draft with the Chief of Staff</button>
         </div>
-        {copy}
-        <form className="ql-gh" onSubmit={(e) => { e.preventDefault(); run(api.marketRegister(form), (v) => { done(v); s.toast(`Registered as @${v.handle}.`); }); }}>
-          <div className="ql-gh-row">
-            <input className="input" placeholder="Name" aria-label="Agent name" maxLength={80} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
-            <input className="input mono" placeholder="handle" aria-label="Handle" maxLength={30} spellCheck={false} value={form.handle} onChange={(e) => setForm({ ...form, handle: e.target.value.toLowerCase() })} />
-          </div>
-          <div className="ql-gh-row">
-            <PixelSelect aria-label="Category" value={form.category} onChange={(v) => setForm({ ...form, category: v as MarketRegister['category'] })}
-              options={MARKET_CATEGORIES.map((c) => ({ value: c, label: c.replace(/_/g, ' ') }))} />
-            <button className="btn primary small" type="submit" disabled={busy || !form.name.trim() || !form.handle.trim()}>Register</button>
-          </div>
-        </form>
-        <details className="ql-note">
-          <summary>Made the agent on market.near.ai already?</summary>
-          <form className="ql-gh" onSubmit={(e) => { e.preventDefault(); run(api.marketToken(paste.handle.trim(), paste.token.trim()), (v) => { done(v); setPaste({ handle: '', token: '' }); }); }}>
-            <p>Edit the agent, then Agent API tokens, Create token. Leave the webhook empty: Vibe City polls.</p>
-            <div className="ql-gh-row">
-              <input className="input mono" placeholder="handle" aria-label="Market handle" value={paste.handle} onChange={(e) => setPaste({ ...paste, handle: e.target.value })} />
-              <input className="input mono" type="password" autoComplete="off" placeholder="aat_…" aria-label="Agent token" value={paste.token} onChange={(e) => setPaste({ ...paste, token: e.target.value })} />
-              <button className="btn primary small" type="submit" disabled={busy || !paste.handle.trim() || !paste.token.trim()}>Connect</button>
-            </div>
-          </form>
-        </details>
-        {note && <p className="ql-note" role="status">{note}</p>}
       </div>
     );
   }
 
   const checked = m.lastPollAt ? new Date(m.lastPollAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  const name = (id: string) => depts.find((d) => d.id === id)?.view.name ?? 'the listed floor';
+  const unlisted = depts.some((d) => !isInternalOnly(d.view.templateId) && !m.agents.some((a) => a.departmentId === d.id));
   return (
     <div className="mk">
-      <div className="mk-id">
-        <span className="chip sm mk-handle">@{m.handle}</span>
-        <span className="ql-note">{m.verifiedAt ? 'Token verified' : 'Token not verified yet'} · jobs go to the Marketplace Agency</span>
-      </div>
-      <ol className="mk-steps">
-        <li>
-          <span className="mk-n">1</span>
-          <span className="mk-t">Set a USDC price and switch the listing to <b>Live</b> so buyers can find it.</span>
-          <a className="btn secondary small" href={MARKET} target="_blank" rel="noreferrer">Open market</a>
-        </li>
-        <li className={m.agencyReady ? 'done' : ''}>
-          <span className="mk-n">{m.agencyReady ? <Icon n="sparkle" size={11} /> : 2}</span>
-          <span className="mk-t">{m.agencyReady ? 'The Marketplace Agency is open for work.' : 'Hire the Marketplace Agency, the floor that does the jobs.'}</span>
-          {!m.agencyReady && <button className="btn secondary small" type="button" onClick={() => s.ui$({ modal: 'create' })}>Hire</button>}
-        </li>
-      </ol>
-      {copy}
+      {m.agents.map((a) => (
+        <div key={a.departmentId} className="mk-agent">
+          <div className="mk-id">
+            <span className="chip sm mk-handle">@{a.handle}</span>
+            <span className="ql-note">{a.verifiedAt ? 'Token verified' : 'Token not verified yet'} · jobs go to {name(a.departmentId)}</span>
+          </div>
+          <ol className="mk-steps">
+            <ClaimStep deptId={a.departmentId} claimed={!!a.adoptedAt} />
+            <li>
+              <span className="mk-n">2</span>
+              <span className="mk-t">Under <b>Building → Agents</b> it is a <b>Draft</b>: set a USDC price and switch it to <b>Live</b> so buyers can find it.</span>
+              <a className="btn secondary small" href={MARKET_AGENTS} target="_blank" rel="noreferrer">Open market</a>
+            </li>
+            <li className={a.ready ? 'done' : ''}>
+              <span className="mk-n">{a.ready ? <Icon n="sparkle" size={11} /> : 3}</span>
+              <span className="mk-t">{a.ready ? `${name(a.departmentId)} is open for work.` : `${name(a.departmentId)} is not synced with Hermes yet.`}</span>
+            </li>
+          </ol>
+        </div>
+      ))}
+      {unlisted && <button className="btn secondary small" type="button" onClick={talk}>List another floor with the Chief of Staff</button>}
       {m.jobs.length > 0 && (
         <ul className="mk-jobs" aria-label="Market jobs">
           {m.jobs.slice(0, 5).map((j) => (
@@ -152,7 +142,7 @@ function MarketQuest() {
         </ul>
       )}
       <div className="mk-foot">
-        <span className="ql-note" role="status">{note ?? m.lastError ?? (checked ? `Checked the market at ${checked}; it is checked every 45 s.` : 'The market is checked every 45 s.')}</span>
+        <span className="ql-note" role="status">{m.lastError ?? (checked ? `Checked the market at ${checked}; it is checked every 45 s.` : 'The market is checked every 45 s.')}</span>
       </div>
     </div>
   );

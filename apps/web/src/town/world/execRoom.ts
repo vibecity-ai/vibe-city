@@ -7,7 +7,7 @@ import type { Pt } from './pix';
 import { box, chiefDeskStatic, shelfItem, meetingStatic, plant, chairItem, C, STATUS_COL, type IC } from './interior';
 import { shade } from './sprites';
 
-export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'assistant' | 'library';
+export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'assistant' | 'library' | 'templates';
 /** Footprint boxes (u, v, h, du, dv, dh) for hit-testing and the hover outline, and where the label sits. */
 export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number, number, number, number, number] }[] = [
   { id: 'phone', label: 'Phone', b: [23, 118, 13, 10, 7, 6] },
@@ -19,6 +19,7 @@ export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number
   { id: 'table', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
   { id: 'assistant', label: 'Chief of Staff', b: [104, 92, 0, 8, 8, 34] },
   { id: 'library', label: 'Skill library', b: [192, 127, 0, 34, 13, 38] },
+  { id: 'templates', label: 'Templates', b: [206, 12, 0, 22, 18, 40] },
 ];
 export const ASSISTANT_SPOT: Pt = [108, 96];
 
@@ -86,6 +87,36 @@ export function execFurniture(c: IC) {
   shelfItem(c);
   meetingStatic(c);
   plant(c, 84, 132, true, 7); plant(c, 12, 8, true, 11); plant(c, 232, 112, false, 5); plant(c, 100, 10, false, 9);
+}
+
+/** The template kiosk on the lounge rug: a holo projector fanning three floating floor cards (gold, cyan, pink) that
+    bob out of step over a beam. Drawn live because it animates. */
+export function templateKiosk(c: IC, lit: boolean) {
+  const { P, px, L, t } = c;
+  // pedestal: dark plinth, glowing lens ring on top
+  box(c, 209, 15, 0, 16, 12, 9, '#241A44', { top: '#3A2D66' });
+  box(c, 211, 17, 9, 12, 8, 2, '#1A1234', { top: lit ? '#2EE6F0' : '#2A4A5A', em: lit ? 1 : 0, edge: false });
+  for (let k = 0; k < 4; k++) { const d = P(210 + k * 4, 15, 4.5); px.dot(Math.floor(d[0]), Math.floor(d[1]), Math.floor(t * 3 + k) % 4 === 0 ? C.gold : '#5A4E90', lit ? 1 : 0); }
+  if (!lit) return;
+  // the beam
+  px.push(0.45); px.dither([P(212, 19, 11), P(222, 19, 11), P(226, 19, 36), P(208, 19, 36)], C.cyan, 0.35, 1); px.pop();
+  // three cards, fanned along the front face, each with a title bar and two "seat" lines
+  const cards: [number, string][] = [[205, C.gold], [213, C.cyan], [221, C.pink]];
+  cards.forEach(([u, col], i) => {
+    const h = 16 + i * 3 + Math.sin(t * 1.8 + i * 2.1) * 1.5, v = 19 - i * 2, w = 9, hh = 12;
+    const Q = (du: number, dh: number) => P(u + du, v, h + dh);
+    px.push(0.85);
+    px.poly([Q(0, 0), Q(w, 0), Q(w, hh), Q(0, hh)], '#120A2A', 1);
+    px.poly([Q(0, hh - 3), Q(w, hh - 3), Q(w, hh), Q(0, hh)], col, 1);
+    px.line(Q(1.5, hh - 5.5), Q(w - 1.5, hh - 5.5), '#E8FDFF', 1, 1);
+    px.line(Q(1.5, hh - 8), Q(w - 3, hh - 8), col, 1, 1);
+    for (const [a, b] of [[Q(0, 0), Q(w, 0)], [Q(w, 0), Q(w, hh)], [Q(w, hh), Q(0, hh)], [Q(0, hh), Q(0, 0)]] as [Pt, Pt][]) px.line(a, b, col, 1, 1);
+    px.pop();
+  });
+  // a scan line sweeping up the fan
+  const sh = 16 + ((t * 10) % 20);
+  px.push(0.4); px.line(P(204, 19, sh), P(231, 15, sh), '#E8FDFF', 1, 1); px.pop();
+  L.add(...P(217, 18, 22), 60, C.cyan, 0.45, 0.8);
 }
 
 /** The tower map on the back wall: one lit row per floor, coloured by its state. Drawn live. */

@@ -18,15 +18,10 @@ export function execAction(id: ExecObjectId) {
     case 'table': s.openPanel('board', { composer: false, boardDept: null, boardFilter: 'all', boardQuest: null }); break;
     case 'trophy': s.ui$({ questLog: true }); break;
     case 'org': case 'safe': case 'calendar': s.ui$({ execModal: id }); break;
-    case 'assistant': {
-      // the Chief of Staff runs hiring too: an open shortlist or a scout's call comes first
-      const h = s.hiring;
-      if (h && h.state === 'shortlist') s.ui$({ call: { mode: 'shortlist', reqId: h.id } });
-      else if (h && (h.state === 'scouting' || h.state === 'intake')) s.ui$({ call: { mode: 'ar', reqId: h.id } });
-      else s.ui$({ newDept: true });
-      break;
-    }
+    // always a fresh chat with the Chief of Staff's menu ("Hire a new agent" picks up a search already under way)
+    case 'assistant': s.ui$({ newDept: true }); break;
     case 'library': s.ui$({ skillLib: { deptId: null, skill: null } }); break;
+    case 'templates': s.ui$({ modal: 'create' }); break;
     case 'phone': {
       // The phone rings for incoming calls (AR); otherwise it reaches the assistant.
       const h = s.hiring;

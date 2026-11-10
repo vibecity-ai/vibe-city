@@ -1,7 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, templateById,
+  CHIEF_OF_STAFF, InventorySchema, MAX_TEAMMATES, ModelChoiceSchema, boardSlugForDepartment, templateById,
   type DepartmentAgent, type DepartmentCreate, type DepartmentUpdate, type DepartmentView, type Inventory, type InventoryPatch, type ModelChoice,
 } from '@vibe-city/shared';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
@@ -34,6 +34,10 @@ export const LEAD_KEY = 'chief';
 export const seatKey = (seat: number) => (seat === 0 ? LEAD_KEY : `W-${String(seat).padStart(2, '0')}`);
 export const agentModel = (a: AgentRow): ModelChoice | null => (a.model_json ? ModelChoiceSchema.parse(JSON.parse(a.model_json)) : null);
 export const agentSkills = (a: AgentRow): string[] => JSON.parse(a.skills_json) as string[];
+/** The Chief of Staff's department is not a floor: it has no position and is left out of every floor list. */
+const isHidden = (r: Pick<Row, 'template_id'>) => r.template_id === CHIEF_OF_STAFF;
+/** SQL: rows that are floors. */
+export const FLOOR = `(template_id IS NULL OR template_id != '${CHIEF_OF_STAFF}')`;
 
 const nameKey = (n: string) => n.trim().toLowerCase();
 const RESERVED_PROFILES = new Set(['default']);
@@ -112,7 +116,8 @@ export class DepartmentService {
     if (hit) throw new ConflictError('a department with this name already exists');
   }
 
-  list(opts: { includeArchived?: boolean } = {}): DepartmentView[] {
+  /** The floors of the tower. `includeHidden` adds the Chief of Staff's department (hidden template, no floor position). */
+  list(opts: { includeArchived?: boolean; includeHidden?: boolean } = {}): DepartmentView[] {
     // Visible order is a projection of the active departments: newest first, directly below the Executive Office.
     // Archived rows (only with includeArchived) follow, also newest first, with no floor position.
     const rows = this.db.prepare(
@@ -120,16 +125,16 @@ export class DepartmentService {
     ).all() as unknown as Row[];
     let pos = 0;
     return rows
-      .filter((r) => opts.includeArchived || !r.archived_at)
-      .map((r) => toView(r, r.archived_at ? null : ++pos, this.agents(r.id)));
+      .filter((r) => (opts.includeArchived || !r.archived_at) && (opts.includeHidden || !isHidden(r)))
+      .map((r) => toView(r, r.archived_at || isHidden(r) ? null : ++pos, this.agents(r.id)));
   }
 
   get(id: string): DepartmentView {
     const r = this.row(id);
     const above = r.archived_at ? 0 : (this.db
-      .prepare('SELECT COUNT(*) AS n FROM department WHERE archived_at IS NULL AND floor_order > ?')
+      .prepare(`SELECT COUNT(*) AS n FROM department WHERE archived_at IS NULL AND floor_order > ? AND ${FLOOR}`)
       .get(r.floor_order) as { n: number }).n;
-    return toView(r, above + 1, this.agents(id));
+    return toView(r, isHidden(r) ? null : above + 1, this.agents(id));
   }
 
   /** Internal: raw row for the provisioning service. */
@@ -233,12 +238,15 @@ export class DepartmentService {
     return (this.db.prepare('SELECT id FROM department WHERE archived_at IS NULL ORDER BY floor_order ASC').all() as unknown as { id: string }[]).map((r) => r.id);
   }
 
-  create(input: DepartmentCreate): DepartmentView {
+  /** `internal`: Vibe City itself creating a floor from a hidden template (the Chief of Staff). */
+  create(input: DepartmentCreate, internal = false): DepartmentView {
     // A template (brief 01) brings the inventory, the purpose and one seat per agent; what the caller gives wins.
     const t = input.template ? templateById(input.template) : null;
-    if (input.template && (!t || t.hidden)) throw new InvalidInputError(`unknown template: ${input.template}`);
+    if (input.template && (!t || (t.hidden && !internal))) throw new InvalidInputError(`unknown template: ${input.template}`);
     const inventory = mergeInventory(t ? t.inventory : InventorySchema.parse({}), input.inventory ?? {});
-    const seats = t ? t.seats : Array.from({ length: input.teammates + 1 }, () => null);
+    const seats = t ? t.seats
+      : input.agents ? input.agents.map((a) => ({ title: a.title, name: a.name, model: null, skills: [] as string[] }))
+      : Array.from({ length: input.teammates + 1 }, () => null);
     return this.tx(() => {
       this.assertUniqueName(input.name);
       const id = randomUUID();
@@ -255,7 +263,7 @@ export class DepartmentService {
         this.insertAgent(id, seat, { model: s?.model ?? null, skills: s?.skills ?? [] }, now);
         // the seat's job title lives on the agent's persona (the city and the dialogue window read it from there)
         if (s) {
-          const c = { ...generateCharacter(id, input.name, seatKey(seat)), title: s.title };
+          const c = { ...generateCharacter(id, input.name, seatKey(seat)), title: s.title, ...('name' in s && s.name ? { name: s.name } : {}) };
           this.db.prepare('INSERT INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)').run(id, seatKey(seat), JSON.stringify(c), now);
         }
       });

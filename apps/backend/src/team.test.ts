@@ -39,7 +39,7 @@ test('every agent is its own profile, with the same rules and the others named a
   const conc = eff.departmentWide.find((e) => e.capability === 'limits.concurrency')!;
   assert.deepEqual(conc.effective, { agents: 3, perAgentCap: 1, departmentMax: 3 });
   const rec = (await t.app.inject({ method: 'POST', url: '/api/runtime/reconcile' })).json();
-  assert.equal(rec.departments[0].state, 'ready');
+  assert.equal(rec.departments.find((x: any) => x.departmentId === d.id).state, 'ready');
 });
 
 test('a new agent gets its own profile, model and skills on the next run; the rest of the team learns about it', async () => {

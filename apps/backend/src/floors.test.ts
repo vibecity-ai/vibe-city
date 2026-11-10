@@ -26,11 +26,11 @@ test('archiving closes the gap and removes the floor position; archived departme
   assert.deepEqual(list.map((d: any) => [d.name, d.floorPosition]), [['C', 1], ['A', 2]]);
   const archived = (await app.inject(`/api/departments/${b.id}`)).json();
   assert.equal(archived.floorPosition, null);
-  assert.equal(archived.floorOrder, 2);
+  assert.equal(archived.floorOrder, 3); // creation order: the Chief of Staff's department is 1
   const all = (await app.inject('/api/departments?includeArchived=true')).json().departments;
   assert.deepEqual(all.map((d: any) => d.name), ['C', 'A', 'B'], 'archived listed last');
-  assert.equal(c.floorOrder, 3);
-  assert.equal(a.floorOrder, 1);
+  assert.equal(c.floorOrder, 4);
+  assert.equal(a.floorOrder, 2);
 });
 
 test('archive and list responses match the strict shared schemas the browser validates', async () => {

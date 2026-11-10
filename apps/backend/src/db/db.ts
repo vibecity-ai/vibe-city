@@ -261,6 +261,28 @@ export const MIGRATIONS: readonly string[] = [
      applied_at TEXT,
      PRIMARY KEY (department_id, name)
    );`,
+  // every floor listed on the Agent Market is its own self-registered agent with its own token (was one per company,
+  // in company_settings): the existing listing moves here. The token never leaves the server.
+  `CREATE TABLE market_agent (
+     department_id TEXT PRIMARY KEY,
+     handle TEXT NOT NULL UNIQUE,
+     agent_id TEXT,
+     token TEXT NOT NULL,
+     verified_at TEXT,
+     adopted_at TEXT,
+     token_applied_at TEXT,
+     tagline TEXT,
+     description TEXT,
+     price_usdc TEXT,
+     created_at TEXT NOT NULL
+   );
+   INSERT INTO market_agent (department_id, handle, token, verified_at, adopted_at, token_applied_at, created_at)
+     SELECT json_extract(settings_json, '$.marketDepartmentId'), json_extract(settings_json, '$.marketAgentHandle'),
+            json_extract(settings_json, '$.secrets.marketAgentToken'), json_extract(settings_json, '$.marketVerifiedAt'),
+            json_extract(settings_json, '$.marketAdoptedAt'), json_extract(settings_json, '$.marketTokenAppliedAt'), datetime('now')
+     FROM company_settings
+     WHERE json_extract(settings_json, '$.marketDepartmentId') IS NOT NULL AND json_extract(settings_json, '$.marketAgentHandle') IS NOT NULL
+       AND json_extract(settings_json, '$.secrets.marketAgentToken') IS NOT NULL;`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {

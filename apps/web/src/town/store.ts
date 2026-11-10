@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameState } from '@vibe-city/shared';
+import type { GameState, MarketView } from '@vibe-city/shared';
 import type {
   HiringRequestView, QuestOrigin, QuestRequestView, Schedule, Character,
   ActivityEvent, AgentView, CancellationStatus, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
@@ -64,6 +64,8 @@ interface UI {
   boardQuest: string | null;
   /** New floor through the dialogue window with the executive assistant (the form stays as the accessible fallback). */
   newDept: boolean;
+  /** The Chief of Staff drafting the Agent Market listing with the boss. */
+  marketDraft: boolean;
   /** Inside the Executive Office (the penthouse opened up, feature spec 3.1), and which of its screens is open. */
   execRoom: boolean; execModal: 'org' | 'safe' | 'calendar' | null;
   /** Calendar opened from a floor: show only that floor's schedules. */
@@ -79,6 +81,8 @@ interface UI {
 export interface State {
   company: { name: string } | null;
   depts: Dept[];
+  /** The Chief of Staff's department: a Hermes profile in the Executive Office, not a floor of the tower. */
+  chiefOfStaff: Dept | null;
   quests: QuestItem[];
   /** Per department: whether its quest list is current, out of date, never loaded, or absent (no board yet). */
   questSync: Record<string, QuestSync>;
@@ -108,6 +112,8 @@ export interface State {
   personas: Record<string, Character>;
   /** The game loop (brief 05): CEO quests, decisions, runway. Null until first read. */
   game: GameState | null;
+  /** The Agent Market: the listed floor, its jobs and earnings. Null until first read. */
+  market: MarketView | null;
   origins: Record<string, QuestOrigin>;
   hiring$: (h: HiringRequestView | null) => void;
   toasts: Toast[];
@@ -127,6 +133,7 @@ let fxSeq = 0, toastSeq = 0;
 export const useStore = create<State>((set) => ({
   company: null,
   depts: [],
+  chiefOfStaff: null,
   quests: [],
   questSync: {},
   details: {},
@@ -138,10 +145,10 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
-  requests: [], game: null, origins: {}, schedules: [], personas: {},
+  requests: [], game: null, market: null, origins: {}, schedules: [], personas: {},
   hiring$: (h) => set({ hiring: h }),
 
   ui$: (p) => set((s) => ({ ui: { ...s.ui, ...p } })),

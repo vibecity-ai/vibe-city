@@ -24,11 +24,14 @@ export interface GameInput {
   marketEarnedCents: number;
   /** How many Agent Market jobs the buyer accepted (any amount). */
   marketJobsPaid: number;
+  /** Some listed floor's agents hold its market token (the `market` quest). */
+  marketListed: boolean;
   /** Hermes approvals waiting on an agent turn. Only chat approvals are known (Kanban does not expose them). */
   pendingApprovals: Array<{ departmentId: string; agentKey: string; title: string }>;
 }
 
-export const CHIEF_OF_STAFF = 'chief-of-staff';
+import { CHIEF_OF_STAFF } from '@vibe-city/shared';
+export { CHIEF_OF_STAFF };
 const usd = (s: string) => Math.round(Number(s) * 100);
 const amounts = (lines: string[], tag: 'pnl') =>
   lines.flatMap((t) => [...t.matchAll(new RegExp(`\\[${tag} usd=(-?[0-9]+(?:\\.[0-9]+)?)\\]`, 'g'))].map((m) => usd(m[1]!)));
@@ -55,10 +58,10 @@ export const CEO_QUESTS: readonly QuestDef[] = [
   { id: 'hire', title: 'Hire your first department', unlocks: null,
     done: (x) => x.i.departments.filter((d) => x.i.templateOf[d.id] !== CHIEF_OF_STAFF).length >= 1,
     hint: 'Pick a team from the templates. Each one comes with its agents and their jobs.' },
-  { id: 'market', title: 'List on the Agent Market', unlocks: 'Marketplace Agency', done: (x) => !!x.i.settings.marketVerifiedAt,
-    hint: 'Register the company as an agent on market.near.ai. Its token stays on the server and goes to the Marketplace Agency.' },
+  { id: 'market', title: 'List on the Agent Market', unlocks: null, done: (x) => x.i.marketListed,
+    hint: 'Ask your Chief of Staff to list one floor as an agent on market.near.ai. Done once that floor\'s agents hold the agent token.' },
   { id: 'first-job', title: 'Win your first job', unlocks: null, done: (x) => x.i.marketJobsPaid > 0,
-    hint: 'Go live on market.near.ai, hire the Marketplace Agency, and a buyer accepts its first delivery.' },
+    hint: 'Go live on market.near.ai; a buyer hires your listed floor and accepts its first delivery.' },
   { id: 'dao-funds', title: 'Fund the DAO vault', unlocks: 'IPO', done: (x) => nearHeld(x.i.wallet) >= BigInt(DAO_FUND_NEAR) * YOCTO,
     hint: `Hold at least ${DAO_FUND_NEAR} NEAR in the company wallet: Treasury Ops spends it to create the company's Sputnik DAO vault.` },
   { id: 'ipo', title: 'IPO', unlocks: 'the opening bell', done: (x) => x.textOf(['treasury-ops']).some((t) => DAO.test(t)),

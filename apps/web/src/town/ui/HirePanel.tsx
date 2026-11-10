@@ -41,7 +41,11 @@ export function HireGrid({ onPick, onBlank, onAssistant, questTitle }: {
           })}
         </ul>
       )}
-      <p className="muted small hire-alt">Something else? <button type="button" className="link" onClick={onBlank}>Start from a blank floor</button> or <button type="button" className="link" onClick={onAssistant}>describe it to the assistant</button>.</p>
+      <button type="button" className="btn primary hire-cos" onClick={onAssistant}>
+        <Icon n="plus" size={16} sw={3} />
+        <span><b>Draft with your Chief of Staff</b><small>Describe what you need; they design a custom floor for you.</small></span>
+      </button>
+      <p className="muted small hire-alt">Or <button type="button" className="link" onClick={onBlank}>start from a blank floor</button>.</p>
     </div>
   );
 }

@@ -10,7 +10,7 @@ import {
 import {
   InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
   type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
-  AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
+  AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply, MarketDraftReplySchema, type MarketDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
@@ -19,7 +19,7 @@ import {
 import { DepartmentEnvSchema, DepartmentFilesSchema, type DepartmentEnv, type DepartmentFiles } from '@vibe-city/shared';
 import { AiUsageSummarySchema, CompanySettingsSchema, ConnectorCheckReplySchema, type ConnectorCheckReply, type ConnectorName, GameStateSchema, TemplateListSchema, type AiUsageSummary, type CompanySettings, type CompanySettingsPatch, type GameState, type TemplateList, WalletStateSchema, type WalletState } from '@vibe-city/shared';
 import {
-  ListingDraftSchema, MarketViewSchema, type ListingDraft, type MarketRegister, type MarketView,
+  MarketViewSchema, type MarketRegister, type MarketView, MarketAdoptionSchema, type MarketAdoption, MarketProfileSchema, type MarketProfile,
 } from '@vibe-city/shared';
 import type { z } from 'zod';
 
@@ -88,7 +88,8 @@ const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURICompone
 export const api = {
   company: (): Promise<CompanyView> => request('GET', '/api/company', CompanyViewSchema),
   renameCompany: (name: string): Promise<CompanyView> => request('PATCH', '/api/company', CompanyViewSchema, { name }),
-  departments: async (): Promise<DepartmentView[]> => (await request('GET', '/api/departments', DepartmentListSchema)).departments,
+  // includeHidden: the Chief of Staff's department comes along (the store keeps it apart from the floors)
+  departments: async (): Promise<DepartmentView[]> => (await request('GET', '/api/departments?includeHidden=true', DepartmentListSchema)).departments,
   department: (dept: string): Promise<DepartmentView> => request('GET', d(dept), DepartmentViewSchema),
   createDepartment: (input: Partial<DepartmentCreate> & { name: string }): Promise<DepartmentView> => request('POST', '/api/departments', DepartmentViewSchema, input),
   updateDepartment: (dept: string, input: DepartmentUpdate): Promise<DepartmentView> => request('PATCH', d(dept), DepartmentViewSchema, input),
@@ -155,9 +156,9 @@ export const api = {
   wallet: (): Promise<WalletState> => request('GET', '/api/wallet', WalletStateSchema),
   walletKey: (apiKey: string): Promise<WalletState> => request('POST', '/api/wallet/key', WalletStateSchema, { apiKey }),
   market: (): Promise<MarketView> => request('GET', '/api/market', MarketViewSchema),
-  marketDraft: (): Promise<ListingDraft> => request('POST', '/api/market/listing-draft', ListingDraftSchema),
+  marketProfile: (deptId: string): Promise<MarketProfile> => request('GET', `/api/market/${encodeURIComponent(deptId)}/profile`, MarketProfileSchema),
+  marketAdoption: (deptId: string): Promise<MarketAdoption> => request('POST', `/api/market/${encodeURIComponent(deptId)}/adoption`, MarketAdoptionSchema),
   marketRegister: (input: MarketRegister): Promise<MarketView> => request('POST', '/api/market/register', MarketViewSchema, input),
-  marketToken: (handle: string, token: string): Promise<MarketView> => request('POST', '/api/market/token', MarketViewSchema, { handle, token }),
   companySettings: (): Promise<CompanySettings> => request('GET', '/api/company/settings', CompanySettingsSchema),
   setCompanySettings: (patch: CompanySettingsPatch): Promise<CompanySettings> => request('PATCH', '/api/company/settings', CompanySettingsSchema, patch),
   schedules: async (dept?: string): Promise<Schedule[]> => (await request('GET', `/api/schedules${dept ? `?departmentId=${encodeURIComponent(dept)}` : ''}`, ScheduleListSchema)).schedules,
@@ -174,6 +175,7 @@ export const api = {
   questOrigins: async (): Promise<QuestOrigin[]> => (await request('GET', '/api/quest-origins', QuestOriginListSchema)).origins,
   assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
   assistantModels: (): Promise<ChiefOfStaffModels> => request('GET', '/api/assistant/models', ChiefOfStaffModelsSchema),
+  marketDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> => request('POST', '/api/assistant/market-draft', MarketDraftReplySchema, { messages }),
   departmentDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> => request('POST', '/api/assistant/department-draft', DeptDraftReplySchema, { messages }),
   hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
   hiringStart: (departmentId?: string): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, departmentId ? { departmentId } : {}),

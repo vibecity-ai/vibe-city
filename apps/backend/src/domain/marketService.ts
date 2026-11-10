@@ -1,32 +1,25 @@
-/* The NEAR AI Agent Market (brief 02, revised 2026-11-08): the company is one agent on market.near.ai.
-   - register(): self-registration (`POST /v1/agents/register`); the aat_ token comes back once and stays server-side.
-     useToken() is the fallback for an agent created in the market UI.
-   Price, currency and going live are account-session calls, so the CEO does them on market.near.ai.
+/* The NEAR AI Agent Market (brief 02, revised 2026-11-10): each listed floor of the company is its own agent on market.near.ai.
+   - register(): self-registration (`POST /v1/agents/register`) for the floor the Chief of Staff and the CEO picked in
+     chat (the list_on_market MCP tool); the aat_ token comes back once and stays server-side. That floor's agents get it
+     as MARKET_AGENT_TOKEN and the marketplace-worker skill.
+     Price, currency and going live are account-session calls, so the CEO does them on market.near.ai.
    - tick(): the poller (server.ts runs it every 45 s; the market says to poll even with a webhook, and a webhook needs
-     a public HTTPS URL a local install does not have). Each new assignment becomes a quest on the Marketplace Agency
-     (the floor the `market` quest unlocks; its agents get the token as MARKET_AGENT_TOKEN), a completed quest is submitted as the deliverable, request-changes opens a follow-up quest, acceptance is earnings.
+     a public HTTPS URL a local install does not have). Each new assignment becomes a quest on the listed floor, a
+     completed quest is submitted as the deliverable, request-changes opens a follow-up quest, acceptance is earnings.
    Errors from the market are free text: scrubbed before they reach a response. */
 import type { DatabaseSync } from 'node:sqlite';
-import {
-  MARKET_CATEGORIES, MARKET_HANDLE_RE,
-  type ListingDraft, type MarketJob, type MarketRegister, type MarketView, type QuestCreate, type QuestCreated, type QuestResults,
-} from '@vibe-city/shared';
-import type { ChatModel } from '../model/chatModel.ts';
-import { ModelFailedError, ModelUnavailableError } from '../model/chatModel.ts';
+import { isInternalOnly, type MarketAdoption, type MarketJob, type MarketProfile, type MarketRegister, type MarketView, type QuestCreate, type QuestCreated, type QuestResults } from '@vibe-city/shared';
 import type { DepartmentService } from './departmentService.ts';
 import { ConflictError, InvalidInputError, UpstreamError } from './errors.ts';
 import { scrub } from './scrub.ts';
 import { stableUuid } from './scheduleService.ts';
-import { readSettings, secret, setSecrets, writeSettings } from '../routes/company.ts';
 
 export interface MarketDeps {
   db: DatabaseSync;
-  departments: Pick<DepartmentService, 'list'>;
+  departments: Pick<DepartmentService, 'list' | 'patchInventory' | 'getInventory'>;
   createQuest: (deptId: string, input: QuestCreate) => Promise<QuestCreated>;
   results: (deptId: string, questId: string) => Promise<QuestResults>;
   recordOrigin: (deptId: string, questId: string) => void;
-  model: ChatModel;
-  companyName: () => string;
   fetch?: typeof fetch;
   /** Default https://market.near.ai (env MARKET_BASE_URL). */
   baseUrl?: string;
@@ -38,6 +31,7 @@ interface Item {
   job: { title: string; description: string; tags: string[]; attachments?: { filename?: string }[] };
   latestMessage: { senderSide: string; body: string } | null;
 }
+interface AgentRow { department_id: string; handle: string; agent_id: string | null; token: string; verified_at: string | null; adopted_at: string | null; token_applied_at: string | null; tagline: string | null; description: string | null; price_usdc: string | null; created_at: string }
 interface Row { assignment_id: string; title: string; department_id: string; quest_id: string; state: MarketJob['state']; rounds: number; amount: string; token: string; note: string | null; updated_at: string }
 
 export class MarketHttpError extends Error {
@@ -47,6 +41,8 @@ export class MarketHttpError extends Error {
 
 const MAX_DELIVERABLE = 250_000; // bytes-ish; the market caps Markdown at 256 KiB
 const FEE = 0.95; // the market keeps 5% of a completed job
+/** The skill the listed floor's agents get: market.near.ai's own worker skill (docker/skills/marketplace-worker). */
+export const WORKER_SKILL = 'marketplace-worker';
 
 export class MarketService {
   private d: MarketDeps;
@@ -58,16 +54,40 @@ export class MarketService {
 
   // ---- setup ------------------------------------------------------------------------------------------------------
 
+  /** Every listed floor (newest last); the token stays in this class. */
+  private agents(): AgentRow[] {
+    return this.d.db.prepare('SELECT * FROM market_agent ORDER BY created_at').all() as unknown as AgentRow[];
+  }
+  private agentOf(deptId: string): AgentRow {
+    const a = this.d.db.prepare('SELECT * FROM market_agent WHERE department_id = ?').get(deptId) as unknown as AgentRow | undefined;
+    if (!a) throw new ConflictError('That floor is not on the market.');
+    return a;
+  }
+  private stamp(deptId: string, col: 'verified_at' | 'adopted_at' | 'token_applied_at', at = new Date().toISOString()) {
+    this.d.db.prepare(`UPDATE market_agent SET ${col} = ? WHERE department_id = ?`).run(at, deptId);
+  }
+  /** The floor's agent token, for its profiles' .env (MARKET_AGENT_TOKEN); null when the floor is not listed. */
+  tokenFor(deptId: string): string | null {
+    return (this.d.db.prepare('SELECT token FROM market_agent WHERE department_id = ?').get(deptId) as { token: string } | undefined)?.token ?? null;
+  }
+  isListed(deptId: string): boolean { return this.tokenFor(deptId) !== null; }
+  /** The floor's agents hold its token now (the `market` quest is done once any floor's do). */
+  markTokenApplied(deptId: string, at: string) { this.stamp(deptId, 'token_applied_at', at); }
+  anyTokenApplied(): boolean {
+    return !!this.d.db.prepare('SELECT 1 FROM market_agent WHERE token_applied_at IS NOT NULL LIMIT 1').get();
+  }
+
   view(): MarketView {
-    const s = readSettings(this.d.db);
+    const ready = new Set(this.d.departments.list().filter((d) => d.state === 'ready').map((d) => d.id));
     const jobs = (this.d.db.prepare('SELECT * FROM market_job ORDER BY created_at DESC LIMIT 50').all() as unknown as Row[]).map((r) => ({
       assignmentId: r.assignment_id, title: r.title, departmentId: r.department_id, questId: r.quest_id, state: r.state,
       rounds: r.rounds, amount: r.amount, token: r.token, note: r.note, updatedAt: r.updated_at,
     }));
-    return {
-      connected: !!this.token(), handle: s.marketAgentHandle, verifiedAt: s.marketVerifiedAt,
-      lastPollAt: this.lastPollAt, lastError: this.lastError, agencyReady: this.agency() !== null, earnedCents: this.earnedCents(), jobs,
-    };
+    const agents = this.agents().map((a) => ({
+      departmentId: a.department_id, handle: a.handle, verifiedAt: a.verified_at, adoptedAt: a.adopted_at, tokenAppliedAt: a.token_applied_at,
+      ready: ready.has(a.department_id), tagline: a.tagline, description: a.description, priceUsdc: a.price_usdc,
+    }));
+    return { connected: agents.length > 0, agents, lastPollAt: this.lastPollAt, lastError: this.lastError, earnedCents: this.earnedCents(), jobs };
   }
 
   /** Jobs the buyer accepted (a 0 USD test hire counts: the first-job quest is about being paid, not the amount). */
@@ -81,65 +101,84 @@ export class MarketService {
     return rows.reduce((n, r) => n + Math.round((Number(r.amount) || 0) * 100 * FEE), 0);
   }
 
+  /** Lists a floor as its own agent: registers it, then gives the floor the marketplace-worker skill (its profiles are
+      re-synced by the caller, which also writes this floor's token into them). */
   async register(input: MarketRegister): Promise<void> {
-    if (this.token()) throw new ConflictError(`The company is already on the market as @${readSettings(this.d.db).marketAgentHandle}.`);
-    let r: { apiToken: string; handle: string };
+    const floor = this.d.departments.list().find((d) => d.id === input.departmentId);
+    if (!floor) throw new InvalidInputError('That floor does not exist.');
+    if (isInternalOnly(floor.templateId)) throw new InvalidInputError(`${floor.name} spends from the company wallet, so it is internal: it can never take outside jobs.`);
+    const had = this.d.db.prepare('SELECT handle FROM market_agent WHERE department_id = ?').get(floor.id) as { handle: string } | undefined;
+    if (had) throw new ConflictError(`${floor.name} is already on the market as @${had.handle}.`);
+    let r: { apiToken: string; handle: string; agentId?: string };
     try {
       r = await this.call('POST', '/v1/agents/register', null, {
         handle: input.handle, name: input.name, category: input.category, ...(input.slaHours ? { sla_seconds: input.slaHours * 3600 } : {}),
-      }) as { apiToken: string; handle: string };
+      }) as typeof r;
     } catch (e) {
       if (e instanceof MarketHttpError && e.status === 409) throw new ConflictError(`@${input.handle} is taken on market.near.ai. Pick another handle.`);
-      if (e instanceof MarketHttpError && e.status === 429) {
-        throw new UpstreamError('market.near.ai is not taking self-registrations right now. Create the agent on market.near.ai and paste its token instead.');
+      if (e instanceof MarketHttpError && e.status === 429) throw new UpstreamError('market.near.ai is not taking self-registrations right now. Try again later.');
+      throw this.mapped(e);
+    }
+    this.d.db.prepare(`INSERT INTO market_agent (department_id, handle, agent_id, token, tagline, description, price_usdc, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(floor.id, r.handle, r.agentId ?? null, r.apiToken, input.tagline ?? null, input.description ?? null, input.priceUsdc ?? null, new Date().toISOString());
+    const skills = this.d.departments.getInventory(input.departmentId).allowedSkillIds;
+    if (!skills.includes(WORKER_SKILL)) this.d.departments.patchInventory(input.departmentId, { allowedSkillIds: [...skills, WORKER_SKILL] });
+    await this.verify(floor.id, r.apiToken);
+  }
+
+  /** Self-registration puts the agent under a fresh market account, invisible in the boss's own: a one-time code moves
+      it (and its balance) into the account that redeems it. The token keeps working after. */
+  async adoption(deptId: string): Promise<MarketAdoption> {
+    const a = this.agentOf(deptId);
+    if (a.adopted_at) return { adopted: true, url: null, code: null, expiresAt: null };
+    let r: { code?: string; adoptionUrl?: string; expiresAt?: string };
+    try {
+      r = await this.call('POST', '/v1/agents/me/adoption-code', a.token) as typeof r;
+    } catch (e) {
+      // 409 agent_already_adopted; 403 once a person owns it ("may run work, not give the agent away"): claimed either way
+      if (e instanceof MarketHttpError && (e.status === 409 || e.status === 403)) {
+        this.stamp(deptId, 'adopted_at');
+        return { adopted: true, url: null, code: null, expiresAt: null };
       }
       throw this.mapped(e);
     }
-    setSecrets(this.d.db, { marketAgentToken: r.apiToken });
-    writeSettings(this.d.db, { marketAgentHandle: r.handle, marketVerifiedAt: null });
-    await this.verify(r.apiToken);
+    const url = r.adoptionUrl ? (/^https?:\/\//.test(r.adoptionUrl) ? r.adoptionUrl : `${this.base}${r.adoptionUrl.startsWith('/') ? '' : '/'}${r.adoptionUrl}`) : null;
+    return { adopted: false, url, code: r.code ?? null, expiresAt: r.expiresAt ?? null };
   }
 
-  /** A token pasted from the market UI: stored only if the market accepts it. */
-  async useToken(handle: string, token: string): Promise<void> {
-    try { await this.call('GET', '/v1/agents/me/assignments?limit=1', token); } catch (e) {
-      if (e instanceof MarketHttpError && (e.status === 401 || e.status === 403)) throw new InvalidInputError('market.near.ai refused this token.');
-      throw this.mapped(e);
-    }
-    setSecrets(this.d.db, { marketAgentToken: token });
-    writeSettings(this.d.db, { marketAgentHandle: handle, marketVerifiedAt: new Date().toISOString() });
+  /** The listed agent's market page data; read with its token (the market only shows a Draft to its owner). */
+  async profile(deptId: string): Promise<MarketProfile> {
+    const { handle, token } = this.agentOf(deptId);
+    const none = { handle, url: `${this.base}/a/${handle}`, found: false, name: null, description: null, category: null, listingStatus: null, deliveredJobs: null, successRate: null, responseTimeSeconds: null, slaSeconds: null };
+    let a: Record<string, unknown>;
+    try { a = await this.call('GET', `/v1/agents/${encodeURIComponent(handle)}`, token) as Record<string, unknown>; }
+    catch (e) { if (e instanceof MarketHttpError && (e.status === 404 || e.status === 403)) return none; throw this.mapped(e); }
+    const str = (...k: string[]) => { for (const x of k) if (typeof a[x] === 'string') return a[x] as string; return null; };
+    const num = (...k: string[]) => { for (const x of k) if (typeof a[x] === 'number') return a[x] as number; return null; };
+    return { ...none, found: true, name: str('name'), description: str('description'), category: str('category'),
+      listingStatus: str('listing_status', 'listingStatus'), deliveredJobs: num('delivered_jobs', 'deliveredJobs'), successRate: num('success_rate', 'successRate'),
+      responseTimeSeconds: num('response_time_seconds_median', 'responseTimeSecondsMedian'), slaSeconds: num('sla_seconds', 'slaSeconds') };
   }
 
-  /** The Chief of Staff's listing copy, from the company's floors. Nothing is stored. */
-  async draftListing(): Promise<ListingDraft> {
-    if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
-    const floors = this.d.departments.list().map((d) => `- ${d.name}: ${d.purpose || 'no purpose written'}`);
-    const raw = await this.d.model.complete([
-      { role: 'system', content: [
-        `Write a listing for "${this.d.companyName()}" on market.near.ai, a marketplace where buyers hire AI agents for jobs paid in USDC.`,
-        'The company is one agent; each job goes to the department that fits. Departments:', floors.join('\n') || '- none yet',
-        'Promise only what these departments can deliver. Reply with JSON only:',
-        `{"handle": "<3-30 chars, lowercase letters, digits, dashes, starts with a letter>", "name": "<max 80 chars>", "category": one of ${MARKET_CATEGORIES.map((c) => `"${c}"`).join(', ')}, "tagline": "<one sentence>", "description": "<max 200 chars>", "priceUsdc": <number per job>, "slaHours": <integer>, "deliverables": ["<what a buyer gets>"]}`,
-      ].join('\n') },
-    ], { maxTokens: 4000 }); // reasoning models spend this on thinking before the JSON
-    return clampListing(raw, this.d.companyName());
-  }
-
-  // ---- the poller -------------------------------------------------------------------------------------------------
+  // ---- the poller: one loop over every listed floor, each with its own token ------------------------------------------
 
   async tick(): Promise<void> {
-    const token = this.token();
-    if (!token || this.busy) return;
+    if (this.busy) return;
+    const agents = this.agents();
+    if (!agents.length) return;
     this.busy = true;
+    let error: string | null = null;
     try {
-      const { assignments } = await this.call('GET', '/v1/agents/me/assignments?status=all&limit=100', token) as { assignments: Item[] };
-      const now = new Date().toISOString();
-      if (!readSettings(this.d.db).marketVerifiedAt) writeSettings(this.d.db, { marketVerifiedAt: now });
-      let error: string | null = null;
-      for (const it of assignments) {
-        try { await this.step(it, token); } catch (e) { error = this.message(e); this.note(it.assignment.assignmentId, error); }
+      for (const ag of agents) {
+        try {
+          const { assignments } = await this.call('GET', '/v1/agents/me/assignments?status=all&limit=100', ag.token) as { assignments: Item[] };
+          if (!ag.verified_at) this.stamp(ag.department_id, 'verified_at');
+          for (const it of assignments) {
+            try { await this.step(it, ag.token, ag.department_id); } catch (e) { error = this.message(e); this.note(it.assignment.assignmentId, error); }
+          }
+        } catch (e) { error = `@${ag.handle}: ${this.message(e)}`; }
       }
-      this.lastPollAt = now;
+      this.lastPollAt = new Date().toISOString();
       this.lastError = error;
     } catch (e) {
       this.lastError = this.message(e);
@@ -148,14 +187,14 @@ export class MarketService {
     }
   }
 
-  private async step(it: Item, token: string): Promise<void> {
+  private async step(it: Item, token: string, deptId: string): Promise<void> {
     const a = it.assignment, id = a.assignmentId;
     const row = this.d.db.prepare('SELECT * FROM market_job WHERE assignment_id = ?').get(id) as Row | undefined;
     const path = `/v1/assignments/${encodeURIComponent(id)}`;
     if (!row) {
       if (a.status !== 'in_progress') return; // only new work; a finished or cancelled one was never ours to do
-      const dept = this.agency();
-      if (!dept) throw new Error('Hire the Marketplace Agency to take market jobs.');
+      const dept = this.d.departments.list().find((d) => d.id === deptId && d.state === 'ready')?.id;
+      if (!dept) throw new Error('The listed floor is not synced with Hermes, so it cannot take market jobs yet.');
       const questId = await this.quest(dept, id, 1, it.job.title, brief(it));
       const now = new Date().toISOString();
       this.d.db.prepare(`INSERT INTO market_job (assignment_id, title, department_id, quest_id, state, rounds, amount, token, created_at, updated_at)
@@ -195,28 +234,21 @@ export class MarketService {
       clientRequestId: stableUuid(`market|${assignmentId}|${round}`),
       title: `Market job${round > 1 ? ` (revision ${round - 1})` : ''}: ${title}`.slice(0, 200),
       objective: objective.slice(0, 8000),
-      instructions: 'A buyer on the NEAR AI Agent Market hired the company for this. Your final result is sent to the buyer as the deliverable, in Markdown: write the complete work there, not a note about it.',
+      instructions: 'A buyer on the NEAR AI Agent Market hired the company for this. Your final result is sent to the buyer as the deliverable, in Markdown: write the complete work there, not a note about it. The agent token is MARKET_AGENT_TOKEN in your environment, for the marketplace-worker skill against https://market.near.ai: use it to read the job thread and attachments and to message the buyer. Vibe City starts and submits the assignment itself: never start, submit or decline it, and never bid.',
     });
     this.d.recordOrigin(deptId, questId);
     return questId;
   }
 
-  /** The ready Marketplace Agency floor, if the CEO hired one. */
-  private agency(): string | null {
-    const ids = new Set((this.d.db.prepare("SELECT id FROM department WHERE template_id = 'marketplace-agency'").all() as { id: string }[]).map((r) => r.id));
-    return this.d.departments.list().find((d) => ids.has(d.id) && d.state === 'ready')?.id ?? null;
-  }
-
-  private async verify(token: string) {
+  private async verify(deptId: string, token: string) {
     try {
       await this.call('GET', '/v1/agents/me/assignments?limit=1', token);
-      writeSettings(this.d.db, { marketVerifiedAt: new Date().toISOString() });
+      this.stamp(deptId, 'verified_at');
     } catch { /* the next poll verifies it */ }
   }
 
   // ---- internals --------------------------------------------------------------------------------------------------
 
-  private token() { return secret(this.d.db, 'marketAgentToken'); }
   private set(id: string, state: MarketJob['state'], note: string | null) {
     this.d.db.prepare('UPDATE market_job SET state = ?, note = ?, updated_at = ? WHERE assignment_id = ? AND state != ?').run(state, note, new Date().toISOString(), id, state);
   }
@@ -258,26 +290,4 @@ function brief(it: Item): string {
 export function deliverable(r: QuestResults): string | null {
   const parts = [r.leadSummary, ...r.tasks.filter((t) => t.summary).map((t) => `## ${t.title}\n\n${t.summary}`)].filter((s): s is string => !!s?.trim());
   return parts.length ? scrub(parts.join('\n\n'), MAX_DELIVERABLE) : null;
-}
-
-/** The model's listing, made valid for the register form (it edits every field before anything is sent). */
-export function clampListing(raw: string, company: string): ListingDraft {
-  let o: Record<string, unknown> | null = null;
-  const m = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').match(/\{[\s\S]*\}/);
-  try { if (m) o = JSON.parse(m[0]) as Record<string, unknown>; } catch { /* below */ }
-  // a draft of defaults is worse than none: say it failed so the CEO can ask again
-  if (!o || typeof o.tagline !== 'string' || !o.tagline.trim()) throw new ModelFailedError('The Chief of Staff could not write the listing. Try again.');
-  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-  const slug = (v: string) => v.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^[^a-z]+/, '').replace(/-+/g, '-').slice(0, 30).replace(/-+$/, '');
-  let handle = slug(str(o.handle, 60));
-  if (!MARKET_HANDLE_RE.test(handle)) handle = slug(company) || 'vibe-city-agent';
-  if (!MARKET_HANDLE_RE.test(handle)) handle = 'vibe-city-agent';
-  const category = (MARKET_CATEGORIES as readonly string[]).includes(o.category as string) ? (o.category as ListingDraft['category']) : 'other';
-  const num = (v: unknown, d: number) => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : d);
-  return {
-    handle, name: str(o.name, 80) || company.slice(0, 80), category,
-    tagline: str(o.tagline, 200), description: str(o.description, 200),
-    priceUsdc: Math.round(num(o.priceUsdc, 10) * 100) / 100, slaHours: Math.min(720, Math.max(1, Math.round(num(o.slaHours, 24)))),
-    deliverables: Array.isArray(o.deliverables) ? o.deliverables.filter((x): x is string => typeof x === 'string').map((x) => x.trim().slice(0, 200)).filter(Boolean).slice(0, 8) : [],
-  };
 }

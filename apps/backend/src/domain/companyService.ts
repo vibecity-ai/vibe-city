@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import type { CompanyView } from '@vibe-city/shared';
+import { FLOOR } from './departmentService.ts';
 
 export const DEFAULT_COMPANY_NAME = 'My Company';
 
@@ -32,7 +33,7 @@ export class CompanyService {
   view(): CompanyView {
     const c = this.row();
     const depts = this.db
-      .prepare('SELECT id FROM department WHERE archived_at IS NULL ORDER BY floor_order DESC, id ASC')
+      .prepare(`SELECT id FROM department WHERE archived_at IS NULL AND ${FLOOR} ORDER BY floor_order DESC, id ASC`)
       .all() as unknown as { id: string }[];
     return {
       id: c.id,

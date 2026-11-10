@@ -2,8 +2,8 @@
    the dialogue window. It only drafts: the draft is filtered to what Hermes really has, and nothing is created until
    the user confirms, through the ordinary department API. */
 import {
-  AGENT_EXCLUDED_TOOLSETS, MOODS, TOOLSETS,
-  type Character, type DeptDraft, type DeptDraftReply, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type Toolset,
+  AGENT_EXCLUDED_TOOLSETS, MARKET_CATEGORIES, MARKET_HANDLE_RE, MOODS, TOOLSETS, isInternalOnly,
+  type Character, type DepartmentView, type DeptDraft, type DeptDraftReply, type MarketDraft, type MarketDraftReply, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type Toolset,
 } from '@vibe-city/shared';
 import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
 import { ModelUnavailableError } from '../model/chatModel.ts';
@@ -21,6 +21,8 @@ export interface AssistantDeps {
   prices?: ModelPrices;
   companyId: () => string;
   companyName: () => string;
+  /** The floor is already on the Agent Market (it is listed once). */
+  isListed?: (deptId: string) => boolean;
 }
 
 const TIER_COST = { 1: 30, 2: 100, 3: 300 } as const;
@@ -58,19 +60,75 @@ export class AssistantService {
       `Toolsets that can be granted: ${toolsets.join(', ')}`,
       offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick the cheapest model that can do the purpose well; a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
       '',
-      'Ask at most one short question if the purpose is unclear; otherwise propose the floor right away. Keep it small: grant only what the purpose needs.',
+      'You already asked the boss: a ready template or a custom floor. If they want a template, tell them to pick one in the Templates panel (draft null).',
+      'For a custom floor: if the boss has not said what the department should do, ask that one question, and make your "replies" 2 or 3 concrete floor ideas built from the installed skills above (e.g. "A floor that <does X> with <skill>"). Never suggest work no installed skill or toolset supports.',
+      'Once the purpose is clear, propose the floor right away. Keep it small: grant only what the purpose needs.',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
-      '- Reply with JSON only, no other text:',
-      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"name": "<2-3 words>", "purpose": "<1-2 sentences>", "skills": ["<installed skill>"], "toolsets": ["<toolset>"], "model": "<provider/model or null>", "teammates": <0-4>}}`,
+      '- Reply with ONE JSON object only: no text before or after it, do not repeat "say" outside it:',
+      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"name": "<2-3 words>", "purpose": "<1-2 sentences>", "skills": ["<installed skill>"], "toolsets": ["<toolset>"], "model": "<provider/model or null>", "agents": [lead first, 1 to 5 of {"name": "<a first name>", "title": "<job title, 2-4 words>", "does": "<what they do here, under 15 words>"}]}}`,
     ].join('\n');
     const turns: ChatTurn[] = [
       { role: 'system', content: system },
       ...messages.slice(-16).map((m): ChatTurn => ({ role: m.from === 'user' ? 'user' : 'assistant', content: m.text })),
     ];
-    const raw = await this.d.model.complete(turns, { maxTokens: 700 });
+    // the draft JSON is long, and some models think first: 700 cut it off mid-draft
+    const raw = await this.d.model.complete(turns, { maxTokens: 2000 });
     const p = parseJsonReply(raw);
     return { say: p.say, mood: p.mood, replies: p.replies, draft: p.obj ? clampDraft(p.obj.draft, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }) : null };
   }
+
+  /** Floors that may still be listed: not the Chief of Staff, not a company-wallet floor, not already on the market. */
+  listable(): DepartmentView[] {
+    return this.d.departments.list().filter((d) => !isInternalOnly(d.templateId) && !this.d.isListed?.(d.id));
+  }
+
+  /** The Agent Market listing, drafted with the boss: which floor, then a listing card. Registering is the boss's click. */
+  async draftListing(messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> {
+    if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
+    const me = this.character(), floors = this.listable();
+    const system = [
+      `You are ${me.name}, ${me.title} at ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents running on Hermes.`,
+      `Personality: ${me.traits.join(', ')}. Way of speaking: ${me.speechStyle}. You call the user "boss".`,
+      'You are listing ONE floor of the company as an agent on the NEAR AI Agent Market (market.near.ai). Buyers hire it for jobs paid in USDC; every job lands on that floor\'s board.',
+      `Floors that can be listed:\n${floors.map((d) => `- ${d.name}: ${d.purpose || 'no purpose written'}${d.state === 'ready' ? '' : ' (not synced with Hermes yet)'}`).join('\n') || '- none'}`,
+      `Categories: ${MARKET_CATEGORIES.join(', ')}.`,
+      'Handle: 3-30 characters, lowercase letters, digits and dashes, starting with a letter.',
+      '',
+      'If the boss has not picked a floor, ask which one, with the floor names as "replies". Once they pick, propose the listing right away: promise only what that floor does.',
+      'If the boss asks for changes, propose the whole listing again with the changes.',
+      '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
+      '- Reply with ONE JSON object only: no text before or after it, do not repeat "say" outside it:',
+      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"floor": "<floor name>", "handle": "<handle>", "name": "<display name>", "category": "<category>", "slaHours": <delivery hours>, "tagline": "<one sentence>", "description": "<under 200 characters: what a buyer gets>", "priceUsdc": "<USDC per job, e.g. 5.00>"}}`,
+    ].join('\n');
+    const turns: ChatTurn[] = [
+      { role: 'system', content: system },
+      ...messages.slice(-16).map((m): ChatTurn => ({ role: m.from === 'user' ? 'user' : 'assistant', content: m.text })),
+    ];
+    const p = parseJsonReply(await this.d.model.complete(turns, { maxTokens: 2000 }));
+    return { say: p.say, mood: p.mood, replies: p.replies, draft: p.obj ? clampListing(p.obj.draft, floors) : null };
+  }
+}
+
+/** A listing only for a floor that may be listed, with a handle and category the market accepts. */
+export function clampListing(raw: unknown, floors: DepartmentView[]): MarketDraft | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const r = raw as Record<string, unknown>, str = (v: unknown, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+  const want = str(r.floor, 80).toLowerCase();
+  const floor = floors.find((d) => d.name.toLowerCase() === want || d.id === want);
+  if (!floor) return null;
+  const name = str(r.name, 80) || floor.name;
+  const slug = (x: string) => x.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^[^a-z]+|-+$/g, '').slice(0, 30).replace(/-+$/, '');
+  let handle = slug(str(r.handle, 60));
+  if (!MARKET_HANDLE_RE.test(handle)) handle = slug(name);
+  if (!MARKET_HANDLE_RE.test(handle)) handle = `agent-${floor.id.slice(0, 8)}`;
+  const category = (MARKET_CATEGORIES as readonly string[]).includes(str(r.category, 40)) ? str(r.category, 40) : 'other';
+  const price = Number(str(r.priceUsdc, 20).replace(/[^0-9.]/g, ''));
+  return {
+    departmentId: floor.id, floorName: floor.name, handle, name, category,
+    slaHours: Math.max(1, Math.min(720, Math.round(Number(r.slaHours)) || 24)),
+    tagline: str(r.tagline, 160), description: str(r.description, 200),
+    priceUsdc: price > 0 ? price.toFixed(2) : '5.00', notSynced: floor.state !== 'ready',
+  };
 }
 
 /** Keeps only what Hermes has; anything dropped is listed so the card can say so. */
@@ -93,12 +151,22 @@ export function clampDraft(raw: unknown, have: { skills: string[]; toolsets: str
     model = have.offered.find((o) => `${o.provider}/${o.id}` === m) ?? have.offered.find((o) => o.id === m || m.endsWith(`/${o.id}`)) ?? null;
     if (!model) dropped.push(`model "${m}" (Hermes does not offer it; the floor keeps the default)`);
   }
-  const teammates = Math.max(0, Math.min(4, Math.round(Number(r.teammates ?? r.workers ?? 1)) || 0));
+  const agents = (Array.isArray(r.agents) ? r.agents : []).flatMap((a) => {
+    const o = (a ?? {}) as Record<string, unknown>, str = (v: unknown, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const title = str(o.title, 60);
+    return title ? [{ name: str(o.name, 40), title, does: str(o.does, 160) }] : [];
+  }).slice(0, 5);
+  // no roster (an older reply shape): a count of unnamed seats, their personas named at creation
+  if (!agents.length) {
+    const n = Math.max(0, Math.min(4, Math.round(Number(r.teammates ?? r.workers ?? 1)) || 0));
+    for (let i = 0; i <= n; i++) agents.push({ name: '', title: i ? `Teammate ${i}` : 'Lead', does: '' });
+  }
+  const teammates = agents.length - 1;
   // Null model: the floor runs on Hermes' current default, so that is the one to price.
   const price = have.prices?.get(model?.id ?? have.current ?? '');
   const perAgent = price ? dailyCredits(price) : TIER_COST[model ? modelTier(model.id) : 2];
   return {
     name, purpose: typeof r.purpose === 'string' ? r.purpose.trim().slice(0, 2000) : '',
-    skills, toolsets, model, teammates, creditsPerDay: perAgent * (1 + teammates), dropped,
+    skills, toolsets, model, teammates, agents, creditsPerDay: perAgent * (1 + teammates), dropped,
   };
 }
