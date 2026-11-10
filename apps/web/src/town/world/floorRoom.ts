@@ -1,11 +1,12 @@
 /* A department floor's controls: the objects every floor shares (Kanban wall, the lead's office, file archive, server
-   rack (tools), the lead's bookshelf (skills), the key cabinet by the front corner (env variables), wall clock) and the station a template brings in place of the lounge. Footprints are room boxes
+   rack (tools), the skill library cabinet (skills, this floor first), the key cabinet by the front corner (env variables), wall clock) and the station a template brings in place of the lounge. Footprints are room boxes
    (u, v, h, du, dv, dh), hit-tested and outlined like the Executive Office's (execRoom.ts). What each opens is in
    data/floor.ts and ui/FloorSheet.tsx. */
 import type { FloorObjectId } from '../data/floor';
 import type { Pt } from './pix';
 import { box, C, hash, type IC } from './interior';
 import { shade } from './sprites';
+import { LIBRARY_BOX } from './execRoom';
 
 export type Box6 = [number, number, number, number, number, number];
 export interface FloorObject { id: FloorObjectId; label: string; b: Box6 }
@@ -15,7 +16,7 @@ const COMMON: FloorObject[] = [
   { id: 'lead', label: 'Lead’s office', b: [12, 114, 0, 40, 20, 26] },
   { id: 'archive', label: 'File archive', b: [28, 8, 0, 12, 29, 24] },
   { id: 'rack', label: 'Tools', b: [0, 56, 0, 14, 18, 44] },
-  { id: 'shelf', label: 'Skills', b: [0, 118, 0, 8, 20, 40] },
+  { id: 'library', label: 'Skill library', b: LIBRARY_BOX },
   { id: 'keys', label: 'Env variables', b: [0, 3, 5, 4, 14, 20] },
   { id: 'clock', label: 'Schedules', b: [-1, 78, 24, 2, 14, 14] },
 ];
