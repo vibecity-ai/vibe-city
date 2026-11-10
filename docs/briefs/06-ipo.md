@@ -55,6 +55,11 @@ over `POST /wallet/v1/call` (brief 03 owns `walletService.ts`: the method is a t
 `call`). Vibe City never holds the CEO's key. The CEO types their NEAR account in the IPO form (there is no linked
 wallet list any more).
 
+If the wallet's OutLayer policy needs approvers, every call answers `pending_approval` with a `request_id`. The IPO
+keeps that id and shows `awaiting_approval`; Continue reads `GET /wallet/v1/requests/{id}` and never sends the call
+again while it is pending (a rejected or failed request lets that step start over). Up to four approvals: the DAO,
+two registrations, the token. Proposals wait the same way before they reach Trezu.
+
 ## Backend (`domain/ipoService.ts`, `routes/ipo.ts`)
 
 The backend runs the IPO, not the Treasury Ops agent: it is deterministic, testable with a fake caller, and the

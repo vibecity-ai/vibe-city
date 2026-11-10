@@ -38,6 +38,10 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
         <p className="fine">Unlocks after your first paid market job and 4 NEAR in the company wallet.</p>
       </>}
       {(ipo.state === 'ready' || ipo.state === 'error') && <LaunchForm ipo={ipo} ceo={ceo} company={company} busy={busy} onLaunch={(x) => void run(() => api.ipoLaunch(x))} />}
+      {ipo.state === 'awaiting_approval' && <>
+        <p className="fine">Your OutLayer wallet's policy needs your approval for <span className="mono">{ipo.awaiting}</span>. Approve it at {ext('https://app.outlayer.ai', 'app.outlayer.ai')}, then continue. Each IPO step asks once (up to four).</p>
+        <button className="btn primary small" disabled={busy} onClick={() => void run(() => api.ipoLaunch({ ceoAccountId: ipo.ceoAccountId ?? '', symbol: ipo.symbol ?? '' }))}>{busy ? 'Checking…' : 'Continue IPO'}</button>
+      </>}
       {ipo.state === 'running' && <p className="muted" aria-busy="true">Going public: creating the Sputnik DAO, then the city token… ({ipo.txHashes.length} transaction{ipo.txHashes.length === 1 ? '' : 's'} so far)</p>}
       {ipo.state === 'done' && <Done ipo={ipo} busy={busy} run={run} />}
       {err && <p className="field-err" role="alert">{err}</p>}
@@ -97,7 +101,7 @@ function Done({ ipo, busy, run }: { ipo: IpoState; busy: boolean; run: (f: () =>
         </div>
       </form>
       {ipo.proposals.length > 0 && (
-        <ul>{ipo.proposals.map((p, i) => <li key={`${p.id ?? 'x'}-${i}`}>{p.kind === 'allocate' ? 'Allocate' : 'Dividend'}{p.id !== null && ` #${p.id}`} · {p.title} · {ext(`${trezu(dao)}/requests`, 'Approve in Trezu')}</li>)}</ul>
+        <ul>{ipo.proposals.map((p, i) => <li key={`${p.id ?? 'x'}-${i}`}>{p.kind === 'allocate' ? 'Allocate' : 'Dividend'}{p.id !== null && ` #${p.id}`} · {p.title} · {p.awaitingWalletApproval ? 'waiting for your OutLayer approval' : ext(`${trezu(dao)}/requests`, 'Approve in Trezu')}</li>)}</ul>
       )}
     </>
   );

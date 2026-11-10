@@ -4,16 +4,23 @@
                by the DAO. Each step checks what is already on chain first, so a retry never creates a second one.
      allocate: a DAO proposal sending city tokens to one account (the demo's holders).
      dividend: one DAO proposal paying every holder its share of a payout, pro rata to its city tokens.
-   Proposals execute only when the CEO approves them in Trezu. */
+   Proposals execute only when the CEO approves them in Trezu.
+   A wallet whose OutLayer policy needs approvers answers `pending`: the request id is kept and the IPO waits
+   (awaiting_approval); Continue asks OutLayer where that request stands and never sends the call a second time. */
 import type { DatabaseSync } from 'node:sqlite';
 import type { IpoAllocate, IpoDividend, IpoLaunch, IpoProposal, IpoState } from '@vibe-city/shared';
 import type { NearReader } from '../near/rpc.ts';
+import type { CallOutcome } from './walletService.ts';
 import { ConflictError, InvalidInputError, UpstreamError } from './errors.ts';
 import { scrub } from './scrub.ts';
 
 export interface ContractCaller {
-  callContract(receiverId: string, method: string, args: Record<string, unknown>, gas: string, deposit: string): Promise<{ txHash: string | null; result: unknown }>;
+  callContract(receiverId: string, method: string, args: Record<string, unknown>, gas: string, deposit: string): Promise<CallOutcome>;
+  request(requestId: string, what: string): Promise<CallOutcome>;
 }
+
+/** A wallet call is waiting for the owner's approval in OutLayer: the IPO stops here until Continue. */
+class Waiting extends Error {}
 
 export const DAO_FACTORY = 'sputnik-dao.near';
 export const TOKEN_FACTORY = 'tkn.near';
@@ -37,11 +44,15 @@ export const PAYOUT = {
     ponytail: one proposal per payout; split into batches if the demo ever has more holders. */
 export const MAX_HOLDERS = 8;
 
+type StoredProposal = Omit<IpoProposal, 'awaitingWalletApproval'> & { requestId?: string };
 interface Stored {
   ceoAccountId: string | null; symbol: string | null; daoAccountId: string | null; tokenAccountId: string | null;
-  txHashes: string[]; holders: string[]; proposals: IpoProposal[]; error: string | null; done: boolean;
+  txHashes: string[]; holders: string[]; proposals: StoredProposal[]; error: string | null; done: boolean;
+  /** The IPO step's wallet request waiting for the owner's approval in OutLayer. */
+  pending: { requestId: string; what: string } | null;
 }
-const EMPTY: Stored = { ceoAccountId: null, symbol: null, daoAccountId: null, tokenAccountId: null, txHashes: [], holders: [], proposals: [], error: null, done: false };
+const empty = (): Stored => ({ ceoAccountId: null, symbol: null, daoAccountId: null, tokenAccountId: null, txHashes: [], holders: [], proposals: [], error: null, done: false, pending: null });
+const proposalId = (r: unknown) => (typeof r === 'number' ? r : typeof r === 'string' && /^\d+$/.test(r) ? Number(r) : null);
 
 /** The DAO's sub-account name: the company name as a NEAR account segment. */
 export function daoName(company: string): string {
@@ -97,7 +108,7 @@ export class IpoService {
 
   private read(): Stored {
     const row = this.db.prepare('SELECT state_json FROM ipo WHERE id = 1').get() as { state_json: string } | undefined;
-    return row ? { ...EMPTY, ...(JSON.parse(row.state_json) as Partial<Stored>) } : { ...EMPTY };
+    return { ...empty(), ...(row ? (JSON.parse(row.state_json) as Partial<Stored>) : {}) };
   }
   private save(s: Stored) {
     this.db.prepare('INSERT INTO ipo (id, state_json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET state_json = excluded.state_json').run(JSON.stringify(s));
@@ -107,14 +118,36 @@ export class IpoService {
 
   async view(unlocked: boolean): Promise<IpoState> {
     const s = this.read();
-    const started = s.txHashes.length > 0 || !!s.daoAccountId;
-    const state = this.running ? 'running' : s.done ? 'done' : s.error ? 'error' : unlocked || started ? 'ready' : 'locked';
+    if (s.proposals.some((p) => p.requestId)) await this.settleProposals(s);
+    const started = s.txHashes.length > 0 || !!s.daoAccountId || !!s.pending;
+    const state = this.running ? 'running' : s.pending ? 'awaiting_approval' : s.done ? 'done' : s.error ? 'error' : unlocked || started ? 'ready' : 'locked';
     const holders = await Promise.all(s.holders.map(async (accountId) => {
       if (!s.tokenAccountId) return { accountId, balance: null };
       const raw = await this.rpc.view<string>(s.tokenAccountId, 'ft_balance_of', { account_id: accountId }).catch(() => null);
       return { accountId, balance: raw === null ? null : Number(raw) / 10 ** TOKEN_DECIMALS };
     }));
-    return { state, ceoAccountId: s.ceoAccountId, daoAccountId: s.daoAccountId, tokenAccountId: s.tokenAccountId, symbol: s.symbol, txHashes: s.txHashes, holders, proposals: s.proposals, error: s.error };
+    return {
+      state, awaiting: s.pending?.what ?? null, ceoAccountId: s.ceoAccountId, daoAccountId: s.daoAccountId, tokenAccountId: s.tokenAccountId, symbol: s.symbol,
+      txHashes: s.txHashes, holders, proposals: s.proposals.map(({ requestId, ...p }) => ({ ...p, awaitingWalletApproval: !!requestId })), error: s.error,
+    };
+  }
+
+  /** Proposals whose filing waited for the owner's approval in OutLayer: read where each stands (best effort). */
+  private async settleProposals(s: Stored) {
+    for (const p of s.proposals) {
+      if (!p.requestId) continue;
+      try {
+        const r = await this.wallet.request(p.requestId, 'add_proposal');
+        if (r.status === 'pending') continue;
+        p.id = proposalId(r.result); p.txHash = r.txHash;
+        if (r.txHash) s.txHashes.push(r.txHash);
+      } catch (e) {
+        if (!(e instanceof UpstreamError)) continue; // unreachable OutLayer: ask again next time
+        p.title += ' (not filed: refused or failed in OutLayer)';
+      }
+      delete p.requestId;
+    }
+    this.save(s);
   }
 
   /** Runs (or resumes) the IPO. `unlocked`: the game says the IPO is open; a started IPO may resume either way (it spent the funds that unlocked it). */
@@ -122,7 +155,7 @@ export class IpoService {
     const s = this.read();
     if (s.done) throw new ConflictError('The company is already public.');
     if (this.running) throw new ConflictError('The IPO is already running.');
-    if (!unlocked && !s.daoAccountId && !s.txHashes.length) throw new ConflictError('The IPO is locked: win your first market job and hold the NEAR it needs in the company wallet.');
+    if (!unlocked && !s.daoAccountId && !s.txHashes.length && !s.pending) throw new ConflictError('The IPO is locked: win your first market job and hold the NEAR it needs in the company wallet.');
     const wallet = this.walletAccount();
     if (!wallet) throw new InvalidInputError('Connect the company wallet in the safe first: it signs the IPO.');
     // the DAO's council and the token's symbol are fixed once they exist on chain
@@ -133,12 +166,23 @@ export class IpoService {
     this.save(st);
     this.running = true;
     try {
+      if (st.pending) {
+        const r = await this.wallet.request(st.pending.requestId, st.pending.what).catch((e: Error) => {
+          if (e instanceof UpstreamError) { st.pending = null; this.save(st); } // final: refused or failed; the next press starts that step again
+          throw e;
+        });
+        if (r.status === 'pending') throw new Waiting();
+        st.pending = null;
+        if (r.txHash) st.txHashes.push(r.txHash);
+        this.save(st);
+      }
       await this.createDao(st, ceo, wallet);
       await this.registerDao(st, st.daoAccountId!);
       await this.createToken(st, st.daoAccountId!, symbol, wallet);
       st.done = true;
       this.save(st);
     } catch (e) {
+      if (e instanceof Waiting) { this.running = false; return this.view(true); }
       st.error = scrub((e as Error).message, 300) ?? 'The IPO failed.';
       this.save(st);
       throw e;
@@ -148,6 +192,7 @@ export class IpoService {
 
   private async call(st: Stored, receiver: string, method: string, args: Record<string, unknown>, tgas: bigint, deposit: bigint) {
     const r = await this.wallet.callContract(receiver, method, args, (tgas * TGAS).toString(), deposit.toString());
+    if (r.status === 'pending') { st.pending = { requestId: r.requestId, what: `${receiver} ${method}` }; this.save(st); throw new Waiting(); }
     if (r.txHash) { st.txHashes.push(r.txHash); this.save(st); }
     return r;
   }
@@ -210,9 +255,12 @@ export class IpoService {
   private async propose(kind: IpoProposal['kind'], title: string, description: string, receiver: string, actions: ReturnType<typeof action>[]): Promise<IpoState> {
     const st = this.read();
     const r = await this.wallet.callContract(st.daoAccountId!, 'add_proposal', { proposal: { description, kind: { FunctionCall: { receiver_id: receiver, actions } } } }, (50n * TGAS).toString(), '0');
-    const id = typeof r.result === 'number' ? r.result : typeof r.result === 'string' && /^\d+$/.test(r.result) ? Number(r.result) : null;
-    st.proposals.push({ id, kind, title, txHash: r.txHash, at: new Date().toISOString() });
-    if (r.txHash) st.txHashes.push(r.txHash);
+    const at = new Date().toISOString();
+    if (r.status === 'pending') st.proposals.push({ id: null, kind, title, txHash: null, at, requestId: r.requestId });
+    else {
+      st.proposals.push({ id: proposalId(r.result), kind, title, txHash: r.txHash, at });
+      if (r.txHash) st.txHashes.push(r.txHash);
+    }
     this.save(st);
     return this.view(true);
   }

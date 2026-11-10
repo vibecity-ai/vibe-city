@@ -26,6 +26,19 @@ export const EMPTY_WALLET: WalletState = { registered: false, accountId: null, h
 type Json = Record<string, unknown>;
 const str = (v: unknown) => (typeof v === 'string' && v ? v : null);
 
+export type CallOutcome = { status: 'success'; txHash: string | null; result: unknown } | { status: 'pending'; requestId: string };
+/** OutLayer's request statuses: success; pending_approval / approved / processing (not final); failed, rejected,
+    needs_review (final: needs_review means funds may have moved, so nothing here retries it on its own). */
+function outcome(r: Json, what: string): CallOutcome {
+  // a call answers { tx_hash, result }; a request row nests it: { result: { tx_hash, result } }
+  const status = str(r.status), row = r.result !== null && typeof r.result === 'object' ? (r.result as Json) : null;
+  const result = r.result as Json | undefined;
+  if (status === 'success') return { status, txHash: str(r.tx_hash) ?? str(row?.tx_hash), result: row && 'tx_hash' in row ? row.result : r.result };
+  if ((status === 'pending_approval' || status === 'approved' || status === 'processing') && str(r.request_id)) return { status: 'pending', requestId: str(r.request_id)! };
+  const why = str(r.error) ?? str(r.message) ?? str(result?.reason) ?? status ?? 'no status';
+  throw new UpstreamError(scrub(`The wallet's call to ${what} did not succeed: ${why}${status === 'needs_review' ? ' (check it in OutLayer before trying again)' : ''}`, 300)!);
+}
+
 export class WalletService {
   private db: DatabaseSync;
   private fetch_: typeof fetch;
@@ -171,12 +184,17 @@ export class WalletService {
   }
 
   /** One NEAR function call signed by the company wallet (POST /wallet/v1/call), inside the owner's OutLayer policy.
-      `gas` and `deposit` are strings (gas units, yoctoNEAR). Throws unless OutLayer reports success. */
-  async callContract(receiverId: string, method: string, args: Json, gas: string, deposit: string): Promise<{ txHash: string | null; result: unknown }> {
+      `gas` and `deposit` are strings (gas units, yoctoNEAR). A wallet whose policy needs approvers answers `pending`
+      with the request to follow (`request`); never send the call again while it is pending. Throws on a failure. */
+  async callContract(receiverId: string, method: string, args: Json, gas: string, deposit: string): Promise<CallOutcome> {
     if (!this.key()) throw new InvalidInputError('Connect the company wallet in the safe first.');
     const r = await this.call('/wallet/v1/call', { method: 'POST', body: { receiver_id: receiverId, method_name: method, args, gas, deposit } });
-    if ((r as Json).status !== 'success') throw new UpstreamError(scrub(`The wallet's call to ${receiverId} ${method} did not succeed: ${str(r.error) ?? str(r.message) ?? str(r.status) ?? 'no status'}`, 300)!);
-    return { txHash: str(r.tx_hash), result: r.result };
+    return outcome(r, `${receiverId} ${method}`);
+  }
+
+  /** Where a wallet request stands now (GET /wallet/v1/requests/{id}). */
+  async request(requestId: string, what: string): Promise<CallOutcome> {
+    return outcome(await this.call(`/wallet/v1/requests/${encodeURIComponent(requestId)}`), what);
   }
 
   /** What a company-wallet floor's agents get in their profile .env; null until there is a wallet. */

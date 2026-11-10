@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { openDb } from './db/db.ts';
 import { DAO_DEPOSIT, IpoService, PAYOUT, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, shares, units } from './domain/ipoService.ts';
 import type { AccountInfo, NearReader } from './near/rpc.ts';
-import { ConflictError } from './domain/errors.ts';
+import { ConflictError, UpstreamError } from './domain/errors.ts';
 
 const WALLET = 'a'.repeat(64), CEO = 'boss.near', DAO = 'acme-labs.sputnik-dao.near', TOKEN = 'acme.tkn.near', USDC = PAYOUT.USDC.contract;
 const decode = (b64: string) => JSON.parse(Buffer.from(b64, 'base64').toString());
@@ -18,6 +18,10 @@ function fakeChain() {
   const registered = new Set<string>();
   const calls: { receiver: string; method: string; args: Record<string, unknown>; deposit: string }[] = [];
   let failNext: string | null = null;
+  /** The wallet's OutLayer policy needs the owner's approval: calls queue until approve() runs them. */
+  let needsApproval = false;
+  const queued = new Map<string, () => { status: 'success'; txHash: string; result: unknown }>();
+  const requests = new Map<string, 'pending' | 'rejected' | { status: 'success'; txHash: string; result: unknown }>();
   const bal = (c: string, a: string) => ft.get(c)?.get(a) ?? 0n;
   const setBal = (c: string, a: string, n: bigint) => { if (!ft.has(c)) ft.set(c, new Map()); ft.get(c)!.set(a, n); };
   const rpc: NearReader = {
@@ -35,9 +39,7 @@ function fakeChain() {
     },
   };
   let n = 0;
-  const wallet = {
-    callContract: async (receiver: string, method: string, args: Record<string, unknown>, _gas: string, deposit: string) => {
-      if (failNext === method) { failNext = null; throw new Error('OutLayer: the call timed out'); }
+  const execute = (receiver: string, method: string, args: Record<string, unknown>, deposit: string) => {
       calls.push({ receiver, method, args, deposit });
       if (method === 'create') {
         const id = `${args.name}.sputnik-dao.near`;
@@ -52,10 +54,29 @@ function fakeChain() {
         tokens.set(id, { owner_id: a.owner_id });
         setBal(`${id}.tkn.near`, a.owner_id, BigInt(a.total_supply));
       }
-      return { txHash: `tx${++n}`, result: method === 'add_proposal' ? n : null };
+      return { status: 'success' as const, txHash: `tx${++n}`, result: method === 'add_proposal' ? n : null };
+  };
+  const sent: string[] = [];
+  const wallet = {
+    callContract: async (receiver: string, method: string, args: Record<string, unknown>, _gas: string, deposit: string) => {
+      if (failNext === method) { failNext = null; throw new Error('OutLayer: the call timed out'); }
+      sent.push(method);
+      if (!needsApproval) return execute(receiver, method, args, deposit);
+      const id = `req${sent.length}`;
+      queued.set(id, () => execute(receiver, method, args, deposit));
+      requests.set(id, 'pending');
+      return { status: 'pending' as const, requestId: id };
+    },
+    request: async (id: string) => {
+      const r = requests.get(id);
+      if (r === 'pending') return { status: 'pending' as const, requestId: id };
+      if (r === 'rejected' || !r) throw new UpstreamError('The wallet\'s call did not succeed: rejected');
+      return r;
     },
   };
-  return { rpc, wallet, calls, accounts, keys, tokens, setBal, bal, failOn: (m: string) => { failNext = m; } };
+  /** The owner approves (or rejects) every queued request in OutLayer. */
+  const decide = (ok: boolean) => { for (const [id, run] of queued) { requests.set(id, ok ? run() : 'rejected'); queued.delete(id); } };
+  return { rpc, wallet, calls, sent, accounts, keys, tokens, setBal, bal, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide };
 }
 
 function service(chain = fakeChain()) {
@@ -181,4 +202,38 @@ test('helpers: DAO name from the company, units, shares', () => {
   assert.equal(units(1.5, 6), 1_500_000n);
   assert.equal(units(0.1, 24), 10n ** 23n);
   assert.deepEqual(shares(100n, [{ accountId: 'a', balance: 1n }, { accountId: 'b', balance: 0n }], 3n), [{ accountId: 'a', amount: 33n }]);
+});
+
+test('a wallet that needs approvals: each step waits, Continue never sends a call twice, a rejection lets it start over', async () => {
+  const { ipo, chain } = service();
+  chain.approvals(true);
+  let s = await ipo.launch(LAUNCH, true);
+  assert.equal(s.state, 'awaiting_approval');
+  assert.equal(s.awaiting, 'sputnik-dao.near create');
+  s = await ipo.launch(LAUNCH, false); // Continue before approving: asks OutLayer, sends nothing
+  assert.equal(s.state, 'awaiting_approval');
+  assert.deepEqual(chain.sent, ['create']);
+
+  chain.decide(true); // the owner approves the create in OutLayer
+  s = await ipo.launch(LAUNCH, false);
+  assert.equal(s.awaiting, `${USDC} storage_deposit`, 'the DAO exists; the next step waits');
+  assert.equal(s.daoAccountId, DAO);
+  assert.deepEqual(s.txHashes, ['tx1']);
+
+  chain.decide(false); // the owner rejects the registration
+  await assert.rejects(ipo.launch(LAUNCH, false), /rejected/);
+  assert.equal((await ipo.view(false)).state, 'error');
+  chain.approvals(false);
+  s = await ipo.launch(LAUNCH, false); // Retry: sends the rejected step again, and the rest
+  assert.equal(s.state, 'done');
+  assert.deepEqual(chain.sent, ['create', 'storage_deposit', 'storage_deposit', 'storage_deposit', 'create_token']);
+  assert.equal(chain.calls.filter((c) => c.method === 'create').length, 1);
+
+  chain.approvals(true);
+  s = await ipo.allocate({ accountId: 'ann.near', amount: 5 });
+  assert.equal(s.proposals[0]!.awaitingWalletApproval, true);
+  chain.decide(true);
+  s = await ipo.view(true);
+  assert.equal(s.proposals[0]!.awaitingWalletApproval, false);
+  assert.ok(s.proposals[0]!.id !== null && s.proposals[0]!.txHash, 'filed once approved');
 });

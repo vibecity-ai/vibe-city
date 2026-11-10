@@ -1134,10 +1134,14 @@ export const PAYOUT_TOKENS = ['USDC', 'wNEAR'] as const;
 export const IpoProposalSchema = z.object({
   /** The DAO's proposal id (null if the wallet's answer did not carry it). */
   id: z.number().int().nullable(), kind: z.enum(['allocate', 'dividend']), title: z.string(), txHash: z.string().nullable(), at: z.string(),
+  /** Filing it waits for the wallet owner's approval in OutLayer (its policy needs approvers). */
+  awaitingWalletApproval: z.boolean(),
 }).strict();
 export type IpoProposal = z.infer<typeof IpoProposalSchema>;
 export const IpoStateSchema = z.object({
-  state: z.enum(['locked', 'ready', 'running', 'done', 'error']),
+  state: z.enum(['locked', 'ready', 'running', 'awaiting_approval', 'done', 'error']),
+  /** The wallet call waiting for the owner's approval in OutLayer (state awaiting_approval), e.g. "sputnik-dao.near create". */
+  awaiting: z.string().nullable(),
   /** The CEO's NEAR account: the DAO's approver and admin. */
   ceoAccountId: z.string().nullable(),
   daoAccountId: z.string().nullable(), tokenAccountId: z.string().nullable(), symbol: z.string().nullable(),
