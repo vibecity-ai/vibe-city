@@ -72,7 +72,7 @@ export interface IpoStep { id: 'dao' | 'register' | 'token'; label: string; deta
 
 /** The IPO's three on-chain steps and where each stands. `busy`: a launch request is in flight (the server is working
     even before its state says so). The server names the call waiting in OutLayer (`awaiting`); that tells the step. */
-export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountId' | 'tokenAccountId' | 'symbol'> & { offer?: IpoState['offer'] }, busy: boolean): IpoStep[] {
+export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountId' | 'tokenAccountId' | 'symbol'> & { offer?: IpoState['offer']; error?: string | null }, busy: boolean): IpoStep[] {
   const steps: Omit<IpoStep, 'status'>[] = [
     { id: 'dao', label: 'Create the Sputnik DAO', detail: ipo.daoAccountId ?? 'You approve its proposals; the company wallet can only propose.' },
     { id: 'register', label: 'Open the DAO to revenue', detail: 'Registers it on USDC and wNEAR so earnings can be sent to it.' },
@@ -81,7 +81,9 @@ export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountI
       : `${ipo.symbol ?? 'City tokens'}: 60% to the DAO, 40% offered for sale.`) },
   ];
   if (ipo.state === 'done') return steps.map((s) => ({ ...s, status: 'done' }));
-  const at = !ipo.daoAccountId ? 0 : ipo.awaiting?.endsWith(' create_token') ? 2 : ipo.awaiting?.endsWith(' storage_deposit') ? 1 : ipo.tokenAccountId ? 3 : 1;
+  // the call waiting in OutLayer, or the one an error names, tells the step
+  const call = ipo.awaiting ?? (ipo.state === 'error' ? ipo.error ?? '' : '');
+  const at = !ipo.daoAccountId ? 0 : call.includes(' create_token') ? 2 : call.includes(' storage_deposit') ? 1 : ipo.tokenAccountId ? 3 : 1;
   const started = busy || ipo.state === 'running' || ipo.state === 'awaiting_approval' || ipo.state === 'error';
   const now: IpoStepStatus = ipo.state === 'awaiting_approval' ? 'approval' : ipo.state === 'error' && !busy ? 'failed' : 'working';
   return steps.map((s, i) => ({ ...s, status: i < at ? 'done' : i === at && started ? now : 'todo' }));

@@ -33,6 +33,10 @@ export const TOKEN_HASH = '69kCfhQEzxBzbyrvUoyLCLzDUdvJRh9wSC5G83cvXCem';
 /** The token version a saved IPO must have; an older one (tkn.near, or ours before the offering) is created again. */
 const TOKEN_VERSION = 2;
 const YOCTO = 10n ** 24n, TGAS = 10n ** 12n;
+/** What a wallet call may burn in gas on top of its deposit (300 Tgas is 0.03 NEAR). */
+const GAS_MARGIN = 5n * 10n ** 22n;
+/** yoctoNEAR as NEAR, rounded up to 3 decimals (a shortfall is never understated). */
+const near = (y: bigint) => (Number((y + 10n ** 21n - 1n) / 10n ** 21n) / 1000).toString();
 /** Attached to `create` and forwarded to the DAO: with a zero proposal bond, the DAO pays for proposal storage and
     the holder registrations its proposals make. A 0.09 NEAR DAO has 0.0035 NEAR to spend. */
 export const DAO_DEPOSIT = YOCTO;
@@ -235,6 +239,13 @@ export class IpoService {
   }
 
   private async call(st: Stored, receiver: string, method: string, args: Record<string, unknown>, tgas: bigint, deposit: bigint) {
+    // OutLayer only fails a short wallet after the owner approved the call, with no reason given: say it before asking
+    if (deposit > 0n) {
+      const wallet = this.walletAccount()!;
+      const have = BigInt(await this.rpc.balance(wallet));
+      const need = deposit + GAS_MARGIN;
+      if (have < need) throw new InvalidInputError(`The company wallet holds ${near(have)} NEAR; ${receiver} ${method} needs ${near(need)} (with gas). Send ${near(need - have)} NEAR or more to ${wallet}, then press IPO again.`);
+    }
     const r = await this.wallet.callContract(receiver, method, args, (tgas * TGAS).toString(), deposit.toString());
     if (r.status === 'pending') { st.pending = { requestId: r.requestId, what: `${receiver} ${method}` }; this.save(st); throw new Waiting(); }
     if (r.txHash) { st.txHashes.push(r.txHash); this.save(st); }

@@ -104,7 +104,7 @@ function LaunchForm({ ipo, ceo, company, onLaunch }: { ipo: IpoState; ceo: strin
     <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (ok) onLaunch({ ceoAccountId: account.trim(), symbol }); }}>
       <label className="field"><span className="lbl">Your NEAR account (approves DAO proposals)</span><input className="input mono" value={account} disabled={daoFixed} onChange={(e) => setAccount(e.target.value)} placeholder="you.near" /></label>
       <label className="field"><span className="lbl">City token symbol</span><input className="input mono" value={symbol} disabled={tokenFixed} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
-      <p className="fine">{daoFixed ? 'The DAO exists; the rest needs about 1.9 NEAR from the company wallet.' : 'About 3 NEAR from the company wallet: 1 NEAR to the DAO, about 1.9 NEAR for the token.'}</p>
+      <p className="fine">{daoFixed ? 'The DAO exists; the token needs about 2.3 NEAR in the company wallet.' : 'About 3.3 NEAR in the company wallet: 1 NEAR to the DAO, about 2.3 NEAR for the token.'}</p>
       <button className="btn primary small" type="submit" disabled={!ok}>{ipo.state === 'error' ? 'Retry IPO' : daoFixed ? 'Continue IPO' : 'IPO'}</button>
     </form>
   );

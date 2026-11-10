@@ -35,7 +35,7 @@ function outcome(r: Json, what: string): CallOutcome {
   const result = r.result as Json | undefined;
   if (status === 'success') return { status, txHash: str(r.tx_hash) ?? str(row?.tx_hash), result: row && 'tx_hash' in row ? row.result : r.result };
   if ((status === 'pending_approval' || status === 'approved' || status === 'processing') && str(r.request_id)) return { status: 'pending', requestId: str(r.request_id)! };
-  const why = str(r.error) ?? str(r.message) ?? str(result?.reason) ?? status ?? 'no status';
+  const why = str(r.error) ?? str(r.message) ?? str(result?.reason) ?? str(result?.error) ?? str(result?.message) ?? status ?? 'no status';
   throw new UpstreamError(scrub(`The wallet's call to ${what} did not succeed: ${why}${status === 'needs_review' ? ' (check it in OutLayer before trying again)' : ''}`, 300)!);
 }
 

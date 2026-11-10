@@ -23,12 +23,13 @@ function fakeChain() {
   const calls: { receiver: string; method: string; args: Record<string, unknown>; deposit: string }[] = [];
   let failNext: string | null = null;
   let needsApproval = false;
+  let walletNear = 10n ** 26n; // 100 NEAR
   const queued = new Map<string, () => { status: 'success'; txHash: string; result: unknown }>();
   const requests = new Map<string, 'pending' | 'rejected' | { status: 'success'; txHash: string; result: unknown }>();
   const bal = (c: string, a: string) => ft.get(c)?.get(a) ?? 0n;
   const setBal = (c: string, a: string, n: bigint) => { if (!ft.has(c)) ft.set(c, new Map()); ft.get(c)!.set(a, n); };
   const rpc: NearReader = {
-    balance: async () => '0',
+    balance: async (id) => (id === WALLET ? String(walletNear) : '0'),
     account: async (id) => accounts.get(id) ?? null,
     keyCount: async (id) => keys.get(id) ?? 0,
     view: async <T>(contract: string, method: string, args: Record<string, unknown> = {}) => {
@@ -90,7 +91,7 @@ function fakeChain() {
   };
   /** The owner approves (or rejects) every queued request in OutLayer. */
   const decide = (ok: boolean) => { for (const [id, run] of queued) { requests.set(id, ok ? run() : 'rejected'); queued.delete(id); } };
-  return { rpc, wallet, calls, sent, accounts, keys, tokens, sales, setBal, bal, buy, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide };
+  return { rpc, wallet, calls, sent, accounts, keys, tokens, sales, setBal, bal, buy, fund: (y: bigint) => { walletNear = y; }, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide };
 }
 
 function service(chain = fakeChain()) {
@@ -189,6 +190,24 @@ test('a factory or token that is not the code we checked is not paid / not marke
   chain2.keys.set(TOKEN, 1);
   await assert.rejects(s2.ipo.launch(LAUNCH, true, EARNED), /not the token code/);
   assert.equal(s2.ipo.isDone(), false);
+});
+
+test('a wallet too short for a step is told how much to send, before anything is asked of OutLayer', async () => {
+  const { ipo, chain } = service();
+  chain.fund(5n * 10n ** 24n); // 5 NEAR: enough for the DAO and registrations, not for the token after them
+  chain.approvals(true);
+  let s = await ipo.launch(LAUNCH, true, EARNED);
+  chain.decide(true); s = await ipo.launch(LAUNCH, true, EARNED);
+  chain.decide(true); s = await ipo.launch(LAUNCH, true, EARNED);
+  chain.decide(true);
+  chain.fund(2209n * 10n ** 21n); // the 2026-11-10 mainnet run: 2.209 NEAR, the token costs 2.2284
+  await assert.rejects(ipo.launch(LAUNCH, true, EARNED), /holds 2\.209 NEAR; tokens\.vibecity\.near create_token needs 2\.279 \(with gas\)\. Send 0\.07 NEAR/);
+  assert.ok(!chain.sent.includes('create_token'), 'nothing was asked of OutLayer');
+  s = await ipo.view(false, EARNED);
+  assert.equal(s.state, 'error');
+  chain.fund(3n * 10n ** 24n);
+  s = await ipo.launch(LAUNCH, false, EARNED);
+  assert.equal(s.awaiting, `${TOKEN_FACTORY} create_token`);
 });
 
 test('no NEAR price: the IPO does not start (the offering cannot be priced)', async () => {

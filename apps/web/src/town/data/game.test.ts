@@ -68,6 +68,7 @@ test('IPO steps: preview, working, waiting for OutLayer approval on the right st
   assert.deepEqual(st({ state: 'awaiting_approval', awaiting: 'wrap.near storage_deposit', daoAccountId: 'a.sputnik-dao.near' }), ['done', 'approval', 'todo']);
   assert.deepEqual(st({ state: 'awaiting_approval', awaiting: 'tokens.vibecity.near create_token', daoAccountId: 'a.sputnik-dao.near' }), ['done', 'done', 'approval']);
   assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near' }), ['done', 'failed', 'todo']);
+  assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near', error: "The wallet's call to tokens.vibecity.near create_token did not succeed: failed" }), ['done', 'done', 'failed'], 'the step the error names');
   assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near' }, true), ['done', 'working', 'todo'], 'a retry in flight');
   assert.deepEqual(st({ state: 'done', daoAccountId: 'a', tokenAccountId: 't' }), ['done', 'done', 'done']);
 });
