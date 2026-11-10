@@ -1,12 +1,25 @@
-# 06 IPO: Sputnik DAO, the city token, revenue share
+# 06 IPO: Sputnik DAO, the city token, a public offering, revenue share
 
-**Goal.** The endgame button. When the game loop says `ipoUnlocked`, the CEO presses IPO: the company wallet creates
-a Sputnik DAO (the wallet may propose, the CEO approves) and a NEP-141 city token whose whole supply sits in the
-DAO. Then the DAO shares revenue with token holders, one CEO-approved payout proposal at a time. The DAO shows up
-in Trezu automatically.
+**Goal.** The endgame. When the game loop says `ipoUnlocked`, the CEO presses IPO: the company wallet creates a
+Sputnik DAO (the wallet may propose, the CEO approves) and the company's city token from our factory. The token mints
+60% to the DAO and 40% to a public offering it runs itself: anyone buys at a fixed price set from the game's numbers,
+the NEAR goes straight to the DAO (the capital the IPO raises), and the buyers are the shareholders. The DAO then
+shares revenue with them, one CEO-approved payout proposal at a time.
 
-Revised 2026-11-10 after reading mainnet: the old plan (5 to 10 NEAR for the DAO, deploy our own `city-token.wasm`)
-was wrong on cost and not possible with the signer we chose.
+Revised 2026-11-10 (evening): the first version only gave tokens to accounts the CEO chose, raised nothing and had no
+price, which is not an IPO, and the DAO moving its own unpriced token was something Trezu would not approve.
+
+## How it maps to an IPO
+
+| A real IPO | Here |
+|---|---|
+| Company and board | Sputnik DAO; the CEO is Approver and Admin, the agent wallet only proposes |
+| Authorise shares, founders keep theirs | 1,000,000 tokens; 600,000 to the DAO |
+| Price the offering | valuation = max($1,000, earned revenue x 20), / supply, in NEAR at the live price; fixed at IPO |
+| Sell to the public, proceeds to the company | `buy()` on the token: 400,000 float, NEAR to the DAO, change back |
+| Shareholders | the offering's buyers (`get_buyers`), dividends pro rata over what they hold |
+| Close the books | `end_sale` by DAO proposal: the unsold float returns to the DAO |
+| Not done | prospectus, lock-ups, exchange listing and secondary trading, holder voting |
 
 ## Facts (verified on mainnet 2026-11-10, read-only)
 
@@ -78,8 +91,10 @@ trailer does not depend on an LLM getting base64 args right.
      `owner_id = <dao>`. If the account already exists, accept it only if `get_token.owner_id == dao`; else 409.
      Then check code hash `4AVV1KUV…` and zero keys; otherwise the IPO is not marked done.
   4. Accounts and tx hashes are stored in `ipo.state_json`.
-- `POST /api/ipo/allocate { accountId, amount }`: one DAO proposal on the token (`storage_deposit` + `ft_transfer`).
-  The receiver is recorded as a holder. The demo seeds 2 to 3 team-owned accounts this way.
+- The offer (`IpoOffer`) is previewed on `GET /api/ipo` from the game's earnings and NEAR's price (1Click), and
+  fixed when the IPO starts; no NEAR price, no IPO. `create_token` gets `sale_amount` (40%) and `price` (yoctoNEAR per
+  whole token). `GET /api/ipo` reads the sale (`sale_info`) and the buyers with balances from the token.
+- `POST /api/ipo/end-sale`: one DAO proposal calling `end_sale` on the token.
 - `POST /api/ipo/dividend { token: USDC | wNEAR, amount }`: checks the DAO holds the amount, reads `ft_balance_of`
   of each recorded holder, splits pro rata over the circulating supply (total minus the DAO's own tokens; shares of
   unknown holders stay in the DAO), and files one proposal with a registration and an `ft_transfer` per holder.
@@ -125,3 +140,8 @@ payouts to more than 8 holders.
 Runway positive, the CEO presses IPO, the city token appears, Trezu shows the DAO. Then the CEO distributes revenue,
 approves it in Trezu, and the holders' balances tick up. If this brief slips: the button creates the DAO and the
 token, and the first dividend proposal is made by hand in Trezu.
+
+## Public invest page
+
+`/invest`: anyone connects a NEAR wallet (`@hot-labs/near-connect`: HOT, Meteor, MyNearWallet…), sees the price and
+what is left, and signs `buy` with NEAR. A first purchase keeps about 0.0033 NEAR for the buyer's storage.
