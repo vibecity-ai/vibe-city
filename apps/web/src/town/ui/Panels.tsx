@@ -19,6 +19,7 @@ import {
 import { STATUS, canCancel, formatBytes, formatTime, planningNote, requestIdFor, treeRows } from './format.ts';
 import { AttachTray, ReferenceFiles } from './QuestFiles';
 import { DeptEnvTab } from './DeptEnv';
+import { isMuted, onMuted, play, setMuted } from '../sfx';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { DeskSheet } from './Desk';
 import { Mark } from './Device';
@@ -98,6 +99,7 @@ export function TopBar() {
       <button className="topkey" aria-pressed={onBoard} aria-label={`Ops board: your agents' jobs${attn > 0 ? `, ${attn} need attention` : ''}`} onClick={() => openPanel('board', { composer: false, boardDept: null })}>
         <span aria-hidden="true">Ops board</span>{attn > 0 && <b className="bad" title="Jobs that need attention" aria-hidden="true">{attn}</b>}
       </button>
+      <SoundKey />
       {stale && <span className="stale" title="The last refresh failed; floors show the last data received">Out of date</span>}
       <span className={`health ${health}`} title={said}><i aria-hidden="true" /><span>{down.length ? `${down.join(' · ')} off` : 'Live'}</span></span>
       <span className="sr" aria-live="polite">{said}</span>
@@ -406,6 +408,18 @@ function DeptLoadout({ d, part }: { d: Dept; part: 'tools' | 'skills' }) {
 
 
     </div>
+  );
+}
+
+/** Sound on or off for the big moments (remembered in this browser). */
+function SoundKey() {
+  const [muted, setM] = useState(isMuted);
+  useEffect(() => onMuted(setM), []);
+  return (
+    <button className="topkey snd" aria-pressed={!muted} aria-label={muted ? 'Sound off: turn on' : 'Sound on: turn off'} title={muted ? 'Sound off' : 'Sound on'}
+      onClick={() => { setMuted(!muted); if (muted) play('tick'); }}>
+      <Icon n={muted ? 'mute' : 'sound'} size={16} />
+    </button>
   );
 }
 

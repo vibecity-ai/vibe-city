@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Character } from '@vibe-city/shared';
-import { agentLabel, envNameProblem, nameProfiles, pickFiles } from './views.ts';
+import { agentLabel, bubbleText, envNameProblem, nameProfiles, pickFiles } from './views.ts';
 
 test('agents are shown by persona name, else by role, never by seat key', () => {
   assert.equal(agentLabel('W-02', { name: 'Ada' } as Character), 'Ada');
@@ -33,4 +33,19 @@ test('floor env names are UPPER_SNAKE and never one Vibe City or Hermes sets', (
   assert.equal(envNameProblem('SERPAPI_API_KEY'), null);
   for (const n of ['lower', 'A', '9LIVES', 'WITH-DASH']) assert.match(envNameProblem(n)!, /capitals/, n);
   for (const n of ['NEAR_AI_API_KEY', 'MARKET_AGENT_TOKEN', 'HERMES_HOME', 'PATH']) assert.match(envNameProblem(n)!, /itself/, n);
+});
+
+test('speech bubbles: the agent\'s own fresh note first, a short recap after, nothing when idle', () => {
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  const ago = (m: number) => new Date(now - m * 60_000).toISOString();
+  const s = (o: object) => ({ title: 'Scrape vendor pricing pages', state: 'running' as const, note: null, summary: null, doneAt: null, ...o });
+  assert.equal(bubbleText(null, now), null);
+  assert.equal(bubbleText(s({}), now), 'On “Scrape vendor pricing pages”');
+  assert.equal(bubbleText(s({ note: { text: 'Reading the pricing pages', at: ago(2) } }), now), 'Reading the pricing pages');
+  assert.equal(bubbleText(s({ note: { text: 'old', at: ago(45) } }), now), 'On “Scrape vendor pricing pages”', 'a stale note gives way');
+  assert.equal(bubbleText(s({ state: 'done', summary: 'Compared 12 vendors. Full table attached.', doneAt: ago(1) }), now), 'Done! Compared 12 vendors.');
+  assert.equal(bubbleText(s({ state: 'done', summary: 'Done.', doneAt: ago(1) }), now), 'Done with “Scrape vendor pricing pages”');
+  assert.equal(bubbleText(s({ state: 'done', summary: 'x', doneAt: ago(30) }), now), null, 'the recap fades');
+  assert.match(bubbleText(s({ state: 'input' }), now)!, /^Waiting on you/);
+  assert.equal(bubbleText(s({ state: 'waiting' }), now), null);
 });

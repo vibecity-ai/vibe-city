@@ -6,26 +6,8 @@ import type { FloorObjectId } from '../data/floor';
 import type { Pt } from './pix';
 import { box, C, hash, type IC } from './interior';
 import { shade } from './sprites';
-import { LIBRARY_BOX } from './execRoom';
 
-export type Box6 = [number, number, number, number, number, number];
-export interface FloorObject { id: FloorObjectId; label: string; b: Box6 }
-
-const COMMON: FloorObject[] = [
-  { id: 'board', label: 'Ops board', b: [95, 138, 4, 82, 2, 38] },
-  { id: 'lead', label: 'Lead’s office', b: [12, 114, 0, 40, 20, 26] },
-  { id: 'archive', label: 'File archive', b: [28, 8, 0, 12, 29, 24] },
-  { id: 'rack', label: 'Tools', b: [0, 56, 0, 14, 18, 44] },
-  { id: 'library', label: 'Skill library', b: LIBRARY_BOX },
-  { id: 'keys', label: 'Env variables', b: [0, 3, 5, 4, 14, 20] },
-  { id: 'clock', label: 'Schedules', b: [-1, 78, 24, 2, 14, 14] },
-];
-/** The station stands where the lounge would be. */
-export const STATION_BOX: Box6 = [200, 8, 0, 38, 34, 30];
-
-export function floorObjects(stationName: string | null): FloorObject[] {
-  return stationName ? [...COMMON, { id: 'station', label: stationName, b: STATION_BOX }] : COMMON;
-}
+export { STATION_BOX, floorObjects, type Box6, type FloorObject } from './controls';
 
 /* ---------------- file archive (front left): every file on the floor's jobs ---------------- */
 
@@ -33,44 +15,83 @@ export function archiveStatic(c: IC) {
   const { P, px } = c;
   const FOLDERS = ['#FFC75A', '#2EB8F0', '#FF7A6B', '#7CF5B4', '#9B5CFF'];
   for (let i = 0; i < 3; i++) {
-    const v = 8 + i * 10;
-    box(c, 28, v, 0, 12, 9, 22, '#3A3458', { top: '#5A5288' });
-    // three drawers on the front face, each with a label slot and a handle
+    const v = 58 + i * 9.4;
+    box(c, 0, v, 0, 12, 9, 24, '#3A3458', { top: '#5A5288' });
+    // three drawers on the front face (u = 12), each with a label card and a handle
     for (let k = 0; k < 3; k++) {
-      const h = 2 + k * 6.6;
-      const D = (dv: number, dh: number): Pt => P(40, v + dv, h + dh);
-      px.poly([D(0.8, 0), D(8.2, 0), D(8.2, 5.6), D(0.8, 5.6)], '#2A2440');
-      px.poly([D(1.4, 0.6), D(7.6, 0.6), D(7.6, 5), D(1.4, 5)], '#4A4370');
-      px.poly([D(3, 3.4), D(6, 3.4), D(6, 4.4), D(3, 4.4)], '#E8E3FA');
-      px.line(D(3.5, 1.8), D(5.5, 1.8), C.gold);
+      const h = 2 + k * 7.2;
+      const D = (dv: number, dh: number): Pt => P(12, v + dv, h + dh);
+      px.poly([D(0.8, 0), D(8.2, 0), D(8.2, 6.2), D(0.8, 6.2)], '#2A2440');
+      px.poly([D(1.4, 0.6), D(7.6, 0.6), D(7.6, 5.6), D(1.4, 5.6)], '#4A4370');
+      px.poly([D(3, 3.8), D(6, 3.8), D(6, 4.8), D(3, 4.8)], '#E8E3FA');
+      px.line(D(3.5, 2), D(5.5, 2), C.gold);
     }
   }
   // folders sticking out of an open box on top
-  box(c, 30, 12, 22, 8, 7, 3, '#6B4630', { top: '#8A5A40' });
-  for (let k = 0; k < 5; k++) px.poly([P(31 + k * 1.4, 13, 25), P(32 + k * 1.4, 13, 25), P(32 + k * 1.4, 13, 28 + (k % 2)), P(31 + k * 1.4, 13, 28 + (k % 2))], FOLDERS[k]!);
+  box(c, 2, 64, 24, 8, 9, 3, '#6B4630', { top: '#8A5A40' });
+  for (let k = 0; k < 5; k++) px.poly([P(10, 65 + k * 1.5, 27), P(10, 66 + k * 1.5, 27), P(10, 66 + k * 1.5, 30 + (k % 2)), P(10, 65 + k * 1.5, 30 + (k % 2))], FOLDERS[k]!);
 }
 
-/* ---------------- key cabinet (left wall, by the front corner): the floor's env variables ---------------- */
+/* ---------------- the equipment bay (right wall, after the Ops board): what every agent carries ---------------- */
 
-export function keyCabinet(c: IC, lit: boolean) {
+const CARTS = ['#FF3EA5', '#2EE6F0', '#FFC75A', '#7CF5B4', '#9B5CFF', '#FF9A55'];
+
+/** Tools: a server rack, its front (v = 126) full of units. */
+export function toolsRackStatic(c: IC) {
+  const { P, px } = c;
+  box(c, 183, 126, 0, 14, 14, 40, '#2A2348', { top: '#3E3570' });
+  px.poly([P(184, 126, 2), P(196, 126, 2), P(196, 126, 38), P(184, 126, 38)], '#1A1530');
+  for (let r = 0; r < 6; r++) {
+    const h = 4 + r * 6;
+    px.poly([P(185, 126, h), P(195, 126, h), P(195, 126, h + 4.5), P(185, 126, h + 4.5)], '#2E2752');
+    for (let k = 0; k < 3; k++) px.line(P(186, 126, h + 1 + k * 1.3), P(190, 126, h + 1 + k * 1.3), '#221C3E');
+  }
+}
+export function toolsRackLive(c: IC, lit: boolean) {
+  const { P, px, L, t } = c;
+  for (let r = 0; r < 6; r++) for (let k = 0; k < 3; k++) {
+    const on = lit && hash(r * 7 + k, Math.floor(t * (2 + k))) > 0.35;
+    const p = P(191.5 + k * 1.3, 126, 6.5 + r * 6);
+    px.dot(Math.floor(p[0]), Math.floor(p[1]), on ? (k === 2 ? C.amber : C.mint) : '#1E3A2E', on ? 1 : 0);
+  }
+  if (lit) L.add(...P(190, 120, 20), 30, C.mint, 0.3, 0.9);
+}
+
+/** Skills: a shelf of skill cartridges, like the Executive Office's library. */
+export function skillShelf(c: IC) {
+  const { P, px } = c;
+  box(c, 200, 128, 0, 22, 12, 38, '#241A44', { top: '#3A2D66' });
+  for (let r = 0; r < 4; r++) {
+    const h = 3 + r * 8.5;
+    px.poly([P(201, 128, h - 1), P(221, 128, h - 1), P(221, 128, h), P(201, 128, h)], '#120A24');
+    for (let i = 0; i < 4; i++) {
+      const u = 202.5 + i * 4.6, col = CARTS[(r * 3 + i * 5) % CARTS.length]!;
+      px.poly([P(u, 128, h), P(u + 3, 128, h), P(u + 3, 128, h + 5.5), P(u, 128, h + 5.5)], col, 1);
+      px.poly([P(u, 128, h + 4.5), P(u + 3, 128, h + 4.5), P(u + 3, 128, h + 5.5), P(u, 128, h + 5.5)], '#FFFFFF', 1);
+    }
+  }
+}
+
+/** Env variables: a key safe on the wall, a big key on its door and lamps that glow while lit. */
+export function keySafe(c: IC, lit: boolean) {
   const { P, px, L } = c;
-  box(c, 0, 3, 5, 4, 14, 20, '#2A2348', { top: '#3E3570' });
-  // the door: a frame, a big key on it, and a row of indicator lamps
-  const F = (v: number, h: number): Pt => P(4, v, h);
-  px.poly([F(4, 6), F(16, 6), F(16, 24), F(4, 24)], '#1E1838');
-  px.poly([F(5, 7), F(15, 7), F(15, 23), F(5, 23)], '#4A3D80');
-  px.ring(...F(7.5, 17).map(Math.floor) as Pt, 2, 2, C.gold, 1);
-  px.line(F(9, 16), F(13.5, 11), C.gold); px.line(F(12, 12.5), F(13.5, 14), C.gold); px.line(F(13, 11.5), F(14.5, 13), C.gold);
-  for (let k = 0; k < 4; k++) { const on = lit && k % 2 === 0; const p = F(6.5 + k * 2.5, 9); px.dot(Math.floor(p[0]), Math.floor(p[1]), on ? C.amber : '#3A2F20', on ? 1 : 0); }
-  if (lit) L.add(...P(6, 10, 14), 20, C.amber, 0.3, 0.8);
+  box(c, 225, 136, 6, 12, 4, 26, '#2A2348', { top: '#3E3570' });
+  const F = (u: number, h: number): Pt => P(u, 136, h);
+  px.poly([F(226, 7), F(236, 7), F(236, 31), F(226, 31)], '#1E1838');
+  px.poly([F(227, 8), F(235, 8), F(235, 30), F(227, 30)], '#4A3D80');
+  // the key: ring at the top, shaft down, two teeth
+  px.ring(...F(231, 25).map(Math.floor) as Pt, 2, 2, C.gold, 1);
+  px.line(F(231, 23), F(231, 13), C.gold, 1, 1); px.line(F(231, 15), F(233, 15), C.gold, 1, 1); px.line(F(231, 13), F(233, 13), C.gold, 1, 1);
+  for (let k = 0; k < 3; k++) { const on = lit && k !== 1; const p = F(228.5 + k * 2.5, 10); px.dot(Math.floor(p[0]), Math.floor(p[1]), on ? C.amber : '#3A2F20', on ? 1 : 0); }
+  if (lit) L.add(...P(231, 132, 18), 18, C.amber, 0.3, 0.8);
 }
 
-/* ---------------- wall clock (left wall, above the rack's right) ---------------- */
+/* ---------------- wall clock (left wall, above the file archive) ---------------- */
 
 export function clockLive(c: IC, lit: boolean, now: Date) {
   const { P, px, L } = c;
   const W = (v: number, h: number): Pt => P(0, v, h);
-  const cv = 85, ch = 31, r = 5.5;
+  const cv = 80, ch = 41, r = 5.5;
   px.poly([W(cv - r - 1, ch - r - 1), W(cv + r + 1, ch - r - 1), W(cv + r + 1, ch + r + 1), W(cv - r - 1, ch + r + 1)], '#2A2348');
   px.poly([W(cv - r, ch - r), W(cv + r, ch - r), W(cv + r, ch + r), W(cv - r, ch + r)], lit ? '#E8E3FA' : '#8C84B8');
   for (let k = 0; k < 12; k += 3) { const a = (k / 12) * Math.PI * 2; px.dot(...(W(cv + Math.sin(a) * (r - 1), ch + Math.cos(a) * (r - 1)).map(Math.floor) as Pt), '#2A2348'); }

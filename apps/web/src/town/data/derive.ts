@@ -1,6 +1,6 @@
 /* Pure derivation of the city's view model from backend DTOs. No I/O, no clock: tested in derive.test.ts. */
 import type { DepartmentView, ProvisioningStatus, QuestDetail, QuestSummary, TaskNode } from '@vibe-city/shared';
-import type { AgentStatus, Chief, Dept, DeptState, Worker } from './types.ts';
+import type { AgentStatus, Chief, Dept, DeptState, Said, Worker } from './types.ts';
 
 /** Desks in the office renderer (world/interior.ts DESKS). Teammates beyond this are counted but not drawn. */
 export const MAX_DESKS = 6;
@@ -34,6 +34,13 @@ const hhmm = (iso: string | null) => {
   return Number.isNaN(d.getTime()) ? '—' : `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 };
 export const clock = hhmm;
+
+/** The raw material of an agent's speech bubble: the task it is shown with, and its own latest note on it. */
+function saidOf(t: TaskNode | undefined): Said | null {
+  if (!t) return null;
+  const state: Said['state'] = t.failed ? 'stuck' : t.status === 'running' ? 'running' : t.status === 'blocked' ? 'input' : t.status === 'done' ? 'done' : 'waiting';
+  return { title: t.title, state, note: t.note ?? null, summary: t.summary, doneAt: t.completedAt };
+}
 
 export interface DeriveInput {
   dept: DepartmentView;
@@ -70,6 +77,7 @@ export function deriveDept(i: DeriveInput): Dept {
       since: t ? hhmm(t.status === 'done' ? t.completedAt : t.startedAt ?? t.createdAt) : hhmm(a.createdAt),
       shirt: SHIRTS[idx % SHIRTS.length]!,
       ...(a.title ? { title: a.title } : {}),
+      said: disconnected ? null : saidOf(t),
     };
   });
 
@@ -79,7 +87,7 @@ export function deriveDept(i: DeriveInput): Dept {
   const lead = v.agents.find((a) => a.lead);
   let chief: Chief | null = null;
   if (staffed) {
-    const base = { name: `${v.name} Lead`, profile: lead?.profileRef ?? '', model: i.chiefModel, ...(lead?.title ? { title: lead.title } : {}) };
+    const base = { name: `${v.name} Lead`, profile: lead?.profileRef ?? '', model: i.chiefModel, ...(lead?.title ? { title: lead.title } : {}), said: disconnected ? null : saidOf(current(chiefTasks)?.t) };
     if (disconnected) chief = { ...base, status: 'disconnected', activity: 'Hermes is not reachable', since: hhmm(v.updatedAt) };
     else if (runningChief) {
       const q = runningChief.q;

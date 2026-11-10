@@ -6,6 +6,7 @@ import type {
 } from '@vibe-city/shared';
 import { ENV_NAME_RE, QUEST_FILE_MAX_BYTES, QUEST_FILES_MAX, isReservedEnvName } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
+import type { Said } from './types.ts';
 import type { StatusKey } from '../ui/kit.tsx';
 
 /* ---------- names ---------- */
@@ -204,4 +205,29 @@ export function envNameProblem(name: string): string | null {
   if (!ENV_NAME_RE.test(name)) return 'Use capitals, digits and _ (starting with a capital), 2 to 64 characters.';
   if (isReservedEnvName(name)) return 'Vibe City or Hermes sets this one itself.';
   return null;
+}
+
+const clip = (x: string, n: number) => (x.length > n ? `${x.slice(0, n - 1).trimEnd()}…` : x);
+const firstSentence = (x: string) => clip((x.split(/(?<=[.!?])\s|\n/)[0] ?? x).trim(), 70);
+
+/**
+ * What an agent says over its head, in a few words, or null for nothing to say. Its own progress note while it is
+ * fresh (agents are told to post one every few steps), else what it is on; a short recap for a few minutes after it
+ * finishes; a nudge when it waits on the CEO or is stuck.
+ */
+export function bubbleText(s: Said | null | undefined, now: number): string | null {
+  if (!s) return null;
+  const within = (iso: string | null, minutes: number) => !!iso && now - Date.parse(iso) < minutes * 60_000;
+  switch (s.state) {
+    case 'running': return s.note && within(s.note.at, 20) ? s.note.text : `On “${clip(s.title, 44)}”`;
+    case 'input': return `Waiting on you: “${clip(s.title, 36)}”`;
+    case 'stuck': return `Stuck on “${clip(s.title, 40)}”`;
+    case 'done': {
+      if (!within(s.doneAt, 5)) return null;
+      // a summary worth reading, not just "Done."
+      const line = s.summary ? firstSentence(s.summary) : '';
+      return line && !/^(done|completed?|finished)$/i.test(line.replace(/[.!]+$/, '')) ? `Done! ${line}` : `Done with “${clip(s.title, 40)}”`;
+    }
+    default: return null;
+  }
 }

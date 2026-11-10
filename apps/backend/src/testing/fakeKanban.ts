@@ -32,6 +32,8 @@ export class FakeKanban implements KanbanApi {
   created: CreateTaskInput[] = [];
   private faults: { method: string; err: Error; times: number }[] = [];
   private clock = 1_700_000_000;
+  /** The demo runs on the wall clock (so "5 minutes ago" means something); tests keep the deterministic counter. */
+  realClock = false;
 
   addBoard(slug: string) {
     this.boards.set(slug, { tasks: new Map(), runs: [], events: [], comments: [], attachments: [], idem: new Map() });
@@ -39,7 +41,7 @@ export class FakeKanban implements KanbanApi {
   failNext(method: string, err: Error, times = 1) {
     this.faults.push({ method, err, times });
   }
-  private now() { return (this.clock += 1); }
+  private now() { return this.realClock ? Math.floor(Date.now() / 1000) : (this.clock += 1); }
 
   private enter(method: string, args: unknown[] = []) {
     this.calls.push(`${method}(${args.join(',')})`);
@@ -123,6 +125,8 @@ export class FakeKanban implements KanbanApi {
   }
   statusOf(board: string, id: string): Status { return this.task(this.board(board), id).status; }
   commentsOf(board: string) { return this.board(board).comments; }
+  /** Test helper: a worker's kanban_heartbeat, with or without a progress note. */
+  heartbeat(board: string, id: string, note?: string) { this.event(this.board(board), id, 'heartbeat', note === undefined ? {} : { note }); }
 
   // ---- KanbanApi ----
 

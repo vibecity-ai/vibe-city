@@ -14,7 +14,13 @@ export type Fx =
   | { k: 'taskDone'; dept: string; worker: string }
   | { k: 'taskFail'; dept: string; worker: string }
   | { k: 'plan'; dept: string }
-  | { k: 'questDone'; dept: string }
+  | { k: 'questDone'; dept: string; title: string }
+  /** A new job landed on a floor (printed by the CEO, asked by the Chief of Staff or a schedule). */
+  | { k: 'questStarted'; dept: string; title: string }
+  /** A job now waits on the CEO. */
+  | { k: 'needsYou'; dept: string; title: string }
+  /** The Chief of Staff's hiring moved on: scouting started, a shortlist is in, someone was hired. */
+  | { k: 'hiring'; phase: 'scouting' | 'shortlist' | 'hired'; floor: string | null }
   | { k: 'floorAdded'; dept: string }
   | { k: 'chiefArrived'; dept: string }
   | { k: 'workerJoined'; dept: string; worker: string }

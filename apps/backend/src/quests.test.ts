@@ -281,3 +281,23 @@ test('a blocked task shows the agent\'s question; the boss\'s answer becomes a c
   assert.equal((await answer(root.id, 'again')).statusCode, 409, 'no longer waiting for input');
   assert.equal((await answer('t_notmine1', 'x')).statusCode, 404);
 });
+
+test('a task carries its assignee\'s latest progress note or comment, as one line', async () => {
+  const t = questApp();
+  const d = await t.readyDept('Eng');
+  const { questId } = (await t.create(d.id)).json();
+  const kid = t.kanban.seedTask(d.board, { title: 'Scrape prices', assignee: d.teammate, parents: [questId] });
+  t.kanban.startRun(d.board, kid.id, d.teammate);
+  const node = async () => (await t.get(`/api/departments/${d.id}/quests/${questId}`)).json().tasks.find((n: { id: string }) => n.id === kid.id);
+  assert.equal((await node()).note, null, 'nothing said yet');
+  t.kanban.heartbeat(d.board, kid.id);
+  assert.equal((await node()).note, null, 'a bare heartbeat says nothing');
+  t.kanban.heartbeat(d.board, kid.id, 'Reading the\n  pricing pages');
+  assert.equal((await node()).note.text, 'Reading the pricing pages');
+  await t.kanban.addComment(d.board, kid.id, 'someone-else', 'not the assignee');
+  assert.equal((await node()).note.text, 'Reading the pricing pages', 'only the assignee speaks for itself');
+  await t.kanban.addComment(d.board, kid.id, d.teammate, 'x'.repeat(300));
+  const long = (await node()).note.text as string;
+  assert.equal(long.length, 140);
+  assert.ok(long.endsWith('…'));
+});

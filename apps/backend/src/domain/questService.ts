@@ -75,6 +75,17 @@ function listedFiles(body: string | null): string[] {
   return out;
 }
 
+/** The assignee's newest progress note or comment on a task, as one short line (what the office shows over its head). */
+function latestNote(d: TaskDetail): { text: string; at: string } | null {
+  const said = [
+    ...d.events.filter((e) => e.kind === 'heartbeat' && typeof e.payload?.note === 'string').map((e) => ({ body: e.payload!.note as string, at: e.created_at })),
+    ...d.comments.filter((c) => !!d.task.assignee && c.author === d.task.assignee).map((c) => ({ body: c.body, at: c.created_at })),
+  ].filter((x) => x.body.trim()).sort((a, b) => b.at - a.at)[0];
+  if (!said) return null;
+  const line = scrub(said.body.replace(/\s+/g, ' ').trim(), 400) ?? '';
+  return { text: line.length > 140 ? `${line.slice(0, 139).trimEnd()}…` : line, at: iso(said.at)! };
+}
+
 function extractObjective(body: string | null): string {
   if (!body) return '';
   const m = /## Objective\n([\s\S]*?)(?:\n## |\s*$)/.exec(body);
@@ -172,6 +183,7 @@ export class QuestService {
         blockReason: t.status === 'blocked' ? scrub(str([...d.events].reverse().find((e) => e.kind === 'blocked')?.payload?.reason), 2000) : null,
         attachmentCount: d.attachments.length,
         runs: d.runs.map((r) => ({ id: r.id, profile: r.profile, state: runState(r), startedAt: iso(r.started_at), endedAt: iso(r.ended_at) })),
+        note: latestNote(d),
       };
     });
   }

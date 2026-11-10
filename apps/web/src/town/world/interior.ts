@@ -23,7 +23,7 @@ export const ELEVATOR: Pt = [24, 34];
 export const BOARD_SPOT: Pt = [128, 122];
 export const COFFEE: Pt = [210, 117];
 export const LOUNGE: Pt = [214, 46];
-export const COOLER: Pt = [172, 118];
+export const COOLER: Pt = [12, 2];
 export const OFFICE_DOOR: Pt = [60, 96];
 export const AISLE = 74;
 export const GAPS = [84, 128, 172, 216];
@@ -116,7 +116,6 @@ export function shell(c: IC, d: Dept) {
   // synthwave poster on the right wall
   poster(c, WR, 72, 90, 18, 44);
   // small framed photo on the left wall
-  frame(c, WL, 76, 88, 26, 38, '#2EB8C8');
   // elevator surround (doors are drawn live so they can open)
   px.poly([WL(16, 0), WL(54, 0), WL(54, 46), WL(16, 46)], '#262046');
   px.poly([WL(18, 0), WL(52, 0), WL(52, 42), WL(18, 42)], '#14102A');
@@ -382,23 +381,6 @@ export function plant(c: IC, u: number, v: number, big: boolean, seed: number) {
     px.ellipse(p[0] - 0.6, p[1] - 0.8, r * 0.72, r * 0.42, '#3FA066');
     px.ellipse(p[0] - 1.2, p[1] - 1.3, r * 0.34, r * 0.22, '#7FDA92');
   }
-}
-export function rackStatic(c: IC) {
-  const { P, px } = c;
-  box(c, 0, 56, 0, 14, 18, 44, '#2A2348', { top: '#3E3570' });
-  for (let h = 4; h < 42; h += 6) { px.line(P(14, 57, h), P(14, 73, h), '#1A1530'); }
-  for (let r = 0; r < 6; r++) px.line(P(14, 66, 6 + r * 6), P(14, 72, 6 + r * 6), '#4A4278');
-  px.poly([P(0, 56, 2), P(14, 56, 2), P(14, 56, 40), P(0, 56, 40)], '#221C3E');
-  for (let h = 6; h < 40; h += 3) px.line(P(2, 56, h), P(12, 56, h), '#2E2752');
-}
-export function rackLive(c: IC, lit: boolean) {
-  const { P, px, L, t } = c;
-  for (let r = 0; r < 6; r++) for (let k = 0; k < 4; k++) {
-    const on = lit && hash(r * 7 + k, Math.floor(t * (2 + k))) > 0.35;
-    const p = P(14, 59 + k * 3.4, 7 + r * 6);
-    px.dot(Math.floor(p[0]), Math.floor(p[1]), on ? (k === 3 ? C.amber : C.mint) : '#1E3A2E', on ? 1 : 0);
-  }
-  if (lit) L.add(...P(18, 65, 20), 34, C.mint, 0.32, 0.9);
 }
 export function coolerItem(c: IC) {
   box(c, COOLER[0] - 2, COOLER[1] + 8, 0, 8, 8, 14, '#C9C3EA', { top: '#E4DFF8' });

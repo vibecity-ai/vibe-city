@@ -3,6 +3,9 @@ import type { Inventory } from '@vibe-city/shared';
 /** The one sanctioned way to involve another department (the Vibe City MCP server, feature spec 2.4). */
 const CROSS_DEPT = 'If part of the work belongs to another department, ask it with the Vibe City tool request_quest (see list_departments first), then check_request for the result. Never create tasks on another department\'s board yourself.';
 
+/** The CEO watches the office: each agent's latest note shows over its head while it works. */
+const PROGRESS_NOTES = 'While you work on a task, call kanban_heartbeat with a note every few steps: one line of at most 12 words, in the first person, saying what you are doing right now (for example "Comparing the three vendors\' prices"). The CEO sees it over your head in the office.';
+
 const clean = (s: string) => s.replace(/<!--|-->/g, '').trim();
 
 const beginMarker = (deptId: string, agentKey: string) => `<!-- vibe-city:begin dept=${deptId} agent=${agentKey} -->`;
@@ -47,6 +50,7 @@ export function buildBlock(opts: {
       `You are an agent of this department (seat ${agentKey}).${lead ? ' New quests for the department are assigned to you.' : ''}`,
       ...delegationRules(self, teammates),
       'Complete every task with a summary of what you did (and which child tasks you created) and attach any output files.',
+      PROGRESS_NOTES,
       CROSS_DEPT,
     ].join('\n'),
     inv.sharedContextRefs.length ? `\nShared context references:\n${inv.sharedContextRefs.map((r) => `- ${clean(r)}`).join('\n')}` : '',

@@ -468,6 +468,8 @@ export const TaskNodeSchema = z.object({
   blockReason: z.string().nullable(),
   attachmentCount: z.number().int(),
   runs: z.array(TaskRunViewSchema),
+  /** The assignee's latest word on the task: a progress note (kanban_heartbeat) or a comment it wrote. One line. */
+  note: z.object({ text: z.string(), at: z.string() }).strict().nullable(),
 }).strict();
 export type TaskNode = z.infer<typeof TaskNodeSchema>;
 

@@ -29,7 +29,7 @@ test('card age is compact', () => {
 
 const t = (o: Partial<TaskNode> & { id: string; title: string }): TaskNode => ({
   agentKey: 'W-01', assignee: null, status: 'todo', parentIds: [], childIds: [], depth: 1, failed: false,
-  createdAt: '2026-11-03T10:00:00Z', startedAt: null, completedAt: null, summary: null, error: null, blockReason: null, attachmentCount: 0, runs: [], ...o,
+  createdAt: '2026-11-03T10:00:00Z', startedAt: null, completedAt: null, summary: null, error: null, blockReason: null, attachmentCount: 0, runs: [], note: null, ...o,
 });
 
 test('card lines: the plan from the lead, then a failure beats running beats done; nothing invented', () => {

@@ -3,6 +3,7 @@ import { useStore } from './store';
 import { City } from './world/City';
 import { startLive } from './data/live';
 import { StageOverlay } from './ui/Stage';
+import { Moments } from './ui/Moments';
 import { DialogueWindow } from './ui/Dialogue';
 import { HiringLayer } from './ui/Hiring';
 import { NewDeptWindow } from './ui/NewDept';
@@ -57,6 +58,7 @@ export default function App() {
         <section className="stage">
           <canvas ref={canvas} aria-label="Vibe City tower: each floor is a team of AI agents" />
           <StageOverlay city={city} />
+          <Moments />
         </section>
         <aside className="panel" key={panel === 'dept' || panel === 'exec' ? panel + (floorId ?? '') : panel}>
           {panel === 'exec' && <ExecPanel />}

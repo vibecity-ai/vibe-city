@@ -8,9 +8,11 @@ export type AgentStatus = 'running' | 'idle' | 'completed' | 'failed' | 'disconn
 export type DeptState = 'active' | 'idle' | 'attention' | 'offline' | 'unconfigured';
 
 /** A teammate's desk. `id` is the agent key (W-01…); `taskId`/`task` are the Hermes task it is on (null/'' when free). */
-export interface Worker { id: string; profile: string | null; taskId: string | null; task: string; status: AgentStatus; since: string; shirt: string; /** Seat title from a template (brief 01). */ title?: string }
+/** What an agent's speech bubble can draw on: its current task and its own latest word on it (data/views.ts bubbleText). */
+export interface Said { title: string; state: 'running' | 'input' | 'stuck' | 'done' | 'waiting'; note: { text: string; at: string } | null; summary: string | null; doneAt: string | null }
+export interface Worker { id: string; profile: string | null; taskId: string | null; task: string; status: AgentStatus; since: string; shirt: string; /** Seat title from a template (brief 01). */ title?: string; said: Said | null }
 /** The lead agent: new quests are assigned to it. Same kind of agent as a teammate, at the big desk. */
-export interface Chief { name: string; profile: string; model: string | null; status: AgentStatus; activity: string; since: string; /** Seat title from a template (brief 01). */ title?: string }
+export interface Chief { name: string; profile: string; model: string | null; status: AgentStatus; activity: string; since: string; /** Seat title from a template (brief 01). */ title?: string; said: Said | null }
 
 export interface Dept {
   id: string; name: string; purpose: string; state: DeptState;

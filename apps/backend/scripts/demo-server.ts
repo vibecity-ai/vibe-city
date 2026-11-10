@@ -17,6 +17,7 @@ const cfg = loadConfig();
 const db = openDb(':memory:');
 const hermes = new FakeHermes();
 const kanban = new FakeKanban();
+kanban.realClock = true;
 
 const scripted = new FakeChatModel((turns) => {
   const last = turns.at(-1)?.content.toLowerCase() ?? '';
@@ -178,6 +179,18 @@ setInterval(async () => {
   const list = (await app.inject('/api/departments')).json() as { departments: { hermesBoardSlug: string; state: string }[] };
   for (const d of list.departments) if (d.state === 'ready' && !boards.has(d.hermesBoardSlug)) { boards.add(d.hermesBoardSlug); kanban.addBoard(d.hermesBoardSlug); }
 }, 1500).unref();
+
+// Agents at work post a one-line progress note now and then (kanban_heartbeat): the office shows it over their heads.
+{
+  const LINES = ['Reading the sources one by one', 'Pulling the numbers into a table', 'Checking two sources that disagree', 'Drafting the summary now',
+    'Found a better source, switching', 'Halfway there: two of four parts done', 'Double-checking the figures', 'Writing it up for the boss'];
+  let k = 0;
+  setInterval(async () => {
+    const running = (await Promise.all([...boards].map(async (b) => (await kanban.listBoardTasks(b)).filter((t) => t.status === 'running').map((t) => ({ b, id: t.id }))))).flat();
+    const pick = running[k++ % Math.max(1, running.length)];
+    if (pick) kanban.heartbeat(pick.b, pick.id, LINES[k % LINES.length]);
+  }, Number(process.env.DEMO_NOTE_MS ?? 7000)).unref();
+}
 
 await app.listen({ host: '127.0.0.1', port: cfg.port });
 console.log(`Vibe City demo (fake Hermes, ${cfg.chat.apiKey ? 'real' : 'scripted'} chat) on http://127.0.0.1:${cfg.port}`);

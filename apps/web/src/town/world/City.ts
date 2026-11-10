@@ -4,15 +4,15 @@
 import { useStore, type Fx, type State } from '../store';
 import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
-import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
+import { getSprite, ghostSprite, lookFor, mix, quirkProp, shade, SKIN, AX, AY, type Look } from './sprites';
 import {
-  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
+  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
-import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, libraryCabinet, orgMap, templateKiosk, type ExecObjectId } from './execRoom';
+import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, templateKiosk, type ExecObjectId } from './execRoom';
 import { execAction, floorAction } from '../execActions';
 import { listedFloors, stationFor, stationKeyOf, type FloorObjectId } from '../data/floor';
-import { STATION_BOX, archiveStatic, clockLive, floorObjects, keyCabinet, stationLive, stationStatic } from './floorRoom';
+import { STATION_BOX, archiveStatic, clockLive, floorObjects, keySafe, skillShelf, stationLive, stationStatic, toolsRackLive, toolsRackStatic } from './floorRoom';
 import { hull } from './interior';
 
 /** The Executive Office uses the department shell with its own (warmer, darker) floor. */
@@ -32,6 +32,8 @@ interface FloorAnim { target: number; y: number; vy: number; alpha: number; pull
 interface Actor {
   id: string; look: Look; u: number; v: number; path: Pt[]; seat: Pt; mode: 'seat' | 'walk' | 'stand';
   dir: 'f' | 'b'; flip: boolean; walkT: number; standUntil: number; next: number; status: AgentStatus; alpha: number; bubble: number;
+  /** When the CEO last clicked this agent: it stops, turns to you and waves. */
+  waveAt?: number;
 }
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; col: string; size: number; grav: number; glow: boolean }
 interface Packet { from: Pt; to: Pt; t: number; d: number; dept: string; done?: boolean; big?: boolean }
@@ -211,6 +213,15 @@ export class City {
     return out;
   }
   private walkTo(a: Actor, to: Pt) { a.path = this.route([a.u, a.v], to); a.mode = 'walk'; }
+  /** Clicked: the agent stops where it is, turns to face you and waves, and stays put for a while (a seated one just
+      waves from its desk). */
+  greet(dept: string, id: string) {
+    const a = this.actors.get(dept)?.get(id); if (!a) return;
+    // the press and the click that ends it are one greeting, not two
+    if (a.waveAt === undefined || this.t - a.waveAt > 0.6) a.waveAt = this.t;
+    if (a.mode !== 'seat') { a.path = []; a.mode = 'stand'; a.walkT = 0; a.dir = 'f'; a.flip = false; }
+    a.standUntil = this.t + 9; a.next = Math.max(a.next, this.t + 9);
+  }
   private onStatus(a: Actor) {
     if (a.status === 'running' || a.status === 'failed' || a.status === 'disconnected') { if (Math.hypot(a.u - a.seat[0], a.v - a.seat[1]) > 3) this.walkTo(a, a.seat); }
     if (a.status === 'completed' && a.id !== 'chief') { a.standUntil = this.t + 3; a.next = this.t + rnd(4, 7); }
@@ -237,7 +248,7 @@ export class City {
       this.walkTo(a, spots[Math.floor(Math.random() * spots.length)]);
       a.next = this.t + rnd(6, 11);
     }
-    if (a.mode === 'stand' && a.status === 'running' && this.t > a.next) this.walkTo(a, a.seat);
+    if (a.mode === 'stand' && a.status === 'running' && this.t > a.next && this.t > a.standUntil) this.walkTo(a, a.seat);
   }
 
   /* ---------- fx ---------- */
@@ -303,6 +314,24 @@ export class City {
         const cols = [C.pink, C.cyan, C.gold, C.mint, C.violet];
         for (let i = 0; i < 48; i++) this.particles.push({ x: p[0], y: p[1], vx: rnd(-64, 64), vy: rnd(-96, -30), life: 1.8, max: 1.8, col: cols[i % 5], size: 2, grav: 110, glow: true });
         this.rings.push({ x: p[0], y: p[1] + 30, r: 2, max: 46, col: C.mint });
+        break;
+      }
+      case 'questStarted': {
+        // a new job lands: the floor lights up gold, a ticket flies down the tower to the lead, who heads for the board
+        if (fa) { fa.flash = 1.2; fa.flashCol = C.gold; }
+        const to = this.agentPt(s, fx.dept, 'chief');
+        this.packets.push({ from: [to[0] + 90, to[1] - 160], to, t: 0, d: 0.9, dept: fx.dept, big: true });
+        setTimeout(() => {
+          const p = this.agentPt(s, fx.dept, 'chief');
+          this.rings.push({ x: p[0], y: p[1] + 30, r: 2, max: 40, col: C.gold });
+          this.burst(p[0], p[1], 16, C.gold, 40, 0.9, 50);
+          const a = this.actors.get(fx.dept)?.get('chief'); if (a) a.bubble = 2.5;
+        }, 900);
+        break;
+      }
+      case 'needsYou': {
+        if (fa) { fa.flash = 1.2; fa.flashCol = C.amber; }
+        const p = this.agentPt(s, fx.dept, 'chief'); this.rings.push({ x: p[0], y: p[1] + 30, r: 2, max: 36, col: C.amber });
         break;
       }
       case 'floorAdded': {
@@ -402,6 +431,7 @@ export class City {
       if (od && fa) {
         const P = mkP(fa.y), vis = fa.open > 0.95 ? 1 : 0;
         for (const o of floorObjects(stationFor(stationKeyOf(od, listedFloors(s.market)))?.name ?? null)) {
+          // the marker hangs at the object's foot, like a nameplate: it never covers the object
           const pts = boxCorners(P, o.b), top = pts.reduce((mm, p) => (p[1] < mm[1] ? p : mm), pts[0]!);
           anchors.push({ id: 'obj:' + o.id, kind: 'obj', x: pts.reduce((sum, p) => sum + p[0], 0) / pts.length, y: top[1] - 4, visible: vis, z: 0 });
         }
@@ -441,13 +471,13 @@ export class City {
     const elevOpen = et < 0.4 ? easeOut(et / 0.4) : et < 1.7 ? 1 : et < 2.1 ? 1 - easeOut((et - 1.7) / 0.4) : 0;
     wallLive(c, d, s.quests.filter((q) => q.deptId === d.id).map((q) => q.summary.status), floorNo, elevOpen, lit);
     clockLive(c, lit, new Date());
-    keyCabinet(c, lit);
+    keySafe(c, lit);
     const station = stationKeyOf(d, listedFloors(s.market));
 
     // cast shadows first, so everything stands in them
     const nD = Math.min(DESKS.length, d.workers.length);
     for (let i = 0; i < nD; i++) { const [u, v] = DESKS[i]; cast(c, u, v, 28, 16, 14, 0.26); }
-    cast(c, 0, 56, 14, 18, 44, 0.24); cast(c, 190, 126, 48, 14, 14, 0.2); cast(c, 0, 118, 8, 20, 40, 0.2);
+    cast(c, 183, 126, 39, 14, 30, 0.22); cast(c, 0, 58, 12, 28, 24, 0.22); cast(c, 0, 118, 8, 20, 40, 0.2);
 
     const items: { y: number; draw: () => void; g?: number }[] = [];
     const bc: IC = { px, L: NULL_LIGHTS, t: 0, P: mkP(0), power };
@@ -469,9 +499,9 @@ export class City {
     items.push({ g: 1, y: 0, draw: () => prop('glassF', (q) => glassWalls(q, 'front')) });
     items.push({ g: 1, y: 1, draw: () => prop('glassS', (q) => glassWalls(q, 'side')) });
     // room furniture
-    items.push({ y: P(0, 74)[1], draw: () => { prop('rack', (q) => rackStatic(q)); rackLive(c, lit); } });
+    items.push({ y: P(197, 140)[1], draw: () => { prop('trackR', (q) => toolsRackStatic(q)); toolsRackLive(c, lit); } });
     items.push({ y: P(COOLER[0] - 2, COOLER[1] + 16)[1], draw: () => prop('cooler', (q) => coolerItem(q)) });
-    items.push({ y: P(192, 140)[1], draw: () => prop('library', (q) => libraryCabinet(q)) });
+    items.push({ y: P(222, 140)[1], draw: () => prop('skillShelf', (q) => skillShelf(q)) });
     // a template's station replaces the lounge: the tools that kind of team works with, live
     if (station) {
       cast(c, STATION_BOX[0] + 2, STATION_BOX[1] + 2, STATION_BOX[3] - 4, STATION_BOX[4] - 4, 16, 0.24);
@@ -480,8 +510,7 @@ export class City {
       for (const lp of LOUNGE_PROPS) items.push({ y: P(lp.y[0], lp.y[1])[1], draw: () => { prop(lp.key, lp.draw); loungeLive(c, lit, lp.key); } });
       cast(c, 204, 12, 14, 16, 6, 0.22); cast(c, 224, 6, 14, 34, 12, 0.25);
     }
-    cast(c, 28, 8, 12, 29, 22, 0.22);
-    items.push({ y: P(40, 37)[1], draw: () => prop('archive', (q) => archiveStatic(q)) });
+    items.push({ y: P(12, 86)[1], draw: () => prop('archiveL', (q) => archiveStatic(q)) });
     for (const [u, v, big, seed] of [[84, 132, true, 7], [232, 112, false, 5], [100, 10, false, 9], [70, 60, false, 13]] as [number, number, boolean, number][]) items.push({ y: P(u + 4, v - 4)[1], draw: () => prop(`plant${u}${v}`, (q) => plant(q, u, v, big, seed)) });
     // people
     const actors = this.actors.get(d.id);
@@ -508,6 +537,7 @@ export class City {
         px.pop();
         pip(px, ac.status, ground[0], ground[1] - 39);
         emote(px, ac, t, ground[0] + 6, ground[1] - 66);
+        if (ac.waveAt !== undefined && t - ac.waveAt < 2.4) wave(px, L, ground[0], ground[1] - (seated ? 19 : 24), t - ac.waveAt, ac.flip, ac.look);
         if (ac.bubble > 0) this.thinking(ground[0] + 12, ground[1] - 46, ac.bubble);
         px.pop();
       } });
@@ -625,7 +655,10 @@ export class City {
     const open = s.ui.view === 'floor' ? s.ui.floorId : null;
     if (open) {
       const m = this.actors.get(open);
-      if (m) { let best: { id: string; d: number } | null = null; for (const a of m.values()) { const p = this.interiorPt(open, a.u, a.v, 0); if (x > p[0] - 9 && x < p[0] + 9 && y > p[1] - 34 && y < p[1] + 2) { const dd = -p[1]; if (!best || dd < best.d) best = { id: a.id, d: dd }; } } if (best) return { kind: 'agent', id: best.id }; }
+      if (m) { let best: { id: string; d: number } | null = null; for (const a of m.values()) {
+        // the whole body at the current zoom, a little generous: people are a small target when they walk about
+        const p = this.interiorPt(open, a.u, a.v, 0), hy = p[1] - this.interiorPt(open, a.u, a.v, 44)[1], hw = Math.max(10, hy * 0.32);
+        if (x > p[0] - hw && x < p[0] + hw && y > p[1] - hy && y < p[1] + hy * 0.08) { const dd = -p[1]; if (!best || dd < best.d) best = { id: a.id, d: dd }; } } if (best) return { kind: 'agent', id: best.id }; }
       const od = s.depts.find((x) => x.id === open), fa = this.floors.get(open);
       if (od && fa && fa.open > 0.95) {
         const P = mkP(fa.y);
@@ -662,6 +695,8 @@ export class City {
       if (e.button !== 0) return;
       const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top);
       if (h?.kind !== 'agent') { this.press = null; return; }
+      // stop them the moment you reach for them, so a hold or a double-click lands on someone standing still
+      const fl = useStore.getState().ui.floorId; if (fl) this.greet(fl, h.id);
       const press = { id: e.pointerId, x: e.clientX, y: e.clientY, start: performance.now(), agent: h.id, fired: false, timer: 0 };
       press.timer = window.setTimeout(() => {
         if (this.press !== press) return;
@@ -690,6 +725,11 @@ export class City {
     cv.addEventListener('pointerdown', (e) => { this.drag = e.pointerType === 'touch' ? null : { x: e.clientX, y: e.clientY, moved: false }; });
     window.addEventListener('pointerup', () => setTimeout(() => (this.drag = null), 0));
     cv.addEventListener('wheel', (e) => { if (useStore.getState().ui.view !== 'tower' || useStore.getState().ui.execRoom) return; e.preventDefault(); this.zoomBy(e.deltaY < 0 ? 1.12 : 0.89); }, { passive: false });
+    // double-click an agent to talk (a mouse cannot hold still on someone walking about)
+    cv.addEventListener('dblclick', (e) => {
+      const r = cv.getBoundingClientRect(), h = this.hit(e.clientX - r.left, e.clientY - r.top), s = useStore.getState();
+      if (h?.kind === 'agent' && s.ui.floorId) s.ui$({ agent: h.id, talk: { deptId: s.ui.floorId, agentKey: h.id } });
+    });
     cv.addEventListener('click', (e) => {
       if (this.press?.fired) { this.press = null; return; } // the long press already opened the chat
       if (this.drag?.moved) return;
@@ -700,13 +740,29 @@ export class City {
       else if (h.kind === 'ph') { s.openExec(); this.fit(); }
       else if (h.kind === 'obj') { if (s.ui.execRoom) execAction(h.id as ExecObjectId); else if (s.ui.floorId) floorAction(h.id as FloorObjectId, s.ui.floorId); }
       else if (h.kind === 'ghost') s.ui$({ modal: 'create' });
-      else if (h.kind === 'agent') s.openPanel('agent', { agent: h.id });
+      else if (h.kind === 'agent') { if (s.ui.floorId) this.greet(s.ui.floorId, h.id); s.openPanel('agent', { agent: h.id }); }
     });
   }
 }
 
 /** How long to hold an agent (touch, pen or mouse) to open the chat. */
 const LONG_PRESS_MS = 500;
+
+/** A waving hand beside the head and a little "hi" sparkle: the answer to a click. */
+function wave(px: Pix, L: Lights, x: number, y: number, age: number, flip: boolean, look: Look) {
+  const side = flip ? -1 : 1, swing = Math.floor(age * 7) % 2 ? 1 : -1;
+  const hx = Math.round(x + side * 11 + swing), hy = Math.round(y - 4);
+  const skin = SKIN[look.skin] ?? SKIN[1]!, edge = shade(skin, -0.45), sleeve = look.shirt;
+  px.push(age > 2 ? Math.max(0, (2.4 - age) / 0.4) : 1);
+  // the raised forearm, from the shoulder up to the hand, so the hand is attached to someone
+  for (let i = 0; i < 6; i++) { const ax = Math.round(x + side * (7 + (i * (4 + swing)) / 6)), ay = hy + 9 - i; px.rect(ax - 1, ay, 3, 1, edge); px.rect(ax, ay, 1, 1, i < 3 ? sleeve : skin); }
+  px.rect(hx - 2, hy - 1, 5, 4, edge); px.rect(hx - 1, hy, 3, 3, skin);           // palm
+  for (let k = -1; k <= 1; k++) px.rect(hx + k, hy - 3, 1, 2, skin);                // fingers
+  px.rect(hx - 2 * side, hy + 1, 1, 1, skin);                                       // thumb
+  if (Math.floor(age * 4) % 2) { px.dot(hx + 4 * side, hy - 4, '#FFE7A0', 1); px.dot(hx + 5 * side, hy - 6, '#FFE7A0', 1); }
+  px.pop();
+  L.add(hx, hy, 10, '#FFE7A0', 0.25);
+}
 
 /* Emotes over heads (feature spec 2.5), from what the agent is actually doing: ! failed, ? waiting on configuration,
    a heart right after finishing, zzz when idling at the desk. Running agents show nothing (their screen does). */

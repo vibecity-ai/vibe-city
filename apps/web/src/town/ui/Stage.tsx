@@ -8,7 +8,7 @@ import { execAction, floorAction } from '../execActions';
 import { floorObjects } from '../world/floorRoom';
 import { FLOOR_OBJECT_HELP, listedFloors, stationFor, stationKeyOf } from '../data/floor';
 import { loadPersonas } from './AgentView';
-import { agentLabel } from '../data/views';
+import { agentLabel, bubbleText } from '../data/views';
 import { PortraitCanvas } from './Dialogue';
 import { lookFor, quirkProp } from '../world/sprites';
 import { SkillBadges } from './Skills';
@@ -27,7 +27,12 @@ export function StageOverlay({ city }: { city: City | null }) {
   const closeFloor = useStore((s) => s.closeFloor);
   const ui$ = useStore((s) => s.ui$);
   const refs = useRef(new Map<string, HTMLElement>());
+  /** Each speech bubble's text and when it last changed (a new line shows at once, for a while). */
+  const says = useRef(new Map<string, { text: string; since: number }>());
   const n = depts.length;
+  // bubble texts age (a fresh note gives way, a recap fades): re-read them now and then
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 20_000); return () => window.clearInterval(id); }, []);
   const [hovered, setHovered] = useState<string | null>(null);
   const hoverRef = useRef<HTMLDivElement>(null);
 
@@ -57,6 +62,20 @@ export function StageOverlay({ city }: { city: City | null }) {
         el.style.opacity = String(show);
         el.style.pointerEvents = show > 0.5 ? 'auto' : 'none';
         el.tabIndex = show > 0.5 ? 0 : -1;
+      }
+      // speech bubbles: an agent's own line shows when it changes, when you point at the agent, and in turn with the
+      // others (one at a time), so the office feels alive without a wall of text
+      const ids = [...refs.current.keys()].filter((k) => k.startsWith('say:')).map((k) => k.slice(4));
+      const tnow = performance.now(), turn = ids.length ? ids[Math.floor(tnow / 6000) % ids.length] : null, inTurn = tnow % 6000 < 5200;
+      for (const id of ids) {
+        const el = refs.current.get('say:' + id)!, text = el.dataset.text ?? '';
+        const st = says.current.get(id);
+        if (!st || st.text !== text) says.current.set(id, { text, since: tnow });
+        const at = city.anchors.find((x) => x.kind === 'agent' && x.id === id);
+        const named = city.hoverAgent === id || useStore.getState().ui.agent === id;
+        const show = !!at && at.visible > 0.5 && !useStore.getState().ui.talk && (named || tnow - (says.current.get(id)!.since) < 8000 || (id === turn && inTurn));
+        if (at) el.style.transform = `translate(${Math.round(at.x)}px, ${Math.round(at.y - (named ? 30 : 8))}px) translate(-50%, -100%)`;
+        el.classList.toggle('on', show);
       }
       // hover card follows the agent under the pointer
       const hv = city.hoverAgent;
@@ -120,13 +139,23 @@ export function StageOverlay({ city }: { city: City | null }) {
       {openDept && (
         <div className="tags">
           {[...(openDept.chief ? [{ id: 'chief', label: agentLabel('chief', personas[`${openDept.id}:chief`]), title: openDept.chief.title, k: openDept.chief.status as StatusKey }] : []), ...openDept.workers.map((w) => ({ id: w.id, label: agentLabel(w.id, personas[`${openDept.id}:${w.id}`]), title: w.title, k: w.status as StatusKey }))].map((t) => (
-            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`} {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => useStore.getState().openPanel('agent', { agent: t.id }))}>
+            <button key={t.id} ref={set('agent:' + t.id)} data-st={t.k} className={`tag${ui.agent === t.id ? ' sel' : ''}${t.id === 'chief' ? ' chief' : ''}`}
+              {...holdToTalk(() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } }), () => { city?.greet(openDept.id, t.id); useStore.getState().openPanel('agent', { agent: t.id }); })}
+              onDoubleClick={() => ui$({ agent: t.id, talk: { deptId: openDept.id, agentKey: t.id } })}>
               <Glyph k={t.k} />{t.label}{t.title && <small className="tag-title">{t.title}</small>}<SkillBadges names={openDept.view.agents.find((a) => (t.id === 'chief' ? a.lead : a.key === t.id))?.skills ?? []} max={3} size={9} />
             </button>
           ))}
         </div>
       )}
 
+      {/* speech bubbles: what each agent is up to, in a few words */}
+      {openDept && (
+        <div className="says" aria-hidden="true">
+          {[...(openDept.chief ? [{ id: 'chief', said: openDept.chief.said }] : []), ...openDept.workers.map((w) => ({ id: w.id, said: w.said }))]
+            .map((a) => ({ id: a.id, text: bubbleText(a.said, now) })).filter((a) => a.text)
+            .map((a) => <div key={a.id} ref={set('say:' + a.id)} className="say" data-text={a.text!}><span>{a.text}</span></div>)}
+        </div>
+      )}
       {/* Executive Office: every object is a control; the labels are its keyboard path */}
       {ui.execRoom && (
         <div className="tags objs" aria-label="Executive office">

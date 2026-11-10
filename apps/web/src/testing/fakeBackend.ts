@@ -73,7 +73,7 @@ export const summary = (o: Partial<QuestSummary> = {}): QuestSummary => ({
 export const detail = (o: Partial<QuestDetail> = {}): QuestDetail => ({
   ...summary(), departmentId: DEPT_ID, objective: 'o',
   tasks: [{ id: 't_root1', title: 'Quest one', agentKey: 'chief', assignee: 'vc-111111111111-chief', status: 'running', parentIds: [], childIds: [], depth: 0, failed: false,
-    createdAt: iso, startedAt: iso, completedAt: null, summary: null, error: null, blockReason: null, attachmentCount: 0, runs: [] }],
+    createdAt: iso, startedAt: iso, completedAt: null, summary: null, error: null, blockReason: null, attachmentCount: 0, runs: [], note: null }],
   violations: [], warnings: [], truncated: false,
   cancellation: { state: 'none', requestedAt: null, confirmedAt: null, remaining: [], archivedTaskIds: [], alreadyFinishedTaskIds: [] }, ...o,
 });

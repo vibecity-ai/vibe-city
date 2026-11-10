@@ -14,6 +14,7 @@ import { CHIEF_OF_STAFF, KANBAN_EVENT_LABELS, KANBAN_EVENT_NOISE } from '@vibe-c
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
 import { clock, deriveDept, isLiveQuest } from './derive.ts';
+import { fxBetween } from './fx.ts';
 import { backoffDelays, createCoalescer, createGate } from './sched.ts';
 import { archivedNotice, inventorySavedNotice, newerCancellation } from './views.ts';
 import type { Dept } from './types.ts';
@@ -85,25 +86,7 @@ function connState() {
 
 function emitFx(prev: Dept[], next: Dept[], pq: QuestItem[], nq: QuestItem[]) {
   const { emit } = st();
-  const before = new Map(prev.map((d) => [d.id, d]));
-  for (const d of next) {
-    const p = before.get(d.id);
-    if (!p) { emit({ k: 'floorAdded', dept: d.id }); continue; }
-    if (!p.chief && d.chief) emit({ k: 'chiefArrived', dept: d.id });
-    if (p.chief?.status !== 'running' && d.chief?.status === 'running') emit({ k: 'plan', dept: d.id });
-    const had = new Map(p.workers.map((w) => [w.id, w]));
-    for (const w of d.workers) {
-      const o = had.get(w.id);
-      if (!o) { emit({ k: 'workerJoined', dept: d.id, worker: w.id }); if (w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id }); continue; }
-      // A teammate keeps its desk across tasks: a new task counts as a change even when the status reads the same.
-      const changed = o.status !== w.status || o.taskId !== w.taskId;
-      if (changed && w.status === 'completed') emit({ k: 'taskDone', dept: d.id, worker: w.id });
-      if (changed && w.status === 'failed') emit({ k: 'taskFail', dept: d.id, worker: w.id });
-      if (changed && w.status === 'running') emit({ k: 'delegate', dept: d.id, to: w.id });
-    }
-  }
-  const was = new Map(pq.map((q) => [q.summary.id, q.summary.status]));
-  for (const q of nq) if (q.summary.status === 'completed' && was.has(q.summary.id) && was.get(q.summary.id) !== 'completed') emit({ k: 'questDone', dept: q.deptId });
+  for (const f of fxBetween(prev, next, pq, nq)) emit(f);
 }
 
 /* ---------- fetching ---------- */
