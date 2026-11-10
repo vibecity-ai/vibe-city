@@ -1,7 +1,7 @@
 /* The game loop (docs/briefs/05-game-loop.md): CEO quests, decisions and runway, derived from state Vibe City
    already has. Pure: the route assembles the input, this decides. Markers are written by the agents (brief 01's
-   template purposes): [pnl usd=<n>] (trading floors), [dao account=<name>.sputnik-dao.near] (Treasury Ops, the
-   IPO), awaiting_owner (an action staged for the CEO). */
+   template purposes): [pnl usd=<n>] (trading floors), awaiting_owner (an action staged for the CEO). The IPO is the
+   backend's (domain/ipoService.ts): `ipoDone` once the DAO and the city token exist. */
 import type { AiUsageSummary, CeoQuest, CompanySettings, Decision, DepartmentView, GameState, QuestSummary, Template, WalletState } from '@vibe-city/shared';
 
 /** One finished task's text (its summary), with where it came from. */
@@ -28,6 +28,8 @@ export interface GameInput {
   marketListed: boolean;
   /** Hermes approvals waiting on an agent turn. Only chat approvals are known (Kanban does not expose them). */
   pendingApprovals: Array<{ departmentId: string; agentKey: string; title: string }>;
+  /** The IPO's DAO and city token exist (ipoService). */
+  ipoDone: boolean;
 }
 
 import { CHIEF_OF_STAFF } from '@vibe-city/shared';
@@ -40,11 +42,10 @@ interface QuestDef { id: string; title: string; hint: string; unlocks: string | 
 interface Ctx { i: GameInput; textOf: (templates: string[]) => string[]; earnedCents: number }
 
 const YOCTO = 10n ** 24n;
-/** NEAR the company wallet must hold before Treasury Ops can create the Sputnik DAO vault (the factory's attached deposit).
-    ponytail: a fixed estimate; read the factory's real cost if it changes. */
-export const DAO_FUND_NEAR = 6;
+/** NEAR the company wallet must hold before the IPO: 1 for the DAO, about 2.23 for the city token, registrations and gas.
+    ponytail: a fixed estimate; read tkn.near's get_required_deposit if it moves. */
+export const DAO_FUND_NEAR = 4;
 const nearHeld = (w: WalletState) => w.balances.filter((b) => b.token === 'NEAR' && (b.source === 'wallet' || b.source === 'bound')).reduce((a, b) => a + BigInt(b.amount), 0n);
-const DAO = /\[dao account=[a-z0-9_-]+\.sputnik-dao\.near\]/;
 
 /** In display order: the main line first, then the side quests. */
 export const CEO_QUESTS: readonly QuestDef[] = [
@@ -62,10 +63,11 @@ export const CEO_QUESTS: readonly QuestDef[] = [
     hint: 'Ask your Chief of Staff to list one floor as an agent on market.near.ai. Done once that floor\'s agents hold the agent token.' },
   { id: 'first-job', title: 'Win your first job', unlocks: null, done: (x) => x.i.marketJobsPaid > 0,
     hint: 'Go live on market.near.ai; a buyer hires your listed floor and accepts its first delivery.' },
-  { id: 'dao-funds', title: 'Fund the DAO vault', unlocks: 'IPO', done: (x) => nearHeld(x.i.wallet) >= BigInt(DAO_FUND_NEAR) * YOCTO,
-    hint: `Hold at least ${DAO_FUND_NEAR} NEAR in the company wallet: Treasury Ops spends it to create the company's Sputnik DAO vault.` },
-  { id: 'ipo', title: 'IPO', unlocks: 'the opening bell', done: (x) => x.textOf(['treasury-ops']).some((t) => DAO.test(t)),
-    hint: 'Give Treasury Ops the launch: it creates the Sputnik DAO vault from the company wallet, with you on the council.' },
+  // the IPO spends these funds, so a public company keeps this quest done
+  { id: 'dao-funds', title: 'Fund the IPO', unlocks: 'IPO', done: (x) => x.i.ipoDone || nearHeld(x.i.wallet) >= BigInt(DAO_FUND_NEAR) * YOCTO,
+    hint: `Hold at least ${DAO_FUND_NEAR} NEAR in the company wallet: the IPO spends it on the company's Sputnik DAO and city token.` },
+  { id: 'ipo', title: 'IPO', unlocks: 'the opening bell', done: (x) => x.i.ipoDone,
+    hint: 'Press IPO in the safe: the company wallet creates the Sputnik DAO (you approve) and the city token, all owned by the DAO.' },
   // Side quests: each opens a floor, none blocks the main line.
   // Done only when OutLayer's connector reports the owner's policy (one status call per check): the caps the agents trade under.
   { id: 'connect-hyperliquid', title: 'Connect Hyperliquid', unlocks: 'Trading Desk', side: true, done: (x) => !!x.i.settings.hyperliquidConnectedAt,

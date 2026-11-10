@@ -22,7 +22,7 @@ test('hiring Treasury Ops creates three agents with their titles and no schedule
   assert.equal(r.statusCode, 201, r.body);
   const d = r.json();
   assert.deepEqual(d.agents.map((a: any) => [a.key, a.title]), [['chief', 'Head of Treasury Ops'], ['W-01', 'Swap Operator'], ['W-02', 'Reconciler']]);
-  assert.match(d.purpose, /dao account=/, 'the template purpose is copied');
+  assert.match(d.purpose, /sputnik-dao\.near/, 'the template purpose is copied');
   assert.equal(d.templateId, 'treasury-ops', 'the floor knows its template (its station and screens)');
   const inv = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
   assert.deepEqual(inv.allowedSkillIds, ['agent-custody', 'defillama'], 'swaps go through agent-custody only; defillama prices them');
