@@ -1127,11 +1127,40 @@ export const GameStateSchema = z.object({
 }).strict();
 export type GameState = z.infer<typeof GameStateSchema>;
 
+/** The IPO (docs/briefs/06-ipo.md): a Sputnik DAO and a tkn.near city token, then revenue share by DAO vote. */
+export const IPO_SYMBOL_RE = /^[A-Z][A-Z0-9]{1,7}$/;
+/** What the DAO can pay holders in (NEP-141 on NEAR). */
+export const PAYOUT_TOKENS = ['USDC', 'wNEAR'] as const;
+export const IpoProposalSchema = z.object({
+  /** The DAO's proposal id (null if the wallet's answer did not carry it). */
+  id: z.number().int().nullable(), kind: z.enum(['allocate', 'dividend']), title: z.string(), txHash: z.string().nullable(), at: z.string(),
+}).strict();
+export type IpoProposal = z.infer<typeof IpoProposalSchema>;
 export const IpoStateSchema = z.object({
-  daoAccountId: z.string().nullable(), tokenAccountId: z.string().nullable(), txHashes: z.array(z.string()),
-  state: z.enum(['locked', 'ready', 'done', 'error']), error: z.string().nullable(),
+  state: z.enum(['locked', 'ready', 'running', 'done', 'error']),
+  /** The CEO's NEAR account: the DAO's approver and admin. */
+  ceoAccountId: z.string().nullable(),
+  daoAccountId: z.string().nullable(), tokenAccountId: z.string().nullable(), symbol: z.string().nullable(),
+  txHashes: z.array(z.string()),
+  /** Accounts the DAO allocated city tokens to, with their live balance in whole tokens (null: unread). */
+  holders: z.array(z.object({ accountId: z.string(), balance: z.number().nullable() }).strict()),
+  proposals: z.array(IpoProposalSchema),
+  error: z.string().nullable(),
 }).strict();
 export type IpoState = z.infer<typeof IpoStateSchema>;
+export const IpoLaunchSchema = z.object({
+  ceoAccountId: z.string().regex(NEAR_ACCOUNT_RE, 'not a NEAR account id'),
+  symbol: z.string().trim().regex(IPO_SYMBOL_RE, '2 to 8 capital letters or digits, starting with a letter'),
+}).strict();
+export type IpoLaunch = z.infer<typeof IpoLaunchSchema>;
+/** A DAO proposal sending whole city tokens to one account. */
+export const IpoAllocateSchema = z.object({
+  accountId: z.string().regex(NEAR_ACCOUNT_RE, 'not a NEAR account id'), amount: z.number().int().positive().max(1_000_000),
+}).strict();
+export type IpoAllocate = z.infer<typeof IpoAllocateSchema>;
+/** A DAO proposal paying `amount` (whole units of `token`) to the holders, pro rata. */
+export const IpoDividendSchema = z.object({ token: z.enum(PAYOUT_TOKENS), amount: z.number().positive().max(1_000_000) }).strict();
+export type IpoDividend = z.infer<typeof IpoDividendSchema>;
 
 // ---- department env variables ------------------------------------------------
 // A floor's own .env entries (API keys a skill or tool needs), written into every agent profile of the floor. Values are
