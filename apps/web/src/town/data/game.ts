@@ -72,11 +72,13 @@ export interface IpoStep { id: 'dao' | 'register' | 'token'; label: string; deta
 
 /** The IPO's three on-chain steps and where each stands. `busy`: a launch request is in flight (the server is working
     even before its state says so). The server names the call waiting in OutLayer (`awaiting`); that tells the step. */
-export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountId' | 'tokenAccountId' | 'symbol'>, busy: boolean): IpoStep[] {
+export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountId' | 'tokenAccountId' | 'symbol'> & { offer?: IpoState['offer'] }, busy: boolean): IpoStep[] {
   const steps: Omit<IpoStep, 'status'>[] = [
     { id: 'dao', label: 'Create the Sputnik DAO', detail: ipo.daoAccountId ?? 'You approve its proposals; the company wallet can only propose.' },
     { id: 'register', label: 'Open the DAO to revenue', detail: 'Registers it on USDC and wNEAR so earnings can be sent to it.' },
-    { id: 'token', label: 'Mint the city token', detail: ipo.tokenAccountId ?? `1,000,000 ${ipo.symbol ?? 'tokens'}, all owned by the DAO, checked on chain.` },
+    { id: 'token', label: 'Mint the shares and open the offering', detail: ipo.tokenAccountId ?? (ipo.offer
+      ? `${ipo.offer.supply.toLocaleString()} ${ipo.symbol ?? 'tokens'}: 60% to the DAO, 40% offered at ${ipo.offer.priceNear} NEAR`
+      : `${ipo.symbol ?? 'City tokens'}: 60% to the DAO, 40% offered for sale.`) },
   ];
   if (ipo.state === 'done') return steps.map((s) => ({ ...s, status: 'done' }));
   const at = !ipo.daoAccountId ? 0 : ipo.awaiting?.endsWith(' create_token') ? 2 : ipo.awaiting?.endsWith(' storage_deposit') ? 1 : ipo.tokenAccountId ? 3 : 1;

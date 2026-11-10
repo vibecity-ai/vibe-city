@@ -53,7 +53,7 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
         <button className="btn primary small" disabled title="Unlocks after your first paid market job and 4 NEAR in the company wallet">IPO</button>
         <p className="fine">Unlocks after your first paid market job and 4 NEAR in the company wallet.</p>
       </>}
-      {ipo.state !== 'locked' && ipo.state !== 'done' && <Steps steps={steps} error={ipo.error} />}
+      {ipo.state !== 'locked' && ipo.state !== 'done' && <><Offer ipo={ipo} /><Steps steps={steps} error={ipo.error} /></>}
       {waiting && (
         <div className="ipo-approve" role="status">
           <p>Your OutLayer wallet asks you to approve each call. Approve <b>{waiting.label.toLowerCase()}</b> at {ext('https://app.outlayer.ai', 'app.outlayer.ai')}; this continues by itself.</p>
@@ -64,6 +64,19 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
       {ipo.state === 'done' && <Done ipo={ipo} busy={busy} run={run} />}
       {err && err !== ipo.error && <p className="field-err" role="alert">{err}</p>}
     </section>
+  );
+}
+
+const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+
+function Offer({ ipo }: { ipo: IpoState }) {
+  const o = ipo.offer;
+  if (!o) return <p className="fine">NEAR price unavailable; the price is set when you press IPO.</p>;
+  return (
+    <p className="fine">
+      Valuation {usd(o.valuationUsd)} (earned {usd(o.earnedUsd)} × {o.multiple}, minimum $1,000) · 40% float: {o.floatTokens.toLocaleString()} tokens
+      at {o.priceNear} NEAR each (≈ ${(o.priceNear * o.nearUsd).toFixed(4)})
+    </p>
   );
 }
 
@@ -99,11 +112,11 @@ function LaunchForm({ ipo, ceo, company, onLaunch }: { ipo: IpoState; ceo: strin
 
 function Done({ ipo, busy, run }: { ipo: IpoState; busy: boolean; run: (f: () => Promise<IpoState>) => Promise<boolean> }) {
   const dao = ipo.daoAccountId ?? '';
-  const [to, setTo] = useState('');
-  const [tokens, setTokens] = useState('');
+  const sale = ipo.sale;
+  const float = sale ? sale.sold + sale.remaining : 0;
+  const buyLink = `${window.location.origin}/invest`;
   const [payToken, setPayToken] = useState<(typeof PAYOUT_TOKENS)[number]>('USDC');
   const [payAmount, setPayAmount] = useState('');
-  const allocOk = !!to.trim() && Number.isInteger(Number(tokens)) && Number(tokens) > 0;
   const payOk = Number(payAmount) > 0;
   return (
     <>
@@ -112,19 +125,21 @@ function Done({ ipo, busy, run }: { ipo: IpoState; busy: boolean; run: (f: () =>
         <div><dt>Token</dt><dd>{ipo.tokenAccountId && ext(`${NB}/address/${ipo.tokenAccountId}`, ipo.tokenAccountId)} · {ipo.symbol} · Vibe City factory token</dd></div>
         {ipo.txHashes.length > 0 && <div><dt>Transactions</dt><dd>{ipo.txHashes.map((h, i) => <span key={h}>{i > 0 && ' · '}{ext(`${NB}/txns/${h}`, `${h.slice(0, 8)}…`)}</span>)}</dd></div>}
       </dl>
+      <h4>Offering</h4>
+      {!sale ? <p className="muted">The offering could not be read right now.</p> : <>
+        <dl className="kv">
+          <div><dt>Status</dt><dd>{sale.open ? 'Open' : 'Closed'}</dd></div>
+          <div><dt>Sold</dt><dd>{sale.sold.toLocaleString()} / {float.toLocaleString()} {ipo.symbol}<SaleBar sold={sale.sold} float={float} /></dd></div>
+          <div><dt>Raised</dt><dd>{sale.raisedNear.toLocaleString()} NEAR · {sale.buyers} buyer{sale.buyers === 1 ? '' : 's'}</dd></div>
+          <div><dt>Buy link</dt><dd><a href="/invest" target="_blank" rel="noreferrer">/invest</a> · <span className="mono">{buyLink}</span> <button className="btn small" type="button" onClick={() => void navigator.clipboard?.writeText(buyLink)}>Copy</button></dd></div>
+        </dl>
+        {sale.open && <button className="btn secondary small" disabled={busy} onClick={() => void run(() => api.ipoEndSale())}>End the offering</button>}
+      </>}
       <h4>Revenue share by DAO vote</h4>
-      <p className="fine">Payouts are DAO proposals you approve in Trezu. Holders are accounts the DAO allocated tokens to. No sale, no promised returns.</p>
-      {ipo.holders.length === 0 ? <p className="muted">No holders yet. Allocate tokens below.</p> : (
+      <p className="fine">Shareholders are the offering's buyers. Payouts are DAO proposals you approve in Trezu. No promised returns.</p>
+      {ipo.holders.length === 0 ? <p className="muted">No buyers yet. Share the buy link.</p> : (
         <ul>{ipo.holders.map((h) => <li key={h.accountId}><span className="mono">{h.accountId}</span> · {h.balance === null ? '?' : h.balance.toLocaleString()} {ipo.symbol}</li>)}</ul>
       )}
-      <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (allocOk) void run(() => api.ipoAllocate({ accountId: to.trim(), amount: Number(tokens) })).then((ok) => { if (ok) { setTo(''); setTokens(''); } }); }}>
-        <span className="lbl">Allocate</span>
-        <div className="row">
-          <input className="input mono" aria-label="Receiving NEAR account" placeholder="investor.near" value={to} onChange={(e) => setTo(e.target.value)} />
-          <input className="input" aria-label={`Whole ${ipo.symbol ?? 'city'} tokens`} inputMode="numeric" placeholder="tokens" value={tokens} onChange={(e) => setTokens(e.target.value.trim())} />
-          <button className="btn small" type="submit" disabled={busy || !allocOk}>Propose</button>
-        </div>
-      </form>
       <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (payOk) void run(() => api.ipoDividend({ token: payToken, amount: Number(payAmount) })).then((ok) => { if (ok) setPayAmount(''); }); }}>
         <span className="lbl">Distribute revenue</span>
         <div className="row">
@@ -134,8 +149,13 @@ function Done({ ipo, busy, run }: { ipo: IpoState; busy: boolean; run: (f: () =>
         </div>
       </form>
       {ipo.proposals.length > 0 && (
-        <ul>{ipo.proposals.map((p, i) => <li key={`${p.id ?? 'x'}-${i}`}>{p.kind === 'allocate' ? 'Allocate' : 'Dividend'}{p.id !== null && ` #${p.id}`} · {p.title} · {p.awaitingWalletApproval ? 'waiting for your OutLayer approval' : ext(`${trezu(dao)}/requests`, 'Approve in Trezu')}</li>)}</ul>
+        <ul>{ipo.proposals.map((p, i) => <li key={`${p.id ?? 'x'}-${i}`}>{p.kind === 'end_sale' ? 'End the offering' : 'Dividend'}{p.id !== null && ` #${p.id}`} · {p.title} · {p.awaitingWalletApproval ? 'waiting for your OutLayer approval' : ext(`${trezu(dao)}/requests`, 'approve in Trezu')}</li>)}</ul>
       )}
     </>
   );
+}
+
+export function SaleBar({ sold, float }: { sold: number; float: number }) {
+  const pct = float > 0 ? Math.min(100, (sold / float) * 100) : 0;
+  return <span className="sale-bar" role="progressbar" aria-label="Float sold" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}><span style={{ width: `${pct}%` }} /></span>;
 }

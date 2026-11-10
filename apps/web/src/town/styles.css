@@ -1822,3 +1822,12 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 @keyframes ipoSpin { to { transform: rotate(360deg); } }
 @keyframes ipoPulse { 50% { box-shadow: 0 0 0 4px rgba(240,165,60,.18); } }
 @media (max-width: 420px) { .ipo-approve { flex-direction: column; align-items: stretch; } .ipo-chip { display: none; } }
+.sale-bar { display: block; height: 6px; margin-top: 4px; border-radius: 3px; background: var(--n500); overflow: hidden; }
+.sale-bar > span { display: block; height: 100%; background: var(--mint); }
+
+/* ---------- public invest page (/invest) ---------- */
+.invest { max-width: 520px; margin: 0 auto; padding: 32px 16px; display: flex; flex-direction: column; gap: 14px; }
+.invest h1 { margin: 0; font: 600 24px/1.2 var(--f-display); }
+.invest p { margin: 0; }
+.invest .row { flex-wrap: wrap; align-items: center; }
+.invest .row .input { flex: 1; min-width: 140px; width: auto; }
