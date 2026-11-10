@@ -45,17 +45,6 @@ export function Key({ children, hot, lit, disabled, onClick, href, title, type =
 /** Seven-segment digits on an LCD, with the unlit "8"s ghosted behind them. */
 export const Digits = ({ value, md }: { value: string; md?: boolean }) => <span className={`lcd-seg${md ? ' md' : ''}`} data-ghost={value.replace(/[0-9]/g, '8')}>{value}</span>;
 
-/** A segmented LCD bar: `value` of `max`, in 20 cells (one lit as soon as anything is). */
-export function LcdBar({ value, max, label }: { value: number; max: number; label: string }) {
-  const pct = max > 0 ? Math.min(1, value / max) : 0;
-  const lit = value > 0 ? Math.max(1, Math.round(pct * 20)) : 0;
-  return (
-    <span className="lcd-bar" role="progressbar" aria-label={label} aria-valuenow={Math.round(pct * 100)} aria-valuemin={0} aria-valuemax={100}>
-      {Array.from({ length: 20 }, (_, i) => <i key={i} className={i < lit ? 'on' : undefined} />)}
-    </span>
-  );
-}
-
 export function Grille({ className = '' }: { className?: string }) {
   return <div className={`dev-grille ${className}`} aria-hidden="true" />;
 }

@@ -1,11 +1,11 @@
-/* The public buy page (/invest): anyone connects a NEAR wallet and calls `buy` on the company's city token, which
-   sends tokens at the fixed offering price and forwards the NEAR to the company's DAO. */
+/* The public subscription page (/invest), drawn as a stock certificate: anyone connects a NEAR wallet and calls `buy`
+   on the company's city token, which sends shares at the fixed offering price and forwards the NEAR to the company's
+   DAO. The wax seal is the subscribe button. */
 import { useEffect, useState, type ReactNode } from 'react';
 import { NearConnector } from '@hot-labs/near-connect';
 import type { IpoState } from '@vibe-city/shared';
 import { api, ApiError } from '../api';
 import { fmtNear } from '../town/ui/IpoCard';
-import { Device, Digits, Grille, Key, LcdBar, Screen } from '../town/ui/Device';
 import { estimateTokens, nearToYocto } from './buy';
 import '../town/fonts.css';
 import '../town/styles.css';
@@ -59,18 +59,23 @@ export function InvestPage() {
     balanceOf(token, account).then(setBalance, () => setBalance(null));
   }, [token, account, tx]);
 
-  const shell = (body: ReactNode, keys: ReactNode, led: 'green' | 'amber' | 'off' = 'off') => (
+  const paper = (body: ReactNode) => (
     <main className="invest">
-      <Device model="IPO-1" name={`${name || 'Vibe City company'} · share terminal`} shell="graphite" led={led} className="safe-dev invest-dev">
-        <div className="safe-body">
-          <Screen kind="lcd" className="safe-lcd" label="Share terminal display">{body}</Screen>
-          <div className="safe-keys" role="group" aria-label="Terminal keys">{keys}<Grille className="safe-grille" /></div>
+      <article className="cert" aria-label={`${name || 'Vibe City company'} share certificate`}>
+        <div className="cert-inner">
+          <header className="cert-head">
+            <span className="cert-no">{ipo?.symbol ?? ''}</span>
+            <span className="cert-kicker">Vibe City · Certificate of shares</span>
+            <span className="cert-no">{ipo?.offer ? `${ipo.offer.supply.toLocaleString()} shares` : ''}</span>
+          </header>
+          <h1 className="cert-name">{name || 'A Vibe City company'}</h1>
+          {body}
         </div>
-      </Device>
+      </article>
     </main>
   );
-  if (!ipo) return shell(err ? <p className="scr-mono safe-err" role="alert">! {err}</p> : <p className="scr-mono">Loading…</p>, null);
-  if (!token) return shell(<><div className="scr-row"><span>{name || 'Vibe City'}</span><span>○ Private</span></div><p className="scr-mono safe-hint">This company has not gone public yet.</p></>, null);
+  if (!ipo) return paper(err ? <p className="cert-err" role="alert">{err}</p> : <p className="cert-text">Loading…</p>);
+  if (!token) return paper(<p className="cert-text">This company has not gone public yet. Its shares will be offered here when it rings the opening bell.</p>);
 
   const sale = ipo.sale, offer = ipo.offer;
   const float = sale ? sale.sold + sale.remaining : 0;
@@ -94,34 +99,48 @@ export function InvestPage() {
   };
 
   const connect = () => void near().connect().catch((e) => setErr(errText(e)));
-  return shell(<>
-    <div className="scr-row"><span>{ipo.symbol} · city shares</span><span>{sale ? (sale.open ? '● Offering open' : '○ Offering closed') : '…'}</span></div>
-    <div className="scr-mono safe-acct"><a href={`${NB}/address/${token}`} target="_blank" rel="noreferrer">{token}</a></div>
-    <div className="scr-row safe-lbl"><span>Price per share</span><span>{offer && `≈ $${(offer.priceNear * offer.nearUsd).toFixed(4)}`}</span></div>
-    <div><Digits value={offer ? fmtNear(offer.priceNear) : '-'} /> <span className="scr-mono">NEAR</span></div>
-    {sale && <>
-      <div className="scr-row safe-lbl"><span>Sold</span><span>{sale.sold.toLocaleString(undefined, { maximumFractionDigits: 2 })} / {float.toLocaleString()}</span></div>
-      <LcdBar value={sale.sold} max={float} label="Shares sold" />
-      <div className="scr-row safe-lbl"><span>Raised by the company</span><span>{fmtNear(sale.raisedNear)} NEAR · {sale.buyers} holder{sale.buyers === 1 ? '' : 's'}</span></div>
-    </>}
-    <div className="scr-rule" />
-    <div className="scr-row"><span>Your wallet</span><span>{account ? `${balance === null ? '?' : balance.toLocaleString()} ${ipo.symbol}` : '○ Not connected'}</span></div>
-    {account && <div className="scr-mono safe-acct">{account}</div>}
+  const holder = account ?? '______________________';
+  return paper(<>
+    <p className="cert-sub">City shares · <b>{ipo.symbol}</b> · offered at <b>{offer ? fmtNear(offer.priceNear) : '—'} NEAR</b> a share{offer && <> (≈ ${(offer.priceNear * offer.nearUsd).toFixed(4)})</>}</p>
+    <p className="cert-text">
+      This certifies that <span className="cert-fill">{holder}</span> is the registered holder of{' '}
+      <span className="cert-fill">{account ? (balance === null ? '…' : balance.toLocaleString(undefined, { maximumFractionDigits: 6 })) : '____'}</span> fully paid shares of{' '}
+      {name || 'the company'}, transferable on the NEAR blockchain at <a href={`${NB}/address/${token}`} target="_blank" rel="noreferrer">{token}</a>.
+    </p>
+    {sale && (
+      <div className="cert-offering">
+        <span><b>{sale.sold.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b> of {float.toLocaleString()} offered shares subscribed</span>
+        <span className="cert-meter" role="progressbar" aria-label="Offered shares subscribed" aria-valuenow={Math.round(float ? (sale.sold / float) * 100 : 0)} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.max(float ? (sale.sold / float) * 100 : 0, sale.sold > 0 ? 1 : 0)}%` }} /></span>
+        <span>{fmtNear(sale.raisedNear)} NEAR raised by the company · {sale.buyers} holder{sale.buyers === 1 ? '' : 's'}</span>
+      </div>
+    )}
+
     {sale?.open ? (
-      <form onSubmit={(e) => { e.preventDefault(); if (canBuy) void buy(); }}>
-        <div className="scr-row safe-lbl"><span>Invest · NEAR</span><span>{deposit && offer ? `≈ ${estimate.toLocaleString(undefined, { maximumFractionDigits: 3 })} ${ipo.symbol}` : ''}</span></div>
-        <input className="scr-input lcd-seg md" inputMode="decimal" placeholder="0.00" aria-label="NEAR to invest" value={amount} onChange={(e) => setAmount(e.target.value.trim())} />
-        {deposit && !balance && <p className="scr-mono safe-hint">A first purchase keeps ~0.0033 NEAR for your share account.</p>}
+      <form className="cert-sub-form" onSubmit={(e) => { e.preventDefault(); if (canBuy) void buy(); }}>
+        <label>
+          <span>Subscribe with</span>
+          <input inputMode="decimal" placeholder="0.00" aria-label="NEAR to invest" value={amount} disabled={!account} onChange={(e) => setAmount(e.target.value.trim())} />
+          <span>NEAR {deposit && offer ? <>for <b>≈ {estimate.toLocaleString(undefined, { maximumFractionDigits: 3 })}</b> shares</> : ''}</span>
+        </label>
+        {deposit && !balance && <small>A first subscription keeps about 0.0033 NEAR to open your share account.</small>}
+        <div className="cert-seal-row">
+          {account
+            ? <button className="seal" type="submit" disabled={!canBuy} aria-label="Subscribe"><span>{busy ? 'Signing' : 'Subscribe'}</span></button>
+            : <button className="seal" type="button" onClick={connect} aria-label="Connect a NEAR wallet"><span>Connect wallet</span></button>}
+          {account && <button className="cert-link" type="button" onClick={() => void near().disconnect()}>Not {short(account)}? Disconnect</button>}
+        </div>
       </form>
-    ) : sale && <p className="scr-mono safe-hint">The offering is closed.</p>}
-    {tx && <p className="scr-mono" role="status">{tx.ok ? '✓ Bought.' : '! The transaction failed.'} {tx.hash && <a href={`${NB}/txns/${tx.hash}`} target="_blank" rel="noreferrer">View ▸</a>}</p>}
-    {err && <p className="scr-mono safe-err" role="alert">! {err}</p>}
-    <div className="scr-row safe-foot"><span>Your NEAR goes to the company's DAO</span><span>Payouts by DAO vote · nothing promised</span></div>
-  </>, <>
-    {account
-      ? <Key hot type="button" disabled={!canBuy} onClick={() => void buy()}>{busy ? 'Buying' : 'Buy'}</Key>
-      : <Key hot onClick={connect}>Connect</Key>}
-    {account && <Key onClick={() => void near().disconnect()}>Disconnect</Key>}
-    <Key href={`${NB}/address/${token}`} title="The token on NearBlocks">Token</Key>
-  </>, sale?.open ? 'green' : 'off');
+    ) : sale && <p className="cert-text"><b>The offering is closed.</b> The company's books are shut; shares now move only between holders.</p>}
+
+    {tx && <p className="cert-text" role="status">{tx.ok ? 'Subscribed. Your shares are on the register.' : 'The transaction failed.'} {tx.hash && <a href={`${NB}/txns/${tx.hash}`} target="_blank" rel="noreferrer">View the transaction</a>}</p>}
+    {err && <p className="cert-err" role="alert">{err}</p>}
+
+    <footer className="cert-foot">
+      <span className="cert-sign"><i>{ipo.ceoAccountId ?? ''}</i>Chair of the board</span>
+      <span className="cert-sign"><i>tokens.vibecity.near</i>Registrar</span>
+    </footer>
+    <p className="cert-fine">Your NEAR goes to the company's DAO ({ipo.daoAccountId}). Dividends are decided by DAO vote; nothing is promised.</p>
+  </>);
 }
+
+const short = (a: string) => (a.length > 24 ? `${a.slice(0, 10)}…${a.slice(-8)}` : a);
