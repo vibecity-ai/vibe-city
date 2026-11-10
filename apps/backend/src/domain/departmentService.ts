@@ -40,6 +40,8 @@ const isHidden = (r: Pick<Row, 'template_id'>) => r.template_id === CHIEF_OF_STA
 export const FLOOR = `(template_id IS NULL OR template_id != '${CHIEF_OF_STAFF}')`;
 
 const nameKey = (n: string) => n.trim().toLowerCase();
+/** Leading space: a trimmed floor name can never produce it, so the unique-name index never pairs the two. */
+const hiddenNameKey = (n: string) => ` ${nameKey(n)}`;
 const RESERVED_PROFILES = new Set(['default']);
 
 export function agentView(a: AgentRow): DepartmentAgent {
@@ -247,8 +249,10 @@ export class DepartmentService {
     const seats = t ? t.seats
       : input.agents ? input.agents.map((a) => ({ title: a.title, name: a.name, model: null, skills: [] as string[] }))
       : Array.from({ length: input.teammates + 1 }, () => null);
+    // a hidden department is not a floor: its name never blocks (or is blocked by) a floor's
+    const key = t?.hidden ? hiddenNameKey(input.name) : nameKey(input.name);
     return this.tx(() => {
-      this.assertUniqueName(input.name);
+      if (!t?.hidden) this.assertUniqueName(input.name);
       const id = randomUUID();
       const now = new Date().toISOString();
       // floor_order is monotonic and never reused or renumbered, so existing floors stay stable.
@@ -256,7 +260,7 @@ export class DepartmentService {
       this.db.prepare(
         `INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      ).run(id, this.companyId, input.name, nameKey(input.name), input.purpose || t?.purpose || '', next, now, now);
+      ).run(id, this.companyId, input.name, key, input.purpose || t?.purpose || '', next, now, now);
       this.db.prepare('INSERT INTO department_inventory (department_id, inventory_json, updated_at) VALUES (?, ?, ?)')
         .run(id, JSON.stringify(inventory), now);
       seats.forEach((s, seat) => {
@@ -277,6 +281,7 @@ export class DepartmentService {
     return this.tx(() => {
       const cur = this.row(id);
       if (cur.archived_at) throw new ConflictError('department is archived');
+      if (isHidden(cur)) throw new ConflictError('the Chief of Staff is not a floor: it cannot be renamed or edited');
       if (patch.name !== undefined) this.assertUniqueName(patch.name, id);
       const curLead = this.lead(id).profile_ref;
       const lead = patch.leadProfileRef === undefined ? curLead : patch.leadProfileRef;
@@ -313,6 +318,7 @@ export class DepartmentService {
     return this.tx(() => {
       const cur = this.row(id);
       if (cur.archived_at) throw new NotFoundError('department not found');
+      if (isHidden(cur)) throw new ConflictError('the Chief of Staff cannot be archived');
       const now = new Date().toISOString();
       this.db.prepare('UPDATE department SET archived_at = ?, updated_at = ? WHERE id = ?').run(now, now, id);
       return {

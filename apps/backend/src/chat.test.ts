@@ -210,3 +210,18 @@ test('a chat about a blocked task tells the agent why it is blocked, and its res
   assert.match(agentChat.turns[0]!.system, /"Install skills", which is blocked .*No shell access/);
   assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
 });
+
+test('the Chief of Staff never proposes a job: its board is not a floor, so the job would vanish', async () => {
+  const { app, services, agentChat, readyDept } = agentApp(() =>
+    'Ask Research.\n<vc>{"mood":"happy","replies":["OK"],"proposal":{"title":"Competitor brief","objective":"Summarise three competitors."}}</vc>');
+  const cos = services.chiefOfStaffId;
+  assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` })).json().state, 'ready');
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${cos}/characters/chief/chat`, payload: { message: 'Look at our competitors' } });
+  assert.equal(r.statusCode, 200);
+  assert.deepEqual([r.json().agent.text, r.json().agent.proposal], ['Ask Research.', null]);
+  assert.match(agentChat.turns[0]!.system, /never propose a job/);
+  // a floor's lead still proposes
+  const d = await readyDept('Research', {});
+  const f = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'Look at our competitors' } });
+  assert.equal(f.json().agent.proposal.title, 'Competitor brief');
+});

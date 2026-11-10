@@ -216,7 +216,7 @@ test('the Marketplace board reads the listed agent from market.near.ai: a Draft 
 test('the one company-wide listing of an older database becomes that floor\'s own market agent, token and all', async () => {
   const { openDb, MIGRATIONS } = await import('./db/db.ts');
   const path = (await import('node:path')).join((await import('./testUtils.ts')).tempDir(), 'old.sqlite');
-  const old = openDb(path, MIGRATIONS.slice(0, -1));
+  const old = openDb(path, MIGRATIONS.slice(0, -2));
   old.prepare('INSERT INTO company_settings (id, settings_json) VALUES (1, ?)').run(JSON.stringify({
     marketAgentHandle: 'markets-intel', marketDepartmentId: 'dept-1', marketVerifiedAt: '2026-11-10T12:00:00Z', marketAdoptedAt: '2026-11-10T13:00:00Z',
     marketTokenAppliedAt: '2026-11-10T12:01:00Z', secrets: { marketAgentToken: TOKEN },
@@ -225,5 +225,23 @@ test('the one company-wide listing of an older database becomes that floor\'s ow
   const db = openDb(path);
   const row = db.prepare('SELECT * FROM market_agent').get() as Record<string, unknown>;
   assert.deepEqual([row.department_id, row.handle, row.token, row.adopted_at, row.token_applied_at], ['dept-1', 'markets-intel', TOKEN, '2026-11-10T13:00:00Z', '2026-11-10T12:01:00Z']);
+  db.close();
+});
+
+test('a listing from before floors were listed one by one (no marketDepartmentId) stays with the Marketplace Agency floor', async () => {
+  const { openDb, MIGRATIONS } = await import('./db/db.ts');
+  const path = (await import('node:path')).join((await import('./testUtils.ts')).tempDir(), 'main.sqlite');
+  const old = openDb(path, MIGRATIONS.slice(0, -2));
+  const dept = (id: string, order: number, archived: string | null) => old.prepare(`INSERT INTO department (id, company_id, name, name_key, purpose, floor_order, created_at, updated_at, archived_at, template_id)
+    VALUES (?, 'c', ?, ?, '', ?, 'now', 'now', ?, 'marketplace-agency')`).run(id, id, id, order, archived);
+  old.prepare("INSERT INTO company (singleton, id, name, created_at) VALUES (1, 'c', 'Acme', 'now')").run();
+  dept('agency-old', 1, '2026-11-01'); dept('agency', 2, null);
+  old.prepare('INSERT INTO company_settings (id, settings_json) VALUES (1, ?)').run(JSON.stringify({
+    marketAgentHandle: 'acme-works', marketVerifiedAt: '2026-11-09T12:00:00Z', secrets: { marketAgentToken: TOKEN },
+  }));
+  old.close();
+  const db = openDb(path);
+  const rows = db.prepare('SELECT * FROM market_agent').all() as Record<string, unknown>[];
+  assert.deepEqual(rows.map((r) => [r.department_id, r.handle, r.token, r.verified_at]), [['agency', 'acme-works', TOKEN, '2026-11-09T12:00:00Z']]);
   db.close();
 });

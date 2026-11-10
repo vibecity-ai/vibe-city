@@ -283,6 +283,19 @@ export const MIGRATIONS: readonly string[] = [
      FROM company_settings
      WHERE json_extract(settings_json, '$.marketDepartmentId') IS NOT NULL AND json_extract(settings_json, '$.marketAgentHandle') IS NOT NULL
        AND json_extract(settings_json, '$.secrets.marketAgentToken') IS NOT NULL;`,
+  // (1) the Chief of Staff's name is not a floor name: a leading space keeps it out of the unique-name index's way.
+  // (2) a listing made before floors were listed one by one has no marketDepartmentId: its jobs went to the newest
+  //     Marketplace Agency floor, so it stays there.
+  `UPDATE department SET name_key = ' ' || name_key WHERE template_id = 'chief-of-staff' AND name_key NOT LIKE ' %';
+   INSERT OR IGNORE INTO market_agent (department_id, handle, token, verified_at, token_applied_at, created_at)
+     SELECT d.id, json_extract(s.settings_json, '$.marketAgentHandle'), json_extract(s.settings_json, '$.secrets.marketAgentToken'),
+            json_extract(s.settings_json, '$.marketVerifiedAt'), json_extract(s.settings_json, '$.marketVerifiedAt'), datetime('now')
+     FROM company_settings s
+     JOIN (SELECT id FROM department WHERE template_id = 'marketplace-agency' AND archived_at IS NULL ORDER BY floor_order DESC LIMIT 1) d
+     WHERE json_extract(s.settings_json, '$.marketDepartmentId') IS NULL
+       AND json_extract(s.settings_json, '$.marketAgentHandle') IS NOT NULL
+       AND json_extract(s.settings_json, '$.secrets.marketAgentToken') IS NOT NULL
+       AND NOT EXISTS (SELECT 1 FROM market_agent);`,
 ];
 
 export function schemaVersion(db: DatabaseSync): number {
