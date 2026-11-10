@@ -405,26 +405,6 @@ export function coolerItem(c: IC) {
   box(c, COOLER[0] - 1, COOLER[1] + 9, 14, 6, 6, 8, '#5AB8F0', { top: '#9FE0FF', em: 0.25 });
   c.px.dot(...(c.P(COOLER[0] + 6, COOLER[1] + 10, 9).map(Math.floor) as Pt), C.red, 1);
 }
-export function counterStatic(c: IC) {
-  const { P, px } = c;
-  box(c, 190, 126, 0, 48, 14, 13, '#3A2F5E', { top: '#544686' });
-  box(c, 189, 125, 13, 50, 15, 2, '#B8AED8', { top: '#D6CEF0' });
-  for (let u = 196; u < 236; u += 12) { px.line(P(u, 126, 2), P(u, 126, 11), '#2A2248'); px.dot(...(P(u + 5, 126, 8).map(Math.floor) as Pt), '#8C84C0'); }
-  box(c, 196, 130, 15, 12, 8, 11, '#C0B8E0', { top: '#E4DEF8' });
-  box(c, 198, 129.5, 18, 8, 1, 5, '#2A2440', { edge: false });
-  box(c, 201, 128, 15, 3, 3, 3, '#EDE8FF', { top: '#5A3020', edge: false });
-  box(c, 220, 130, 15, 12, 9, 7, '#2E2848', { top: '#4A4370' });
-  px.poly([P(221, 130, 16), P(228, 130, 16), P(228, 130, 21), P(221, 130, 21)], '#120E24');
-  const fb = P(234, 133, 15); px.ellipse(fb[0], fb[1] - 1, 4, 2, '#E4DEF8'); px.ellipse(fb[0] - 1, fb[1] - 3, 1.5, 1.5, C.orange); px.ellipse(fb[0] + 1.5, fb[1] - 3, 1.5, 1.5, '#FFD36B');
-}
-export function counterLive(c: IC, lit: boolean) {
-  const { P, px, L, t } = c;
-  px.dot(...(P(206, 130, 23).map(Math.floor) as Pt), lit ? C.mint : '#2A4A3A', lit ? 1 : 0);
-  px.dot(...(P(209, 130, 23).map(Math.floor) as Pt), lit ? C.amber : '#4A3A2A', lit ? 1 : 0);
-  for (let i = 0; i < 3; i++) { const p = P(202.5, 129.5, 19 + ((t * 6 + i * 4) % 12)); px.push(0.35 * (1 - ((t * 6 + i * 4) % 12) / 12)); px.dot(Math.floor(p[0] + Math.sin(t * 2 + i) * 1.5), Math.floor(p[1]), '#FFFFFF', 0.3); px.pop(); }
-  px.text('12', (a, b) => P(229 + a * 0.9, 130, 21 - b * 0.9), 0.9, lit ? C.mint : '#2A4A3A', lit ? 1 : 0);
-  if (lit) L.add(...P(206, 124, 22), 30, '#FFB46B', 0.4);
-}
 export const LOUNGE_PROPS: { key: string; y: [number, number]; draw: (c: IC) => void }[] = [
   { key: 'table', y: [204, 28], draw: (c) => {
     const { P, px } = c;
@@ -533,8 +513,6 @@ export function roomLights(c: IC, lit: boolean) {
   for (let v = 15; v < V; v += 40) L.add(...P(0, v, 50), 46, '#FF3EA5', 0.26, 0.9);
   for (let u = 20; u < U; u += 44) L.add(...P(u, V, 50), 46, '#FF3EA5', 0.24, 0.9);
 }
-export const mixC = mix;
-
 /** Meeting nook in the front-left: table, stools, a rolling whiteboard with scribbles. */
 export function meetingStatic(c: IC) {
   const { P, px } = c;

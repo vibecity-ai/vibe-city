@@ -158,7 +158,7 @@ export function QuestAction({ q, onGo, compact }: { q: CeoQuest; onGo?: () => vo
   const t = questTarget(q.id);
   switch (t?.kind) {
     case 'safe': return <button className="btn primary small" onClick={go(() => { s.openExec(); s.ui$({ execModal: 'safe' }); })}>Open the safe</button>;
-    case 'hire': return <button className="btn primary small" onClick={go(() => s.ui$({ modal: 'create' }))}>Hire a department</button>;
+    case 'hire': return <button className="btn primary small" onClick={go(() => s.ui$({ modal: 'create' }))}>Hire a floor</button>;
     case 'connector': return <ConnectorQuest name={t.name} />;
     case 'quest-board': return <button className="btn primary small" onClick={go(() => s.openPanel('board', { composer: true, boardDept: null }))}>Give Treasury Ops the launch</button>;
     case 'cos': return compact

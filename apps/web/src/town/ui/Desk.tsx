@@ -18,7 +18,7 @@ export function DeskSheet({ title, wide, onClose, esc = true, className = '', ch
   const ref = useRef<HTMLElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
-  const root = useStore((s) => s.ui.panel === 'board' ? 'Ops board' : s.ui.floorId ? (s.depts.find((d) => d.id === s.ui.floorId)?.name ?? 'Floor') : 'Executive office');
+  const root = useStore((s) => s.ui.panel === 'board' ? 'Ops board' : s.ui.floorId ? (s.depts.find((d) => d.id === s.ui.floorId)?.name ?? 'Floor') : 'Executive Office');
   const [z, setZ] = useState(() => ++raised);
   const firstTitle = useRef(title);
   // a sheet that switches to another tool (the safe after the org chart) comes to the top again

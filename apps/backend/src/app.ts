@@ -42,7 +42,6 @@ import { QuestRequestService } from './domain/questRequests.ts';
 import { MCP_CHAT_SERVER_NAME, MCP_COS_TOOLS, MCP_FILE_TOOLS, MCP_SERVER_NAME, MCP_TOOLS, registerMcp } from './mcp/server.ts';
 import { CHIEF_OF_STAFF, type MarketRegister } from '@vibe-city/shared';
 import { ScheduleService } from './domain/scheduleService.ts';
-import { MoneyService, type MoneyDeps } from './domain/moneyService.ts';
 import { register as registerTemplates } from './routes/templates.ts';
 import { nearAiKey, readSettings, register as registerCompany, secret, writeSettings } from './routes/company.ts';
 import { WalletService } from './domain/walletService.ts';
@@ -55,7 +54,6 @@ import { register as registerQuestFiles } from './routes/questFiles.ts';
 import { register as registerEnv } from './routes/env.ts';
 import { DepartmentEnvService } from './domain/departmentEnv.ts';
 import { MarketService } from './domain/marketService.ts';
-import { MoneySettingsPatchSchema, MoneySettingsSchema, MoneyViewSchema, WalletLinkSchema } from '@vibe-city/shared';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
 import { AssistantViewSchema, DeptDraftReplySchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
@@ -75,7 +73,6 @@ export interface AppServices {
   schedules: ScheduleService;
   db: DatabaseSync;
   departments: DepartmentService;
-  money: MoneyService;
   /** The OutLayer company wallet (brief 03). */
   wallet: WalletService;
   /** Rewrites every department's secrets env (OutLayer key, market token) into its profiles (best effort; the next sync retries). */
@@ -103,8 +100,6 @@ export interface ServicesExtra {
   /** market.near.ai's HTTP API (tests pass a fake) and its base URL (default https://market.near.ai). */
   marketFetch?: typeof fetch;
   marketBaseUrl?: string;
-  /** The safe (spec 6.1): credits source and, for tests and the demo, a fake NEAR reader. */
-  money?: Pick<MoneyDeps, 'credits' | 'reader' | 'rpcUrl'>;
   /** Hermes event stream settings. Omit to disable live events (the WebSocket route then answers 503). */
   live?: Pick<BoardStreamDeps, 'wsBaseUrl' | 'sessionToken'> & Partial<BoardStreamDeps> & { graceMs?: number };
   /** Origins allowed to open the live WebSocket (browsers always send Origin). Requests without Origin are allowed. */
@@ -195,7 +190,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
 
   const idOf = (params: unknown): string => {
     const id = (params as { id: string }).id;
-    if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('department not found');
+    if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('floor not found');
     return id;
   };
 
@@ -456,14 +451,6 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
       await writeDepartmentEnv(deptId, profiles);
     };
   }
-  // ---- the safe (feature spec 6.1): wallets, treasury and credits, read-only; signing happens in the user's wallet ----
-  const money = new MoneyService({ db, credits: extra.money?.credits ?? { configured: false, read: async () => { throw new Error('not configured'); } }, ...(extra.money?.reader ? { reader: extra.money.reader } : {}), ...(extra.money?.rpcUrl ? { rpcUrl: extra.money.rpcUrl } : {}) });
-  const acct = (params: unknown) => parse(WalletLinkSchema, { accountId: (params as { accountId: string }).accountId }).accountId;
-  app.get('/api/money', async (req) => parse(MoneyViewSchema, await money.view((req.query as { fresh?: string }).fresh === '1')));
-  app.patch('/api/money/settings', async (req) => parse(MoneySettingsSchema, money.setSettings(parse(MoneySettingsPatchSchema, req.body))));
-  app.post('/api/money/wallets', async (req, reply) => { money.linkWallet(parse(WalletLinkSchema, req.body).accountId); return reply.code(201).send(parse(MoneyViewSchema, await money.view(true))); });
-  app.delete('/api/money/wallets/:accountId', async (req) => { money.unlinkWallet(acct(req.params)); return parse(MoneyViewSchema, await money.view(true)); });
-  app.post('/api/money/wallets/:accountId/primary', async (req) => { money.setPrimary(acct(req.params)); return parse(MoneyViewSchema, await money.view(true)); });
 
   // ---- schedules (feature spec 8): the backend creates the quests, Hermes cron stays off ----
   const schedules = new ScheduleService({
@@ -589,7 +576,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
       } catch {
         return reject(1008, 'unknown department');
       }
-      if (!board) return reject(1008, 'department is not synced with Hermes');
+      if (!board) return reject(1008, 'floor is not synced with Hermes');
       const unsubscribe = hub.subscribe(raw, board, (m) => {
         if (socket.readyState === 1) socket.send(JSON.stringify(parse(LiveMessageSchema, m)));
       });
@@ -617,7 +604,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     ...(extra.marketFetch ? { fetch: extra.marketFetch } : {}), ...(extra.marketBaseUrl ? { baseUrl: extra.marketBaseUrl } : {}),
   });
   const services: AppServices = {
-    app, provisioning, quests: quests_, hub, schedules, db, departments, money, wallet, pushDepartmentEnv, market, listOnMarket, chiefOfStaffId,
+    app, provisioning, quests: quests_, hub, schedules, db, departments, wallet, pushDepartmentEnv, market, listOnMarket, chiefOfStaffId,
     chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv,
   };
   // hackathon route modules (docs/briefs): one line each

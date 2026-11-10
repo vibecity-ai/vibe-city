@@ -55,7 +55,7 @@ export default function App() {
       <TopBar />
       <main className={`main view-${view}${panel === 'board' ? ' wide' : ''}`}>
         <section className="stage">
-          <canvas ref={canvas} aria-label="Vibe City tower: each floor is a department of AI agents" />
+          <canvas ref={canvas} aria-label="Vibe City tower: each floor is a team of AI agents" />
           <StageOverlay city={city} />
         </section>
         <aside className="panel" key={panel === 'dept' || panel === 'exec' ? panel + (floorId ?? '') : panel}>

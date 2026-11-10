@@ -6,10 +6,10 @@ import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
 import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
 import {
-  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, counterStatic, counterLive, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
+  mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, rackStatic, rackLive, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
 } from './interior';
-import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, orgMap, templateKiosk, type ExecObjectId } from './execRoom';
+import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, libraryCabinet, orgMap, templateKiosk, type ExecObjectId } from './execRoom';
 import { execAction, floorAction } from '../execActions';
 import { listedFloors, stationFor, stationKeyOf, type FloorObjectId } from '../data/floor';
 import { STATION_BOX, archiveStatic, clockLive, floorObjects, keyCabinet, stationLive, stationStatic } from './floorRoom';
@@ -471,7 +471,7 @@ export class City {
     // room furniture
     items.push({ y: P(0, 74)[1], draw: () => { prop('rack', (q) => rackStatic(q)); rackLive(c, lit); } });
     items.push({ y: P(COOLER[0] - 2, COOLER[1] + 16)[1], draw: () => prop('cooler', (q) => coolerItem(q)) });
-    items.push({ y: P(190, 140)[1], draw: () => { prop('counter', (q) => counterStatic(q)); counterLive(c, lit); } });
+    items.push({ y: P(192, 140)[1], draw: () => prop('library', (q) => libraryCabinet(q)) });
     // a template's station replaces the lounge: the tools that kind of team works with, live
     if (station) {
       cast(c, STATION_BOX[0] + 2, STATION_BOX[1] + 2, STATION_BOX[3] - 4, STATION_BOX[4] - 4, 16, 0.24);

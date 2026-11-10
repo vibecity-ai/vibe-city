@@ -2,7 +2,7 @@
    allowed, what a form change sends. No React, no I/O: tested in views.test.ts. The wording rules come from the spec:
    configured is never "guaranteed", a requested cancel is never "cancelled". */
 import type {
-  CancellationStatus, CapabilityEntry, Character, DepartmentUpdate, DepartmentView, ProvisioningError, ProvisioningStatus, SyncCheck, TaskNode,
+  CancellationStatus, Character, DepartmentUpdate, DepartmentView, ProvisioningError, ProvisioningStatus, SyncCheck, TaskNode,
 } from '@vibe-city/shared';
 import { ENV_NAME_RE, QUEST_FILE_MAX_BYTES, QUEST_FILES_MAX, isReservedEnvName } from '@vibe-city/shared';
 import type { FieldIssue } from '../../api.ts';
@@ -34,7 +34,7 @@ export const SYNC_STEP_LABEL: Record<ProvisioningError['step'], string> = {
 /* ---------- department settings ---------- */
 
 export const RESET_WARNING =
-  'Changing the name, purpose, loadout or profiles takes the department out of sync with Hermes. ' +
+  'Changing the name, purpose, loadout or profiles takes the floor out of sync with Hermes. ' +
   'Agents then get no new work until you sync again.';
 
 export interface SettingsForm { name: string; purpose: string }
@@ -70,7 +70,7 @@ export function archiveConsequences(d: Pick<DepartmentView, 'name' | 'hermesBoar
   const hermes = [d.hermesBoardRef && 'its board', profiles && `its ${profiles} agent profile${profiles === 1 ? '' : 's'}`].filter(Boolean);
   return [
     `“${d.name}” disappears from the active tower. The other floors close the gap.`,
-    'Vibe City keeps the department record, its loadout and settings.',
+    'Vibe City keeps the floor record, its loadout and settings.',
     hermes.length
       ? `Nothing is deleted in Hermes: ${hermes.join(', ')} and every job, result and attachment stay there.`
       : 'It was never synced, so it has no Hermes resources.',
@@ -92,19 +92,13 @@ export const LIMIT_COPY = {
 /** What to tell the user after an inventory save, based on the sync state before and after. */
 export function inventorySavedNotice(before: ProvisioningStatus['state'] | undefined, after: ProvisioningStatus['state'] | undefined): { text: string; tone: 'good' | 'warn' } {
   if (after === 'unconfigured' && before && before !== 'unconfigured' && before !== 'provisioning') {
-    return { text: 'Loadout saved. Sync the department so Hermes uses it.', tone: 'warn' };
+    return { text: 'Loadout saved. Sync the floor so Hermes uses it.', tone: 'warn' };
   }
-  if (after === 'unconfigured') return { text: 'Loadout saved. It is applied when you sync the department.', tone: 'good' };
+  if (after === 'unconfigured') return { text: 'Loadout saved. It is applied when you sync the floor.', tone: 'good' };
   return { text: 'Loadout saved.', tone: 'good' };
 }
 
 /** Only an enforced entry with the backend's guarantee flag gets lock styling. */
-export const isGuaranteed = (e: Pick<CapabilityEntry, 'status' | 'guarantee'>) => e.status === 'enforced' && e.guarantee;
-
-export const CAP_STATUS_LABEL: Record<CapabilityEntry['status'], string> = {
-  enforced: 'Enforced', configured: 'Configured, not tested', unverified: 'Unverified', unsupported: 'Not supported by Hermes',
-};
-
 /** Compact, safe rendering of a capability's requested/effective value. */
 export function capValue(v: unknown): string {
   if (v === null || v === undefined) return '—';
@@ -151,7 +145,7 @@ export function taskStatusView(t: Pick<TaskNode, 'status' | 'failed'>): { k: Sta
 
 export function assigneeWarning(t: Pick<TaskNode, 'agentKey' | 'assignee'>): string | null {
   if (t.agentKey !== null) return null;
-  return t.assignee ? 'Assigned to an agent outside this department. Detected, not prevented.' : 'Not assigned to any of this department’s agents yet.';
+  return t.assignee ? 'Assigned to an agent outside this floor. Detected, not prevented.' : 'Not assigned to any of this floor’s agents yet.';
 }
 
 /* ---------- cancellation ---------- */

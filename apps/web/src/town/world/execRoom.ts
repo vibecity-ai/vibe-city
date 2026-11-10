@@ -8,6 +8,8 @@ import { box, chiefDeskStatic, shelfItem, meetingStatic, plant, chairItem, C, ST
 import { shade } from './sprites';
 
 export type ExecObjectId = 'desk' | 'phone' | 'org' | 'safe' | 'table' | 'calendar' | 'trophy' | 'assistant' | 'library' | 'templates';
+/** Against the back wall, where a floor's kitchen counter used to be: the same spot in every room. */
+export const LIBRARY_BOX: [number, number, number, number, number, number] = [192, 127, 0, 34, 13, 38];
 /** Footprint boxes (u, v, h, du, dv, dh) for hit-testing and the hover outline, and where the label sits. */
 export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number, number, number, number, number] }[] = [
   { id: 'phone', label: 'Phone', b: [23, 118, 13, 10, 7, 6] },
@@ -18,7 +20,7 @@ export const EXEC_OBJECTS: { id: ExecObjectId; label: string; b: [number, number
   { id: 'org', label: 'Tower map', b: [92, 138, 6, 88, 2, 38] },
   { id: 'table', label: 'Meeting table', b: [24, 6, 0, 44, 32, 16] },
   { id: 'assistant', label: 'Chief of Staff', b: [104, 92, 0, 8, 8, 34] },
-  { id: 'library', label: 'Skill library', b: [192, 127, 0, 34, 13, 38] },
+  { id: 'library', label: 'Skill library', b: LIBRARY_BOX },
   { id: 'templates', label: 'Templates', b: [206, 12, 0, 22, 18, 40] },
 ];
 export const ASSISTANT_SPOT: Pt = [108, 96];
@@ -54,7 +56,7 @@ export function execProps(c: IC) {
 
 /** The skill library: a cabinet of glowing skill cartridges against the back wall, one colour per school. */
 const CARTS = ['#C9B8FF', '#FFC75A', '#7CF5B4', '#3EE6FF', '#FF8AD8', '#FFA86B', '#FF5C7A', '#B98CFF', '#6BD1FF', '#A9A3C9'];
-function libraryCabinet(c: IC) {
+export function libraryCabinet(c: IC) {
   const { P, px } = c;
   box(c, 192, 127, 0, 34, 13, 38, '#241A44', { top: '#3A2D66' });
   // four shelves of cartridges on the front face (v = 127)

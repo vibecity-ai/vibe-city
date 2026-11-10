@@ -13,7 +13,7 @@ import { DialogueFrame, type Line } from './Dialogue';
 import { callAr } from './Hiring';
 
 /** The menu every visit opens on (handled here, no model). */
-const ADD = 'Add a new department', HIRE = 'Hire a new agent', LIST = 'List a floor on the Agent Market';
+const ADD = 'Add a new floor', HIRE = 'Hire a new agent', LIST = 'List a floor on the Agent Market';
 /** Adding a department: a ready template (opens the hire grid, no model needed) or a custom floor drafted in conversation. */
 const USE_TEMPLATE = 'Show me the templates', CUSTOM = 'Design a custom floor';
 /** After a floor is built: what the boss can do next (handled here, no model). */
@@ -93,7 +93,7 @@ function NewDept() {
   return (
     <DialogueFrame
       who={me?.character ?? null} look={look} lines={lines} ready={me?.modelReady ?? true} waiting={waiting} error={error}
-      greeting="What do you need, boss? I can add a department, hire a specialist for a floor, or put a floor on the Agent Market."
+      greeting="What do you need, boss? I can add a floor, hire a specialist for a floor, or put a floor on the Agent Market."
       notReady="I can't think yet: finish the first quest (your NEAR AI key and my model). The templates still work."
       baseMood="happy" defaultReplies={menu} onSend={onSend} onClose={close}
       inputHint="Or describe a floor, e.g. “handles invoices and chases late payments”"

@@ -158,3 +158,18 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
   }
   assert.ok(seen.has('model-a') && seen.has('model-b'), 'balanced and premium are both drawn from what fits the budget');
 });
+
+test('a brief for a floor that does not exist is not silently dropped: the Chief of Staff says so', async () => {
+  const model = new FakeChatModel(() => JSON.stringify({ say: 'Brief locked, off to scout!', mood: 'happy', replies: ['Go scout'], brief: { department: 'Security Audits', focus: 'Audits contracts', skills: ['pdf'], budgetPerDay: 50, notes: '' } }));
+  const { app, readyDept } = questApp({ chatModel: model, hiringScoutMs: 0 });
+  await readyDept('Research');
+  const start = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: {} })).json();
+  const r = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${start.id}/chat`, payload: { message: 'New Security Audits floor, go scout' } })).json();
+  assert.equal(r.state, 'intake');
+  assert.equal(r.brief, null);
+  const said = r.messages.at(-1);
+  assert.equal(said.brief, null);
+  assert.doesNotMatch(said.text, /off to scout/, 'never claims to scout without a brief');
+  assert.match(said.text, /no "Security Audits" floor/);
+  assert.match(said.text, /Research/, 'names the floors it can scout for');
+});

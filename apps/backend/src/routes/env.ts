@@ -7,7 +7,7 @@ import { NotFoundError } from '../domain/errors.ts';
 export function register(app: FastifyInstance, deps: AppServices) {
   const params = (p: unknown) => {
     const { id, name } = p as { id: string; name?: string };
-    if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('department not found');
+    if (!DEPARTMENT_ID_RE.test(id)) throw new NotFoundError('floor not found');
     return { id, name: name === undefined ? '' : EnvNameSchema.parse(name) };
   };
   app.get('/api/departments/:id/env', async (req) => DepartmentEnvSchema.parse({ vars: deps.deptEnv.list(params(req.params).id), warning: null }));

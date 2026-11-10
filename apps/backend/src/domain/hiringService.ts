@@ -128,8 +128,16 @@ export class HiringService {
     const user = HiringMessageSchema.parse({ id: randomUUID(), from: 'user', text: message, mood: null, replies: [], brief: null, at: this.iso() });
     const parsed = parseJsonReply(raw);
     const brief = parsed.obj ? this.resolveBrief(parsed.obj.brief, r) : null;
+    // A brief that names no existing floor is dropped; say so instead of letting the model claim it went scouting.
+    const asked = parsed.obj?.brief && typeof parsed.obj.brief === 'object' ? parsed.obj.brief as Record<string, unknown> : null;
+    const floors = this.d.departments.list().map((d) => d.name);
+    const lost = asked && !brief ? String(asked.department ?? asked.departmentName ?? '').trim().slice(0, 60) : null;
+    const reply = lost === null ? { say: parsed.say, mood: parsed.mood, replies: parsed.replies } : {
+      say: `${floors.some((f) => f.toLowerCase() === lost.toLowerCase()) ? 'I could not write that brief down, boss.' : `There is no "${lost}" floor yet, boss, so I cannot scout for it. Create the floor first, then call me.`} I can scout for: ${floors.join(', ') || 'no floor yet'}.`,
+      mood: 'worried' as const, replies: floors.slice(0, 3).map((f) => `Hire for ${f}`.slice(0, 40)),
+    };
     const agent = HiringMessageSchema.parse({
-      id: randomUUID(), from: 'agent', text: parsed.say, mood: parsed.mood, replies: parsed.replies, brief, at: this.iso(),
+      id: randomUUID(), from: 'agent', text: reply.say, mood: reply.mood, replies: reply.replies, brief, at: this.iso(),
     });
     this.d.db.prepare("UPDATE hiring_request SET messages_json = ?, state = 'intake', brief_json = COALESCE(?, brief_json), updated_at = ? WHERE id = ?")
       .run(JSON.stringify([...past, user, agent]), brief ? JSON.stringify(brief) : null, this.iso(), id);
@@ -274,7 +282,8 @@ export class HiringService {
       skills.length ? `Skills installed in Hermes (a hire can only get these): ${skills.join(', ')}` : 'The list of installed skills is unavailable right now.',
       '',
       'Your job in this call: find out which floor the hire is for, what they should be good at, the daily budget in credits (1 credit = 1 US cent of model usage; a small model costs ~10-50 a day, a top model 500-1500), and any must-have skills. Ask one thing at a time.',
-      'When you know enough, sum it up as a brief. The boss confirms it, then you go scouting. You do not hire anyone in this call.',
+      'A hire joins one of the floors listed above: the brief\'s department must be one of those names exactly. If the boss wants a floor that does not exist yet, say it has to be created first and leave the brief null.',
+      'When you know enough, sum it up as a brief. The boss confirms it, then you go scouting. Never say you are scouting before the boss confirmed a brief. You do not hire anyone in this call.',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
       '- Reply with JSON only, no other text:',
       `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short answers the boss might give, each under 40 characters], "brief": null or {"department": "<floor name>", "focus": "<what the hire is good at>", "skills": ["<installed skill names>"], "budgetPerDay": <integer credits>, "notes": "<anything else>"}}`,

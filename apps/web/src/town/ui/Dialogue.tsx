@@ -239,7 +239,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
   const greeting = !ch ? '' : blocked
     ? `${ch.name} here. I'm stuck on "${blocked.title}" and need your input before I can carry on.`
     : agentKey === 'chief'
-    ? `${ch.name}. ${d?.chief?.activity && d.chief.activity !== 'Waiting for a quest' ? d.chief.activity + '.' : 'Nothing on my desk right now.'} What do you need, boss?`
+    ? `${ch.name}. ${d?.chief?.activity && d.chief.activity !== 'Waiting for a job' ? d.chief.activity + '.' : 'Nothing on my desk right now.'} What do you need, boss?`
     : `${ch.name} here. ${worker ? `Working on "${worker.task}".` : ''} What's up, boss?`;
 
   const onSend = async (m: string) => {
@@ -300,7 +300,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
             </div>
           );
         }
-        if (proposalDone[last.id] === 'started') return <p className="dlg-note">Job sent to the board. Watch the Kanban wall.</p>;
+        if (proposalDone[last.id] === 'started') return <p className="dlg-note">Job sent to the board. Watch the Ops board.</p>;
         if (!last.proposal || proposalDone[last.id]) return null;
         const p = last.proposal;
         return (

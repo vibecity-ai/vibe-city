@@ -77,10 +77,6 @@ function stableStringify(v: unknown): string {
   return JSON.stringify(v);
 }
 
-export function inventoryHash(inv: Inventory): string {
-  return createHash('sha256').update(stableStringify(inv)).digest('hex').slice(0, 32);
-}
-
 /** Everything provisioning applies: the inventory and the team (each agent's profile, model and skills go into Hermes). */
 export function desiredHash(inv: Inventory, agents: { key: string; profile: string; model: ModelChoice | null; skills: string[] }[]): string {
   return createHash('sha256').update(stableStringify({ inv, agents })).digest('hex').slice(0, 32);
@@ -147,7 +143,7 @@ export function buildAgentReport(inv: Inventory, o: ObservedRole | null): Capabi
     status: toolsetOk ? 'enforced' : 'unverified',
     detail: toolsetOk
       ? 'terminal, file, web, browser, code_execution: applied, read back, and tested against real Hermes (a disabled toolset is not available to the agent).'
-      : 'Not yet applied or not matching Hermes; sync the department.',
+      : 'Not yet applied or not matching Hermes; sync the floor.',
   });
   entries.push({
     capability: 'toolsets.other',

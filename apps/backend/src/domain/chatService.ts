@@ -91,7 +91,7 @@ export class ChatService {
   async send(departmentId: string, agentKey: string, input: ChatSend, onEvent?: (e: AgentChatEvent) => void): Promise<ChatReply> {
     const profile = this.profileOf(departmentId, agentKey);
     if (!profile || !this.d.agentChat) {
-      throw new ModelUnavailableError(this.d.agentChat ? 'This agent has no Hermes profile yet: sync the department first.' : 'Chat with agents is not configured (no Hermes API server).');
+      throw new ModelUnavailableError(this.d.agentChat ? 'This agent has no Hermes profile yet: sync the floor first.' : 'Chat with agents is not configured (no Hermes API server).');
     }
     if (this.busy.has(profile)) throw new ConflictError('The agent is still answering your last message.');
     this.busy.add(profile);

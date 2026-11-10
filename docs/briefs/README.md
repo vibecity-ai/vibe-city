@@ -11,7 +11,7 @@ set of files; two agents never edit the same file at once. Order:
 | 03 | OutLayer wallet | 00 | `domain/walletService.ts`, provisioning hook, money panel |
 | 04 | Metering proxy for NEAR AI | 00 | `routes/ai.ts`, `domain/aiUsage.ts`, provisioning env |
 | 05 | Game loop: CEO quests, decisions, runway | 01-04 for real data; can start on fakes | `domain/game.ts`, web quest log |
-| 06 | IPO: DAO + city token | 03, 05 | `domain/ipoService.ts`, `routes/ipo.ts` |
+| 06 | IPO: DAO + city token + revenue share | 03, 05 | `domain/ipoService.ts`, `routes/ipo.ts` |
 
 ## Step 0 (Nov 8 morning, before any brief)
 

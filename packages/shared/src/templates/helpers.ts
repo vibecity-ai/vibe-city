@@ -13,7 +13,7 @@ export const seat = (title: string, opts: { skills?: string[]; toolsets?: Toolse
 export const TEMPLATE_BASE_TOOLSETS: readonly Toolset[] = ['skills', 'memory', 'todo', 'session_search', 'clarify'];
 
 /** A template: the department inventory carries the base toolsets, the toolsets of every seat and the daily budget. */
-export function template(t: Omit<Template, 'inventory' | 'hidden'> & { toolsets: Toolset[]; hidden?: boolean }): Template {
+export function template(t: Omit<Template, 'inventory' | 'hidden' | 'single'> & { toolsets: Toolset[]; hidden?: boolean; single?: boolean }): Template {
   const { toolsets, ...rest } = t;
   const all = [...new Set([...toolsets, ...t.seats.flatMap((s) => s.toolsets as Toolset[]), ...TEMPLATE_BASE_TOOLSETS])];
   return {
@@ -21,6 +21,7 @@ export function template(t: Omit<Template, 'inventory' | 'hidden'> & { toolsets:
     // OutLayer's skills say $API_KEY; tell the agents where the company wallet's key is (written by the backend)
     purpose: t.wallet === 'company' ? `${t.purpose} The company wallet's OutLayer key is OUTLAYER_API_KEY in your environment (OUTLAYER_WALLET_ID is its id): use it as $API_KEY with agent-custody and the connectors.` : t.purpose,
     hidden: t.hidden ?? false,
+    single: t.single ?? false,
     inventory: InventorySchema.parse({ allowedToolsets: all, allowedSkillIds: [...new Set([...t.skills, ...t.seats.flatMap((s) => s.skills)])], limits: { dailyBudgetCredits: t.dailyBudgetCredits } }),
   };
 }

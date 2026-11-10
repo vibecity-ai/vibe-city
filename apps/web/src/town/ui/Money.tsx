@@ -34,7 +34,7 @@ export function MoneyScreen() {
   return (
     <div className="money">
       <WalletPager w={w} loadError={error} onChange={done} onRefresh={() => void load()} />
-      <p className="fine">Vibe City keeps the wallet's agent key on its server and gives it only to the floors that trade (Trading Desk, Prediction Desk, Token &amp; Treasury, Treasury Ops). Spending limits are yours to set in OutLayer; Vibe City cannot read them back.</p>
+      <p className="fine">Vibe City keeps the wallet's agent key on its server and gives it only to the floors that trade (Trading Desk, Prediction Desk, Treasury Ops). Spending limits are yours to set in OutLayer; Vibe City cannot read them back.</p>
     </div>
   );
 }

@@ -103,7 +103,7 @@ export function StageOverlay({ city }: { city: City | null }) {
           <button ref={set('ph')} className={`sign ph${ui.panel === 'exec' && ui.view === 'tower' ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} aria-label="Executive office: go inside">
             <span className="line" /><b className="fkey gold">PH</b>Executive office
           </button>
-          <button ref={set('ghost')} className="sign ghost" onClick={() => ui$({ modal: 'create' })}><span className="line" /><Icon n="plus" size={14} sw={3} />Add department</button>
+          <button ref={set('ghost')} className="sign ghost" onClick={() => ui$({ modal: 'create' })}><span className="line" /><Icon n="plus" size={14} sw={3} />Add floor</button>
           {depts.map((d, i) => {
             const st = deptStatus(d.state); const sel = ui.floorId === d.id;
             return (
@@ -165,7 +165,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       {/* floor rail */}
       {wide && (
         <nav className="rail" aria-label="Floors">
-          <div className="rail-disp" aria-live="polite" title={`${n + 1} floors: the Executive office and ${n} departments`}><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? n - depts.indexOf(openDept) : ui.execRoom ? 'PH' : n + 1}</div>
+          <div className="rail-disp" aria-live="polite" title={`${n + 1} floors: the Executive Office and ${n} more`}><span className="rail-arrow" aria-hidden="true">{ui.view === 'floor' ? '▼' : '▲'}</span>{openDept ? n - depts.indexOf(openDept) : ui.execRoom ? 'PH' : n + 1}</div>
           <button className={`rail-b ph${ui.execRoom ? ' sel' : ''}`} onClick={() => useStore.getState().openExec()} title="Executive office" aria-label="PH Executive office: go inside">PH</button>
           {depts.map((d, i) => (
             <button key={d.id} className={`rail-b${ui.floorId === d.id ? ' sel' : ''}`} onClick={() => openFloor(d.id)} title={d.name} aria-label={`F${n - i} ${d.name}`}>

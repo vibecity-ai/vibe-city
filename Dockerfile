@@ -38,8 +38,7 @@ RUN --mount=type=cache,target=/root/.npm npm ci --omit=dev -w @vibe-city/backend
 # ---- Hermes + gh: what the agents run in. docker-compose.dev.yml builds only this stage (target: hermes) ----
 FROM ${HERMES_IMAGE} AS hermes
 USER root
-# gh for the Software Department's agents: they open pull requests from the terminal with GH_TOKEN, which the backend
-# writes into their profile .env once the CEO pastes a token (connect-github quest) or GITHUB_TOKEN is set.
+# gh for the vendored gh-fix-ci and gh-address-comments skills (docker/skills).
 RUN apt-get update && apt-get install -y --no-install-recommends gh && rm -rf /var/lib/apt/lists/* && gh --version
 
 # ---- runtime: Hermes image + Vibe City ----
