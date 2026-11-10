@@ -1,12 +1,25 @@
-# 06 IPO: Sputnik DAO, the city token, revenue share
+# 06 IPO: Sputnik DAO, the city token, a public offering, revenue share
 
-**Goal.** The endgame button. When the game loop says `ipoUnlocked`, the CEO presses IPO: the company wallet creates
-a Sputnik DAO (the CEO and the company wallet on the council) and a NEP-141 city token whose whole supply sits in the
-DAO. Then the DAO shares revenue with token holders, one council-approved payout proposal at a time. The DAO shows up
-in Trezu automatically.
+**Goal.** The endgame. When the game loop says `ipoUnlocked`, the CEO presses IPO: the company wallet creates a
+Sputnik DAO (the wallet may propose, the CEO approves) and the company's city token from our factory. The token mints
+60% to the DAO and 40% to a public offering it runs itself: anyone buys at a fixed price set from the game's numbers,
+the NEAR goes straight to the DAO (the capital the IPO raises), and the buyers are the shareholders. The DAO then
+shares revenue with them, one CEO-approved payout proposal at a time.
 
-Revised 2026-11-10 after reading mainnet: the old plan (5 to 10 NEAR for the DAO, deploy our own `city-token.wasm`)
-was wrong on cost and not possible with the signer we chose.
+Revised 2026-11-10 (evening): the first version only gave tokens to accounts the CEO chose, raised nothing and had no
+price, which is not an IPO, and the DAO moving its own unpriced token was something Trezu would not approve.
+
+## How it maps to an IPO
+
+| A real IPO | Here |
+|---|---|
+| Company and board | Sputnik DAO; the CEO is Approver and Admin, the agent wallet only proposes |
+| Authorise shares, founders keep theirs | 1,000,000 tokens; 600,000 to the DAO |
+| Price the offering | valuation = max($1,000, earned revenue x 20), / supply, in NEAR at the live price; fixed at IPO |
+| Sell to the public, proceeds to the company | `buy()` on the token: 400,000 float, NEAR to the DAO, change back |
+| Shareholders | the offering's buyers (`get_buyers`), dividends pro rata over what they hold |
+| Close the books | `end_sale` by DAO proposal: the unsold float returns to the DAO |
+| Not done | prospectus, lock-ups, exchange listing and secondary trading, holder voting |
 
 ## Facts (verified on mainnet 2026-11-10, read-only)
 
@@ -19,107 +32,116 @@ was wrong on cost and not possible with the signer we chose.
   that already exist. So we do not ship our own token wasm.
 - **Token factory `tkn.near`** is live. `get_required_deposit` returns 2.23 NEAR for 1,000,000 tokens with 6
   decimals. Recent successful launches, one from an implicit (hex) account like an OutLayer wallet:
-  `storage_deposit {}` (0.1 NEAR, 100 Tgas), then
   `create_token { args: { owner_id, total_supply, metadata: { spec: "ft-1.0.0", name, symbol, decimals, icon } } }`
-  (about 2.5 NEAR, 200 Tgas). The token account is `<symbol lowercase>.tkn.near`, so the symbol must be free.
-  `owner_id = <dao>` puts the whole supply in the DAO.
-- **Voting.** With a ratio threshold of 1/2, Sputnik requires more than half the weight. A council of 2 means both
-  vote: the company wallet proposes and votes, the CEO approves (Trezu or our UI). The proposer does not vote
-  automatically.
-- **No dividends in Sputnik.** Revenue share is a `FunctionCall` proposal on the payout token with one `ft_transfer`
-  per holder (about 15 Tgas each, so about 15 holders per proposal). Every receiver needs `storage_deposit` on the
-  payout token first. Token-weighted voting needs the separate staking contract; out of scope.
-- NEP-141 has no holder enumeration. Our holders are the accounts the DAO allocated VCT to, which we record.
+  (200 Tgas). The token account is `<symbol lowercase>.tkn.near`; `get_token({ token_id: <lowercase> })` returns its
+  `owner_id`. `owner_id = <dao>` puts the whole supply in the DAO.
+- **tkn.near safety.** Its tokens have no access keys and export only NEP-141 methods plus `new` (no mint, upgrade
+  or owner method); all recent ones run code `4AVV1KUV…`. The factory itself (code `GqJ8R7fW…`) has one full-access
+  key, and **no refund path**: overpayment is kept. So: check the factory's code hash before paying, attach exactly
+  `get_required_deposit` (2.2337 NEAR for our args), and after creation check `owner_id`, code hash and zero keys.
+  Label: "tkn.near factory token, no keys at check time", never "immutable" or "secure".
+- **A 0.09 NEAR DAO cannot pay for anything.** `jvrs4.sputnik-dao.near` (created with 0.09) has
+  `get_available_amount` = 0.0035 NEAR. With a zero bond the DAO pays proposal storage and every registration its
+  proposals make, so we attach **1 NEAR** to `create` (the factory forwards the deposit to the DAO).
+- **DAOs are global contracts now:** `code_hash` is all ones, the real hash is `global_contract_hash`
+  (`DtHZA1mU…`). Check a DAO by its policy, not its code hash.
+- **Roles, copied from Trezu's DAOs:** Requestor (may only `AddProposal`), Admin and Approver, each kind with
+  threshold `"1"`. Ours: Requestor = CEO + company wallet; Admin and Approver = CEO only. The agent wallet proposes,
+  one CEO vote passes, and an OutLayer outage cannot lock the DAO that holds the whole supply. (A 2-of-2 council
+  would need both votes: `min(1*2/2+1, 2) = 2`, and give the agent wallet a veto.)
+- **Approval is in Trezu** (`https://trezu.app/<dao>/requests`, route read from Trezu's bundle). The web app has no
+  NEAR wallet connection.
+- **No dividends in Sputnik.** Revenue share is a `FunctionCall` proposal on the payout token: per holder a
+  `storage_deposit { account_id, registration_only: true }` then an `ft_transfer` (25 Tgas together; at most 8
+  holders per proposal inside the approver's 300 Tgas). The batch is atomic, hence the registration in the same
+  proposal. The DAO is registered on USDC and wNEAR at IPO so revenue can be sent to it. `add_proposal` attaches
+  exactly 0 (bond 0). Token-weighted voting needs the separate staking contract; out of scope.
+- NEP-141 has no holder enumeration. Our holders are the offering's buyers, which the token records (`get_buyers`).
 - Trezu has no API; it lists every `*.sputnik-dao.near`. meme.cooking has no documented contract; not code.
-- **Budget:** about 3 NEAR (0.1 DAO, about 2.5 token, gas), mainnet.
+- **Budget:** about 3.3 NEAR (1 DAO, 2.2337 token, 0.025 registrations mostly refunded, gas), mainnet; the
+  game asks for 4.
 
 ## Who signs
 
 The company OutLayer wallet, through a public `walletService.callContract(receiverId, method, args, gas, deposit)`
 over `POST /wallet/v1/call` (brief 03 owns `walletService.ts`: the method is a thin wrapper over its private
-`call`). Vibe City never holds the CEO's key. Council = the CEO's primary linked account (`near_wallet`,
-`is_primary = 1`) + the OutLayer account.
+`call`). Vibe City never holds the CEO's key. The CEO types their NEAR account in the IPO form (there is no linked
+wallet list any more).
+
+If the wallet's OutLayer policy needs approvers, every call answers `pending_approval` with a `request_id`. The IPO
+keeps that id and shows `awaiting_approval`; Continue reads `GET /wallet/v1/requests/{id}` and never sends the call
+again while it is pending (a rejected or failed request lets that step start over). Up to four approvals: the DAO,
+two registrations, the token. Proposals wait the same way before they reach Trezu.
 
 ## Backend (`domain/ipoService.ts`, `routes/ipo.ts`)
 
 The backend runs the IPO, not the Treasury Ops agent: it is deterministic, testable with a fake caller, and the
 trailer does not depend on an LLM getting base64 args right.
 
-- `GET /api/ipo` -> `IpoStateSchema` (`locked` until brief 05 says unlocked).
-- `POST /api/ipo` (409 if locked or done). Each step checks existence first (`view_account`), so a retry never
-  creates a second DAO or token:
-  1. `create` on `sputnik-dao.near`, name `<company-slug>`, purpose from the company, full policy with
-     `proposal_bond: "0"`, council as above, deposit 0.1 NEAR, 300 Tgas.
-  2. `storage_deposit` then `create_token` on `tkn.near`: name `<Company> City Token`, symbol `VCT` (or the
-     Tokenomics Analyst marker below; 409 with a clear message if `<symbol>.tkn.near` is taken), supply 1,000,000,
-     6 decimals, `owner_id = <dao>`.
-  3. Store accounts and tx hashes in `ipo.state_json`; `moneyService.setSettings({ daoAccountId })` so the existing
-     treasury mirror shows the DAO.
-- Pre-fill symbol and supply from the Token & Treasury floor's `[token symbol=<s> supply=<n>]` marker if present,
-  else the defaults. Convenience read, not a dependency.
-
-### Revenue share (after the IPO)
-
-- `POST /api/ipo/allocate { accountId, amount }`: an `add_proposal` with a `FunctionCall` on the VCT token
-  (`storage_deposit` for the receiver, then `ft_transfer`). Records the receiver as a holder. The demo seeds 2 to 3
-  investor accounts this way.
-- `POST /api/ipo/dividend { token, amount }`: reads `ft_balance_of` for each recorded holder, splits `amount` pro
-  rata over circulating supply (the DAO's own VCT excluded), and files one `FunctionCall` proposal on the payout
-  token with one `ft_transfer` per holder. The CEO approves it; the DAO pays everyone in one transaction.
-- Revenue reaches the DAO by Treasury Ops moving a cut of earnings from the company wallet (`ft_transfer` or a NEAR
-  transfer). That is an existing wallet call, no new code.
+- `GET /api/ipo` -> `IpoStateSchema`: `locked` until brief 05 unlocks it, `ready`, `running`, `done`, `error`.
+- `POST /api/ipo { ceoAccountId, symbol }` (409 if locked, running or done). Each step reads the chain first, so a
+  retry never creates a second DAO or token. A started IPO may resume while locked (it spent the funds that
+  unlocked it). The council and the symbol are fixed once they exist on chain.
+  1. DAO `<company-slug>.sputnik-dao.near`: `create` with the Trezu-shaped policy, `proposal_bond: "0"`, 1 NEAR,
+     300 Tgas. If the account already exists, accept it only if its policy has the CEO as Approver and the wallet as
+     Requestor; else 409 (rename the company).
+  2. `storage_deposit { account_id: <dao>, registration_only: true }` on USDC and `wrap.near`, unless registered.
+  3. Token: check `tkn.near`'s code hash, read `get_required_deposit`, `create_token` with exactly that,
+     `<Company> City Token`, the symbol from the form (default from the company name), 1,000,000 supply, 6 decimals,
+     `owner_id = <dao>`. If the account already exists, accept it only if `get_token.owner_id == dao`; else 409.
+     Then check code hash `4AVV1KUV…` and zero keys; otherwise the IPO is not marked done.
+  4. Accounts and tx hashes are stored in `ipo.state_json`.
+- The offer (`IpoOffer`) is previewed on `GET /api/ipo` from the game's earnings and NEAR's price (1Click), and
+  fixed when the IPO starts; no NEAR price, no IPO. `create_token` gets `sale_amount` (40%) and `price` (yoctoNEAR per
+  whole token). `GET /api/ipo` reads the sale (`sale_info`) and the buyers with balances from the token.
+- `POST /api/ipo/end-sale`: one DAO proposal calling `end_sale` on the token.
+- `POST /api/ipo/dividend { token: USDC | wNEAR, amount }`: checks the DAO holds the amount, reads `ft_balance_of`
+  of each recorded holder, splits pro rata over the circulating supply (total minus the DAO's own tokens; shares of
+  unknown holders stay in the DAO), and files one proposal with a registration and an `ft_transfer` per holder.
+- Revenue reaches the DAO when Treasury Ops sends a cut from the company wallet (its template says how); no new code.
 
 ## Web
 
-Executive Office `IpoCard.tsx`: IPO button (disabled with the unlock rule as tooltip while locked), progress steps,
-then the DAO account, token account, tx links to a NEAR explorer and a Trezu link. After the IPO: holders with their
-VCT, an "Allocate" form and a "Distribute revenue" button, each showing the proposal it filed and a Trezu link to
-approve it. Keep the existing treasury card for balances.
+`IpoCard.tsx`, in the safe (the money screen) under the wallet: the IPO form (CEO account, symbol, the cost in one
+line), progress while running, the error and "Retry IPO". After the IPO: DAO and token links (nearblocks), tx links,
+"Open in Trezu" and "Approve in Trezu", holders with balances, an Allocate form and a Distribute revenue form, and
+the proposals filed. The `ipo` CEO quest points at the safe.
 
-Before the IPO button, when IPO is unlocked but the treasury is not yet shielded, show the recommended "Go private
-before you go public" step: brief 03's `shield()` (the confidential move onto `intents.far`). Recommended, not a
-gate.
+## Game
+
+`DAO_FUND_NEAR` is 4. The `ipo` quest is done when the IPO is done (the old `[dao account=…]` agent marker no longer
+counts). `dao-funds` stays done after the IPO spends the funds.
 
 ## Honest labels
 
-- Label it "revenue share by DAO vote". Payouts are council-approved proposals, not an automatic stream.
+- "Revenue share by DAO vote". Payouts are proposals the CEO approves in Trezu, not an automatic stream.
 - The council governs, not token holders (no staking contract).
-- Holders = accounts allocated by the DAO. If VCT trades elsewhere, switch to a holder index (NearBlocks holders API).
-- The token is a `tkn.near` factory token, not our own contract. If the hackathon rules require our own contract,
-  deploy it once by hand from a full-access key and have the wallet call `new`; the rest of the flow is unchanged.
-- No trailer copy that promises returns.
+- Shareholders are whoever bought in the offering. The price is a formula on game numbers, not a market price. No promised returns.
+- The token is a "tkn.near factory token, no keys at check time". If the hackathon needs our own contract, deploy it
+  once by hand from a full-access key, delete the key, and the rest of the flow is unchanged.
 
-## Files you own
+## Cut for the demo
 
-`apps/backend/src/domain/ipoService.ts` + `ipo.test.ts`, `apps/backend/src/routes/ipo.ts`,
-`apps/web/src/town/ui/IpoCard.tsx`, the IPO schemas in `packages/shared/src/schemas.ts` (allocate/dividend bodies,
-holders on `IpoStateSchema`).
-
-## Changes in other briefs' files (ask the owner, or note it in the PR)
-
-- `walletService.ts` (brief 03): add the public `callContract(...)`.
-- `domain/game.ts` (brief 05): `DAO_FUND_NEAR` 6 -> 3; the `ipo` quest is done when the IPO state is `done`, not on
-  the agent's `[dao account=...]` marker.
-- `packages/shared/src/templates/treasury-ops.ts` (brief 01): drop the "creates the Sputnik DAO vault" line; Treasury
-  Ops instead moves revenue into the DAO when asked.
-
-## Do not touch
-
-`walletService.ts` beyond `callContract`, `moneyService.ts` beyond setting `daoAccountId`.
+The Tokenomics marker prefill, a "Share revenue" CEO quest, the pre-IPO shield step, token-weighted voting, and
+payouts to more than 8 holders.
 
 ## Acceptance
 
-- `ipo.test.ts` with a fake NEAR caller: locked -> 409; unlocked -> DAO and token calls made with the expected args
-  and deposits, state persisted; a retry after a simulated failure between steps creates neither a second DAO nor a
-  second token; dividend splits pro rata over recorded holders, excludes the DAO, and builds one proposal with one
-  `ft_transfer` per holder.
-- Manual dry run before code: from your own account with `near-cli`, one `create` (0.09 NEAR) and one
-  `create_token` (about 2.3 NEAR), and one `/wallet/v1/call` with a deposit from the OutLayer wallet, to confirm its
-  policy allows deposits to these two contracts.
-- Manual on mainnet once: DAO visible in Trezu, VCT supply on the DAO, one dividend proposal approved and paid.
+- `ipo.test.ts` with a fake chain and wallet: locked -> 409 and no calls; unlocked -> the DAO, registration and
+  token calls with the expected args and deposits; a retry after a failure between steps creates no second DAO;
+  squatted names and symbols are refused; a changed factory is not paid; the dividend is pro rata, excludes the
+  DAO, and is one proposal with a registration and an `ft_transfer` per holder.
+- Dry run before the real IPO: one DAO `create` with a throwaway name through the OutLayer wallet (tests that its
+  policy allows a deposit and 300 Tgas). Do not dry-run `create_token`: it spends 2.23 NEAR and burns a symbol.
+- Manual on mainnet once: DAO in Trezu, the supply on the DAO, one dividend proposal approved and paid.
 
 ## Trailer moment
 
-Runway positive, three floors lit, the CEO presses IPO, the city token appears on the building, Trezu shows the DAO.
-Then an agent proposes "distribute revenue", the CEO approves, and the holders' balances tick up. If this brief
-slips: the DAO and token are created by the button, and the first dividend proposal is created by hand in Trezu.
+Runway positive, the CEO presses IPO, the city token appears, Trezu shows the DAO. Then the CEO distributes revenue,
+approves it in Trezu, and the holders' balances tick up. If this brief slips: the button creates the DAO and the
+token, and the first dividend proposal is made by hand in Trezu.
+
+## Public invest page
+
+`/invest`: anyone connects a NEAR wallet (`@hot-labs/near-connect`: HOT, Meteor, MyNearWallet…), sees the price and
+what is left, and signs `buy` with NEAR. A first purchase keeps about 0.0033 NEAR for the buyer's storage.

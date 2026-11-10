@@ -10,7 +10,7 @@ const base = (): GameInput => ({
   settings: { nearAiApiKeySet: false, nearAiCreditsLoadedCents: null, outlayerWalletId: null, outlayerAccountId: null, hyperliquidConnectedAt: null, polymarketConnectedAt: null, chiefOfStaffModel: null },
   wallet: EMPTY_WALLET, departments: [], templateOf: {}, templates: TEMPLATES,
   usage: { byDepartment: [], companyTodayCents: 0, companySevenDayAvgCents: 0 }, totalMeteredCents: 0,
-  questsByDept: {}, results: [], marketEarnedCents: 0, marketJobsPaid: 0, marketListed: false, pendingApprovals: [],
+  questsByDept: {}, results: [], marketEarnedCents: 0, marketJobsPaid: 0, marketListed: false, pendingApprovals: [], ipoDone: false,
 });
 const nearBal = (n: bigint) => ({ token: 'NEAR', amount: String(n * 10n ** 24n), decimals: 24, source: 'wallet' as const, chain: 'near', usd: null, logo: null });
 const done = (i: GameInput, id: string) => deriveGame(i).quests.find((q) => q.id === id)!.done;
@@ -24,8 +24,8 @@ const cases: Array<[string, (i: GameInput) => void]> = [
   ['connect-polymarket', (i) => { i.settings.polymarketConnectedAt = '2026-11-08T10:00:00Z'; }],
   ['market', (i) => { i.marketListed = true; }],
   ['first-job', (i) => { i.marketJobsPaid = 1; }], // a 0 USD test hire counts
-  ['dao-funds', (i) => { i.wallet = { ...EMPTY_WALLET, registered: true, balances: [nearBal(6n)] }; }],
-  ['ipo', (i) => { i.templateOf = { tops: 'treasury-ops' }; i.results = [{ departmentId: 'tops', questId: 'q', text: 'Vault live. [dao account=acme.sputnik-dao.near]' }]; }],
+  ['dao-funds', (i) => { i.wallet = { ...EMPTY_WALLET, registered: true, balances: [nearBal(4n)] }; }],
+  ['ipo', (i) => { i.ipoDone = true; }],
 ];
 for (const [id, make] of cases) test(`CEO quest ${id}: not done, then done`, () => {
   const i = base();
@@ -34,13 +34,15 @@ for (const [id, make] of cases) test(`CEO quest ${id}: not done, then done`, () 
   assert.equal(done(i, id), true);
 });
 
-test('the DAO vault needs enough NEAR, and only Treasury Ops can launch it', () => {
+test('the IPO needs 4 NEAR; an agent marker no longer counts; a public company keeps its funding quest', () => {
   const i = base();
-  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [nearBal(5n)] };
-  assert.equal(done(i, 'dao-funds'), false, '5 NEAR is short');
-  i.templateOf = { mk: 'trading-desk' };
-  i.results = [{ departmentId: 'mk', questId: 'q', text: '[dao account=acme.sputnik-dao.near]' }];
-  assert.equal(done(i, 'ipo'), false);
+  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [nearBal(3n)] };
+  assert.equal(done(i, 'dao-funds'), false, '3 NEAR is short');
+  i.templateOf = { tops: 'treasury-ops' };
+  i.results = [{ departmentId: 'tops', questId: 'q', text: '[dao account=acme.sputnik-dao.near]' }];
+  assert.equal(done(i, 'ipo'), false, 'only the backend IPO counts');
+  i.ipoDone = true;
+  assert.equal(done(i, 'dao-funds'), true, 'the IPO spent the funds');
 });
 
 test('the main line is set up, earn, go public; the connector quests are side quests', () => {
@@ -50,7 +52,7 @@ test('the main line is set up, earn, go public; the connector quests are side qu
   const i = base();
   i.marketJobsPaid = 1;
   assert.equal(deriveGame(i).ipoUnlocked, false, 'a job alone does not fund the vault');
-  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [nearBal(6n)] };
+  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [nearBal(4n)] };
   assert.equal(deriveGame(i).ipoUnlocked, true);
 });
 

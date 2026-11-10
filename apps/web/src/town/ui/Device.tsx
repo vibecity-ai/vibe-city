@@ -42,6 +42,9 @@ export function Key({ children, hot, lit, disabled, onClick, href, title, type =
   return <button className={cls} type={type} disabled={disabled} onClick={onClick} title={title} aria-pressed={pressed}>{children}</button>;
 }
 
+/** Seven-segment digits on an LCD, with the unlit "8"s ghosted behind them. */
+export const Digits = ({ value, md }: { value: string; md?: boolean }) => <span className={`lcd-seg${md ? ' md' : ''}`} data-ghost={value.replace(/[0-9]/g, '8')}>{value}</span>;
+
 export function Grille({ className = '' }: { className?: string }) {
   return <div className={`dev-grille ${className}`} aria-hidden="true" />;
 }
