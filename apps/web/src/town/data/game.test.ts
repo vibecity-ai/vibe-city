@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { GameState } from '@vibe-city/shared';
-import { decisionTarget, ipoSymbol, nextQuest, questTarget } from './game.ts';
+import { decisionTarget, ipoSteps, ipoSymbol, nextQuest, questTarget } from './game.ts';
 import { IPO_SYMBOL_RE } from '@vibe-city/shared';
 
 const fixture: GameState = {
@@ -57,4 +57,17 @@ test('the IPO symbol is the company initials, 2 to 8 capitals, always a valid sy
   assert.equal(ipoSymbol(''), 'VCT');
   assert.equal(ipoSymbol('x'), 'VCT');
   for (const n of ['Vibe City Labs', 'acme', '42 Widgets', '', 'a b c d e f g h i j']) assert.match(ipoSymbol(n), IPO_SYMBOL_RE);
+});
+
+test('IPO steps: preview, working, waiting for OutLayer approval on the right step, failed, done', () => {
+  const base = { state: 'ready' as const, awaiting: null, daoAccountId: null, tokenAccountId: null, symbol: 'ACME' };
+  const st = (x: Partial<typeof base> | Record<string, unknown>, busy = false) => ipoSteps({ ...base, ...x } as Parameters<typeof ipoSteps>[0], busy).map((s) => s.status);
+  assert.deepEqual(st({}), ['todo', 'todo', 'todo'], 'a preview before the CEO presses IPO');
+  assert.deepEqual(st({}, true), ['working', 'todo', 'todo']);
+  assert.deepEqual(st({ state: 'awaiting_approval', awaiting: 'sputnik-dao.near create' }), ['approval', 'todo', 'todo']);
+  assert.deepEqual(st({ state: 'awaiting_approval', awaiting: 'wrap.near storage_deposit', daoAccountId: 'a.sputnik-dao.near' }), ['done', 'approval', 'todo']);
+  assert.deepEqual(st({ state: 'awaiting_approval', awaiting: 'tokens.vibecity.near create_token', daoAccountId: 'a.sputnik-dao.near' }), ['done', 'done', 'approval']);
+  assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near' }), ['done', 'failed', 'todo']);
+  assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near' }, true), ['done', 'working', 'todo'], 'a retry in flight');
+  assert.deepEqual(st({ state: 'done', daoAccountId: 'a', tokenAccountId: 't' }), ['done', 'done', 'done']);
 });

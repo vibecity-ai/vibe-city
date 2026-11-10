@@ -1799,3 +1799,26 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .mk-agent { display: flex; flex-direction: column; gap: 6px; } .mk-agent + .mk-agent { margin-top: 10px; }
 .mk-paste { display: flex; flex-direction: column; gap: 6px; padding: 8px; background: #ffffff06; border: 1px dashed #3A2D66; }
 .mk-paste > div { display: flex; align-items: center; gap: 8px; font-size: 13px; } .mk-paste i { font-style: normal; font-size: 11px; text-transform: uppercase; color: var(--ink-mute); min-width: 74px; } .mk-paste span { flex: 1; color: var(--ink); }
+
+/* IPO progress (IpoCard) */
+.ipo-steps { list-style: none; margin: 10px 0; padding: 0; display: flex; flex-direction: column; gap: 12px; }
+.ipo-steps li { display: grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items: start; }
+.ipo-step-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.ipo-step-t b { font: 600 13px var(--f-ui); color: var(--ink); }
+.ipo-step-t small { font-size: 12px; color: var(--ink-mute); overflow-wrap: anywhere; }
+.ipo-steps li.todo b { color: var(--ink-dim); }
+.ipo-dot { width: 20px; height: 20px; box-sizing: border-box; border-radius: 50%; border: 2px solid var(--line2); display: grid; place-items: center; font: 700 11px/1 var(--f-ui); color: var(--n900); }
+.ipo-steps li.done .ipo-dot { border-color: var(--mint); background: var(--mint); }
+.ipo-steps li.working .ipo-dot { border-color: var(--cyan); border-top-color: transparent; animation: ipoSpin .8s linear infinite; }
+.ipo-steps li.approval .ipo-dot { border-color: var(--amber); background: rgba(240,165,60,.15); animation: ipoPulse 1.6s ease-in-out infinite; }
+.ipo-steps li.failed .ipo-dot { border-color: var(--red); background: var(--red); }
+.ipo-chip { font: 600 11px/20px var(--f-ui); color: var(--ink-mute); white-space: nowrap; }
+.ipo-steps li.done .ipo-chip { color: var(--mint); }
+.ipo-steps li.working .ipo-chip { color: var(--cyan); }
+.ipo-steps li.approval .ipo-chip { color: var(--amber); }
+.ipo-steps li.failed .ipo-chip { color: var(--red); }
+.ipo-approve { display: flex; gap: 12px; align-items: center; justify-content: space-between; padding: 10px 12px; margin-bottom: 10px; border: 1px solid rgba(240,165,60,.35); background: rgba(240,165,60,.06); border-radius: 8px; font-size: 12px; color: var(--ink-dim); }
+.ipo-approve p { margin: 0; }
+@keyframes ipoSpin { to { transform: rotate(360deg); } }
+@keyframes ipoPulse { 50% { box-shadow: 0 0 0 4px rgba(240,165,60,.18); } }
+@media (max-width: 420px) { .ipo-approve { flex-direction: column; align-items: stretch; } .ipo-chip { display: none; } }

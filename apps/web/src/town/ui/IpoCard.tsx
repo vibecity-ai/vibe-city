@@ -1,35 +1,51 @@
 /* The IPO card (docs/briefs/06-ipo.md), under the wallet in the safe: the company wallet creates the Sputnik DAO and a
    city token from the Vibe City token factory, then the CEO shares revenue by DAO proposals approved in Trezu. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { ipoSymbol } from '../data/game';
+import { ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
 import { PixelSelect } from './kit';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.');
 const NB = 'https://nearblocks.io';
 const ext = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>;
 const trezu = (dao: string) => `https://trezu.app/${dao}`;
+/** While a step waits for the owner's approval in OutLayer, ask again this often (the server never resends the call). */
+const APPROVAL_POLL_MS = 5000;
+const CHIP: Record<IpoStep['status'], string> = { done: 'Done', working: 'Working…', approval: 'Approve in OutLayer', failed: 'Failed', todo: '' };
 
 export function IpoCard({ ceo }: { ceo: string | null }) {
   const company = useStore((s) => s.company?.name ?? '');
   const [ipo, setIpo] = useState<IpoState | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [checking, setChecking] = useState(false);
   const load = async () => { try { setIpo(await api.ipo()); } catch (e) { setErr(errText(e)); } };
   const run = async (f: () => Promise<IpoState>) => {
     setBusy(true); setErr(null);
     try { setIpo(await f()); return true; } catch (e) { setErr(errText(e)); void load(); return false; } finally { setBusy(false); }
   };
+  /** Continue a waiting IPO: the server asks OutLayer where the request stands and goes on if it was approved. */
+  const check = async () => {
+    if (!ipo || checking) return;
+    setChecking(true);
+    try { setIpo(await api.ipoLaunch({ ceoAccountId: ipo.ceoAccountId ?? '', symbol: ipo.symbol ?? '' })); setErr(null); }
+    catch (e) { setErr(errText(e)); void load(); }
+    finally { setChecking(false); }
+  };
+  const checkRef = useRef(check);
+  checkRef.current = check;
   useEffect(() => { void load(); }, []);
   useEffect(() => {
-    if (ipo?.state !== 'running') return;
-    const t = window.setInterval(() => void load(), 3000);
+    if (ipo?.state !== 'running' && ipo?.state !== 'awaiting_approval') return;
+    const t = window.setInterval(() => void (ipo.state === 'running' ? load() : checkRef.current()), ipo.state === 'running' ? 3000 : APPROVAL_POLL_MS);
     return () => window.clearInterval(t);
   }, [ipo?.state]);
 
   if (!ipo) return err ? <p className="field-err" role="alert">{err}</p> : null;
+  const steps = ipoSteps(ipo, busy);
+  const waiting = steps.find((s) => s.status === 'approval');
   return (
     <section className="ipo">
       <h3>IPO</h3>
@@ -37,29 +53,46 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
         <button className="btn primary small" disabled title="Unlocks after your first paid market job and 4 NEAR in the company wallet">IPO</button>
         <p className="fine">Unlocks after your first paid market job and 4 NEAR in the company wallet.</p>
       </>}
-      {(ipo.state === 'ready' || ipo.state === 'error') && <LaunchForm ipo={ipo} ceo={ceo} company={company} busy={busy} onLaunch={(x) => void run(() => api.ipoLaunch(x))} />}
-      {ipo.state === 'awaiting_approval' && <>
-        <p className="fine">Your OutLayer wallet's policy needs your approval for <span className="mono">{ipo.awaiting}</span>. Approve it at {ext('https://app.outlayer.ai', 'app.outlayer.ai')}, then continue. Each IPO step asks once (up to four).</p>
-        <button className="btn primary small" disabled={busy} onClick={() => void run(() => api.ipoLaunch({ ceoAccountId: ipo.ceoAccountId ?? '', symbol: ipo.symbol ?? '' }))}>{busy ? 'Checking…' : 'Continue IPO'}</button>
-      </>}
-      {ipo.state === 'running' && <p className="muted" aria-busy="true">Going public: creating the Sputnik DAO, then the city token… ({ipo.txHashes.length} transaction{ipo.txHashes.length === 1 ? '' : 's'} so far)</p>}
+      {ipo.state !== 'locked' && ipo.state !== 'done' && <Steps steps={steps} error={ipo.error} />}
+      {waiting && (
+        <div className="ipo-approve" role="status">
+          <p>Your OutLayer wallet asks you to approve each call. Approve <b>{waiting.label.toLowerCase()}</b> at {ext('https://app.outlayer.ai', 'app.outlayer.ai')}; this continues by itself.</p>
+          <button className="btn secondary small" disabled={checking} onClick={() => void check()}>{checking ? 'Checking…' : 'Check now'}</button>
+        </div>
+      )}
+      {!busy && (ipo.state === 'ready' || ipo.state === 'error') && <LaunchForm ipo={ipo} ceo={ceo} company={company} onLaunch={(x) => void run(() => api.ipoLaunch(x))} />}
       {ipo.state === 'done' && <Done ipo={ipo} busy={busy} run={run} />}
-      {err && <p className="field-err" role="alert">{err}</p>}
+      {err && err !== ipo.error && <p className="field-err" role="alert">{err}</p>}
     </section>
   );
 }
 
-function LaunchForm({ ipo, ceo, company, busy, onLaunch }: { ipo: IpoState; ceo: string | null; company: string; busy: boolean; onLaunch: (x: { ceoAccountId: string; symbol: string }) => void }) {
+function Steps({ steps, error }: { steps: IpoStep[]; error: string | null }) {
+  return (
+    <ol className="ipo-steps" aria-live="polite">
+      {steps.map((s) => (
+        <li key={s.id} className={s.status}>
+          <span className="ipo-dot" aria-hidden="true">{s.status === 'done' ? '✓' : s.status === 'failed' ? '!' : ''}</span>
+          <span className="ipo-step-t"><b>{s.label}</b><small className={s.status === 'failed' ? 'field-err' : undefined}>{s.status === 'failed' && error ? error : s.detail}</small></span>
+          <span className="ipo-chip">{CHIP[s.status]}</span>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function LaunchForm({ ipo, ceo, company, onLaunch }: { ipo: IpoState; ceo: string | null; company: string; onLaunch: (x: { ceoAccountId: string; symbol: string }) => void }) {
   const [account, setAccount] = useState(ipo.ceoAccountId ?? ceo ?? '');
   const [symbol, setSymbol] = useState(ipo.symbol ?? ipoSymbol(company));
   const ok = !!account.trim() && IPO_SYMBOL_RE.test(symbol);
+  // fixed on chain once the DAO (the council) or the token (the symbol) exists
+  const daoFixed = !!ipo.daoAccountId, tokenFixed = !!ipo.tokenAccountId;
   return (
     <form className="sched-form" onSubmit={(e) => { e.preventDefault(); if (ok) onLaunch({ ceoAccountId: account.trim(), symbol }); }}>
-      <label className="field"><span className="lbl">Your NEAR account (approves DAO proposals)</span><input className="input mono" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="you.near" /></label>
-      <label className="field"><span className="lbl">City token symbol</span><input className="input mono" value={symbol} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
-      <p className="fine">About 3.4 NEAR from the company wallet: 1 NEAR to the DAO, about 2 NEAR for the token.</p>
-      {ipo.state === 'error' && ipo.error && <p className="field-err" role="alert">{ipo.error}</p>}
-      <button className="btn primary small" type="submit" disabled={busy || !ok}>{busy ? 'Working…' : ipo.state === 'error' ? 'Retry IPO' : 'IPO'}</button>
+      <label className="field"><span className="lbl">Your NEAR account (approves DAO proposals)</span><input className="input mono" value={account} disabled={daoFixed} onChange={(e) => setAccount(e.target.value)} placeholder="you.near" /></label>
+      <label className="field"><span className="lbl">City token symbol</span><input className="input mono" value={symbol} disabled={tokenFixed} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} /></label>
+      <p className="fine">{daoFixed ? 'The DAO exists; the rest needs about 1.9 NEAR from the company wallet.' : 'About 3 NEAR from the company wallet: 1 NEAR to the DAO, about 1.9 NEAR for the token.'}</p>
+      <button className="btn primary small" type="submit" disabled={!ok}>{ipo.state === 'error' ? 'Retry IPO' : daoFixed ? 'Continue IPO' : 'IPO'}</button>
     </form>
   );
 }

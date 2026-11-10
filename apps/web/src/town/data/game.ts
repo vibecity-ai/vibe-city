@@ -1,6 +1,6 @@
 /* The game loop's view logic (brief 05), pure so it can be tested without a DOM: which CEO quest is next, where its
    button goes, and where a decision's href leads. */
-import type { CeoQuest, GameState } from '@vibe-city/shared';
+import type { CeoQuest, GameState, IpoState } from '@vibe-city/shared';
 
 export type QuestTarget =
   | { kind: 'safe' } | { kind: 'hire' } | { kind: 'connector'; name: 'hyperliquid' | 'polymarket' } | { kind: 'quest-board' }
@@ -65,4 +65,22 @@ export function ipoSymbol(name: string): string {
   const initials = words.map((w) => w[0]).join('');
   const s = (initials.length >= 2 ? initials : words.join('')).slice(0, 8);
   return s.length >= 2 ? s : 'VCT';
+}
+
+export type IpoStepStatus = 'done' | 'working' | 'approval' | 'failed' | 'todo';
+export interface IpoStep { id: 'dao' | 'register' | 'token'; label: string; detail: string; status: IpoStepStatus }
+
+/** The IPO's three on-chain steps and where each stands. `busy`: a launch request is in flight (the server is working
+    even before its state says so). The server names the call waiting in OutLayer (`awaiting`); that tells the step. */
+export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountId' | 'tokenAccountId' | 'symbol'>, busy: boolean): IpoStep[] {
+  const steps: Omit<IpoStep, 'status'>[] = [
+    { id: 'dao', label: 'Create the Sputnik DAO', detail: ipo.daoAccountId ?? 'You approve its proposals; the company wallet can only propose.' },
+    { id: 'register', label: 'Open the DAO to revenue', detail: 'Registers it on USDC and wNEAR so earnings can be sent to it.' },
+    { id: 'token', label: 'Mint the city token', detail: ipo.tokenAccountId ?? `1,000,000 ${ipo.symbol ?? 'tokens'}, all owned by the DAO, checked on chain.` },
+  ];
+  if (ipo.state === 'done') return steps.map((s) => ({ ...s, status: 'done' }));
+  const at = !ipo.daoAccountId ? 0 : ipo.awaiting?.endsWith(' create_token') ? 2 : ipo.awaiting?.endsWith(' storage_deposit') ? 1 : ipo.tokenAccountId ? 3 : 1;
+  const started = busy || ipo.state === 'running' || ipo.state === 'awaiting_approval' || ipo.state === 'error';
+  const now: IpoStepStatus = ipo.state === 'awaiting_approval' ? 'approval' : ipo.state === 'error' && !busy ? 'failed' : 'working';
+  return steps.map((s, i) => ({ ...s, status: i < at ? 'done' : i === at && started ? now : 'todo' }));
 }
