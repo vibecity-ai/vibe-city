@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { deptView } from '../../testing/fakeBackend.ts';
+import { deptView, detail } from '../../testing/fakeBackend.ts';
 import { deriveDept } from './derive.ts';
 
 const derive = (v: ReturnType<typeof deptView>) => deriveDept({ dept: v, provisioning: null, liveQuests: [], chiefModel: null, hermesUp: true });
@@ -22,4 +22,16 @@ test('seat titles from a template appear on the desks; floors without a template
   const plain = derive(base);
   assert.equal(plain.chief?.title, undefined);
   assert.ok(plain.workers.every((w) => w.title === undefined));
+});
+
+test('a failed task puts the floor in attention even when the same agent is also running another one', () => {
+  const base = detail().tasks[0]!;
+  const quest = detail({ tasks: [
+    { ...base, id: 't_run', title: 'Keep going', agentKey: 'W-01', status: 'running', depth: 1 },
+    { ...base, id: 't_bad', title: 'Scrape A', agentKey: 'W-01', status: 'blocked', failed: true, depth: 1 },
+  ] });
+  const d = deriveDept({ dept: deptView(), provisioning: null, liveQuests: [quest], chiefModel: null, hermesUp: true });
+  assert.equal(d.workers[0]!.status, 'running');
+  assert.equal(d.state, 'attention');
+  assert.equal(d.attention, 'Task failed: Scrape A');
 });
