@@ -1,8 +1,7 @@
 # Vibe City + Hermes in one container (see Dockerfile).
 #
-#   cp .env.example .env     # set HERMES_DASHBOARD_SESSION_TOKEN (openssl rand -hex 24)
-#   docker compose up -d --build
-#   open http://127.0.0.1:4100
+#   docker compose up -d --build     # no .env needed; .env.example lists what can be set
+#   then open http://127.0.0.1:4100
 #
 # The API has no login. It is published on loopback only; to reach it remotely use an SSH tunnel or a reverse
 # proxy that authenticates. Model/provider credentials go in .env.hermes (optional, never baked into the image).
@@ -20,8 +19,10 @@ services:
     environment:
       HERMES_UID: ${HERMES_UID:-10000}
       HERMES_GID: ${HERMES_GID:-10000}
-      HERMES_DASHBOARD_SESSION_TOKEN: ${HERMES_DASHBOARD_SESSION_TOKEN:?set HERMES_DASHBOARD_SESSION_TOKEN in .env (openssl rand -hex 24)}
-      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:4100,http://localhost:4100}
+      # Empty = the container generates one at start (docker/cont-init.d/00-vibe-city-token).
+      HERMES_DASHBOARD_SESSION_TOKEN: ${HERMES_DASHBOARD_SESSION_TOKEN:-}
+      # The browser origins allowed on the live WebSocket: they follow the published port.
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:${VIBE_CITY_PORT:-4100},http://localhost:${VIBE_CITY_PORT:-4100}}
       # NEAR AI Cloud (OpenAI-compatible) is the default model provider when the key is set; see DEPLOYMENT.md.
       NEAR_AI_API_KEY: ${NEAR_AI_API_KEY:-}
       NEAR_AI_BASE_URL: ${NEAR_AI_BASE_URL:-https://cloud-api.near.ai/v1}
