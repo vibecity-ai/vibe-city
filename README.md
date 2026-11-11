@@ -112,9 +112,10 @@ docs/briefs/         the hackathon plan, one brief per workstream
 
 ## Built before the hackathon
 
-The git tag `pre-hackathon` (commit `f1e1c70`, 2026-11-03, the first commit) is the code that existed before the
-hackathon work: the backend with its Hermes adapter, department provisioning, quests on Hermes Kanban, live updates,
-the tower UI, the Dockerfile and CI. Everything after that tag was built for the hackathon and is in the history:
+The project's setup and first design were done before the hackathon. All of it is in the first commit, added in one
+piece on 2026-11-03 and marked with the git tag `pre-hackathon` (`f1e1c70`): the backend with its Hermes adapter,
+department provisioning, quests on Hermes Kanban, live updates, the first tower UI, the Dockerfile and CI. Everything
+after that tag was built for the hackathon and is in the history:
 agent chat, hiring, schedules, the MCP server, quests between departments, department templates, the Chief of Staff,
 the Agent Market listing, the OutLayer wallet, the NEAR AI metering proxy, the CEO quest log, the IPO and the two
 contracts. `git diff pre-hackathon` shows it.
