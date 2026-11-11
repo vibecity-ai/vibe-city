@@ -132,18 +132,23 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
   const usd = (perM: number) => ({ amount: Math.round(perM * 1000), scale: 9, currency: 'USD' });
   const entry = (id: string, inM: number, outM: number, im = ['text'], om = ['text'], f = ['tools']) =>
     ({ modelId: id, inputCostPerToken: usd(inM), outputCostPerToken: usd(outM), metadata: { contextLength: 1000, architecture: { inputModalities: im, outputModalities: om }, supportedFeatures: f } });
-  const sealed = entry('model-b', 1, 5);
-  Object.assign(sealed.metadata, { verifiable: true }); // NEAR AI's flag for a model served from an attested TEE
+  const sealed = entry('model-b', 1, 5), partner = entry('m-1', 5, 25);
+  // NEAR AI's flag for a model served from an attested TEE; its owner says whose TEE
+  Object.assign(sealed.metadata, { verifiable: true, ownedBy: 'nearai', modelIcon: 'https://avatars.example/b.png' });
+  Object.assign(partner.metadata, { verifiable: true, ownedBy: 'attested 3p', modelIcon: 'javascript:alert(1)' });
   const list = parsePriceList({ models: [
-    entry('model-a', 0.1, 0.5, ['text', 'image']), sealed, entry('m-1', 5, 25),
+    entry('model-a', 0.1, 0.5, ['text', 'image']), sealed, partner,
     entry('anthropic/claude-x', 0.01, 0.01), // rejects the reasoning_effort Hermes always sends
     entry('base-model', 0.01, 0.01, ['text'], ['text'], []), // no tool calling: Hermes cannot drive it
     entry('claude-x', 0.01, 0.01, ['audio']), entry('img', 1, 1, ['text'], ['image']),
   ] });
   assert.deepEqual([...list.keys()], ['model-a', 'model-b', 'm-1']);
   assert.equal(list.get('model-a')!.vision, true);
-  assert.equal(list.get('model-b')!.private, true);
-  assert.equal(list.get('model-a')!.private, false);
+  assert.equal(list.get('model-b')!.privacy, 'private');
+  assert.equal(list.get('m-1')!.privacy, 'confidential');
+  assert.equal(list.get('model-a')!.privacy, undefined); // routed to the vendor: no tag
+  assert.equal(list.get('model-b')!.icon, 'https://avatars.example/b.png');
+  assert.equal(list.get('m-1')!.icon, undefined); // only https logos reach the browser
   assert.equal(dailyCredits(list.get('model-a')!), 15); // $0.10 + $0.05 a day
   assert.equal(dailyCredits(list.get('m-1')!), 750);
 
@@ -157,7 +162,7 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
     for (const c of r.candidates.filter((x: any) => x.serious)) {
       assert.equal(c.costPerDay, dailyCredits(list.get(c.loadout.model.id)!));
       assert.match(c.note, /NEAR AI price: \$/);
-      if (c.loadout.model.id === 'model-b') assert.match(c.note, /runs privately in a TEE/);
+      if (c.loadout.model.id === 'model-b') assert.match(c.note, /private: sealed in NEAR AI's TEE/);
       seen.add(c.loadout.model.id);
     }
     await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/decline` });

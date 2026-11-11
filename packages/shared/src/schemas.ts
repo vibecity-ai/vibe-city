@@ -1005,7 +1005,14 @@ export const ChiefOfStaffModelsSchema = z.object({
   current: z.string(),
   /** Whether the CEO picked it (false: the server default is in use). */
   chosen: z.boolean(),
-  models: z.array(z.object({ id: z.string(), inPerM: z.number(), outPerM: z.number(), context: z.number().int() }).strict()),
+  models: z.array(z.object({
+    id: z.string(), inPerM: z.number(), outPerM: z.number(), context: z.number().int(),
+    /** NEAR AI's `verifiable` models run sealed in an attested TEE: "private" on NEAR AI's own, "confidential" at an
+        attested partner (Chutes, Tinfoil). null: routed to the vendor. */
+    privacy: z.enum(['private', 'confidential']).nullable(),
+    /** The vendor's logo as NEAR AI lists it (https only), null when it has none. */
+    icon: z.string().url().nullable(),
+  }).strict()),
 }).strict();
 export type ChiefOfStaffModels = z.infer<typeof ChiefOfStaffModelsSchema>;
 

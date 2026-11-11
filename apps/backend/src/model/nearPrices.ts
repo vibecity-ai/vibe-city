@@ -1,10 +1,11 @@
 /* NEAR AI Cloud's public model list (GET /v1/model/list, no key needed): real per-token prices and capabilities.
    AR only shortlists models a Hermes agent can run: text in, text out, and tool calling (Hermes' agent loop is tools).
    Claude models are left out: Hermes always sends reasoning_effort and NEAR AI rejects it for them ("Extra inputs are
-   not permitted", any level, checked 2026-11-11). `private`: NEAR AI's `verifiable` flag, the model runs in an attested TEE.
+   not permitted", any level, checked 2026-11-11). `privacy`: NEAR AI's `verifiable` flag, the model runs sealed in an
+   attested TEE: "private" when NEAR AI runs it (owner `nearai`), "confidential" at an attested partner (Chutes, Tinfoil).
    Image input is not required; it is kept as a flag for the card. */
 
-export interface ModelPrice { inPerM: number; outPerM: number; context: number; vision: boolean; private?: boolean }
+export interface ModelPrice { inPerM: number; outPerM: number; context: number; vision: boolean; privacy?: 'private' | 'confidential'; icon?: string }
 export type PriceList = Map<string, ModelPrice>;
 export interface ModelPrices { list(): Promise<PriceList> }
 
@@ -12,7 +13,7 @@ export interface ModelPrices { list(): Promise<PriceList> }
 export const DAY_TOKENS = { input: 1_000_000, output: 100_000 } as const;
 /** Credits per day at DAY_TOKENS. 1 credit = 1 US cent of NEAR AI usage. */
 export const dailyCredits = (p: ModelPrice) => Math.max(1, Math.round((p.inPerM * DAY_TOKENS.input + p.outPerM * DAY_TOKENS.output) / 1e4));
-export const priceNote = (p: ModelPrice) => `$${p.inPerM.toFixed(2)} in / $${p.outPerM.toFixed(2)} out per 1M tokens${p.vision ? ', sees images' : ''}${p.private ? ', runs privately in a TEE' : ''}`;
+export const priceNote = (p: ModelPrice) => `$${p.inPerM.toFixed(2)} in / $${p.outPerM.toFixed(2)} out per 1M tokens${p.vision ? ', sees images' : ''}${p.privacy === 'private' ? ', private: sealed in NEAR AI\'s TEE' : p.privacy === 'confidential' ? ', confidential: sealed in an attested partner TEE' : ''}`;
 
 type Money = { amount?: number; scale?: number } | null | undefined;
 const perM = (c: Money) => (c && typeof c.amount === 'number' && typeof c.scale === 'number' ? (c.amount / 10 ** c.scale) * 1e6 : NaN);
@@ -27,7 +28,9 @@ export function parsePriceList(body: unknown): PriceList {
     const inM: string[] = md.architecture?.inputModalities ?? [];
     const outM: string[] = md.architecture?.outputModalities ?? [];
     const feats: string[] = md.supportedFeatures ?? [];
-    const p = { inPerM: perM(m.inputCostPerToken), outPerM: perM(m.outputCostPerToken), context: Number(md.contextLength) || 0, vision: inM.includes('image'), private: md.verifiable === true };
+    const p = { inPerM: perM(m.inputCostPerToken), outPerM: perM(m.outputCostPerToken), context: Number(md.contextLength) || 0, vision: inM.includes('image'),
+      ...(md.verifiable === true ? { privacy: md.ownedBy === 'nearai' ? 'private' as const : 'confidential' as const } : {}),
+      ...(typeof md.modelIcon === 'string' && md.modelIcon.startsWith('https://') ? { icon: md.modelIcon } : {}) };
     if (typeof m.modelId !== 'string' || m.modelId.startsWith('anthropic/') || !inM.includes('text') || outM.join() !== 'text' || !feats.includes('tools')) continue;
     if (!Number.isFinite(p.inPerM) || !Number.isFinite(p.outPerM)) continue;
     out.set(m.modelId, p);

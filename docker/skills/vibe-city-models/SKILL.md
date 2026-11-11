@@ -24,12 +24,17 @@ model should X use?" or "why is this floor so expensive?".
 5. **Abliterated models** (`*-abliterated`, refusals removed) only where a template already sets them, for red-team
    or security work. Never propose one on your own.
 
-## Private vs routed
+## Private, confidential, routed
 
-NEAR AI marks a model `verifiable` when it runs in an attested TEE (Intel TDX + NVIDIA confidential GPUs): prompts
-stay sealed even from NEAR AI. In Vibe City's lists it shows as "private" / "runs privately in a TEE". Everything
-else is routed to the vendor (OpenAI, Google, xAI, OpenRouter...) with identifying data stripped: not sealed.
-**Prefer private** for anything touching the company's money, wallets, keys, strategy or customers. Two ids can be
+NEAR AI marks a model `verifiable` when it runs in an attested TEE (Intel TDX + NVIDIA confidential GPUs). Vibe City
+shows two tags for these, with the vendor's logo, in every model picker:
+
+- **Private**: NEAR AI runs it in its own TEE. Prompts stay sealed even from NEAR AI.
+- **Confidential**: an attested partner TEE (Chutes, Tinfoil) that NEAR AI verifies. Sealed from the host.
+
+Everything else has no tag: it is routed to the vendor (OpenAI, Google, xAI, OpenRouter...) with identifying data
+stripped, not sealed. **Prefer private, then confidential** for anything touching the company's money, wallets, keys,
+strategy or customers. Two ids can be
 the same model and differ only here: `deepseek-ai/DeepSeek-V4.1-Flash-1017` (private) vs `deepseek/deepseek-v4.1-flash`
 (OpenRouter), same price.
 
@@ -38,15 +43,15 @@ the same model and differ only here: `deepseek-ai/DeepSeek-V4.1-Flash-1017` (pri
 Cost per agent-day = Vibe City's estimate of one busy agent (1M input + 100k output tokens), at NEAR AI list prices
 of 2026-11-11. Latency = one tool call and one short chat, measured once that day; treat as rough.
 
-| Use | Model | Private | $/agent-day | Tool call | Notes |
+| Use | Model | Tag | $/agent-day | Tool call | Notes |
 |---|---|---|---|---|---|
-| **Default, almost every floor** | `deepseek-ai/DeepSeek-V4.1-Flash-1017` | yes | 0.42 | 0.9 s | Reasoning + coding, 1M context, sees images. Vibe City's default. |
-| Cheap chores (triage, summaries, monitoring) | `Qwen/Qwen3.6-35B-A3B-FP8` | yes | 0.28 | 0.8 s | Fastest measured. 262K context. |
-| | `Qwen/Qwen3.8-27B` | yes | 0.18 | 1.2 s | Cheapest input; vision. 262K context. |
-| | `z-ai/glm-5.3-flash` | yes | 0.13 | 1.0 s | Cheapest per day. Slow to answer plain chat (15 s), fine in a task loop. |
-| Hard reasoning, long coding, research | `z-ai/glm-5.3` | yes | 2.38 | 26 s | Strong long-horizon agent, 1M context. Slow: background work only. |
-| | `moonshotai/kimi-k3` | yes | 4.95 | 8 s | Frontier agentic model, 1M context. Expensive, slow chat (19 s). |
-| Not private, only if the boss asks for a brand | `openai/gpt-5.4-mini` (1.20), `openai/gpt-5.5` (8.00), `google/gemini-3.5-flash` (2.40), `x-ai/grok-4.7` (2.60) | no | | | Routed to the vendor. |
+| **Default, almost every floor** | `deepseek-ai/DeepSeek-V4.1-Flash-1017` | Private | 0.42 | 0.9 s | Reasoning + coding, 1M context, sees images. Vibe City's default. |
+| Cheap chores (triage, summaries, monitoring) | `Qwen/Qwen3.6-35B-A3B-FP8` | Private | 0.28 | 0.8 s | Fastest measured. 262K context. |
+| | `Qwen/Qwen3.8-27B` | Private | 0.18 | 1.2 s | Cheapest input; vision. 262K context. |
+| | `z-ai/glm-5.3-flash` | Private | 0.13 | 1.0 s | Cheapest per day. Slow to answer plain chat (15 s), fine in a task loop. |
+| Hard reasoning, long coding, research | `z-ai/glm-5.3` | Confidential | 2.38 | 26 s | Strong long-horizon agent, 1M context. Slow: background work only. |
+| | `moonshotai/kimi-k3` | Confidential | 4.95 | 8 s | Frontier agentic model, 1M context. Expensive, slow chat (19 s). |
+| Untagged, only if the boss asks for a brand | `openai/gpt-5.4-mini` (1.20), `openai/gpt-5.5` (8.00), `google/gemini-3.5-flash` (2.40), `x-ai/grok-4.7` (2.60) | none | | | Routed to the vendor. |
 
 Qwen models need `reasoning_effort` `xhigh` and DeepSeek `high`; Vibe City sets that per profile itself.
 
@@ -64,7 +69,7 @@ Qwen models need `reasoning_effort` `xhigh` and DeepSeek `high`; Vibe City sets 
 
 ## Explaining it to the boss
 
-One sentence: the model, why it fits the work, the daily cost from the list, and "private" when it is. E.g. "I'd put
+One sentence: the model, why it fits the work, the daily cost from the list, and its tag (private or confidential) when it has one. E.g. "I'd put
 Treasury on DeepSeek V4.1 Flash: quick, good with tools, about 42 cents a day per agent, and it runs sealed in NEAR's
 TEE so your wallet data stays private." Costs are estimates; say so. Prices change: the live list is
 `GET https://cloud-api.near.ai/v1/model/list` (no key needed).
