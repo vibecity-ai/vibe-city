@@ -29,10 +29,9 @@ export function execAction(id: ExecObjectId) {
 export function floorAction(id: FloorObjectId, deptId: string) {
   const s = useStore.getState();
   s.ui$(CLEAR_DESK);
-  const d = s.depts.find((x) => x.id === deptId);
   switch (id) {
     case 'board': s.openPanel('board', { composer: false, boardDept: deptId, boardFilter: 'all', boardQuest: null }); break;
-    case 'lead': if (d?.chief) s.openPanel('agent', { agent: 'chief' }); else s.openPanel('dept', { deptTab: 'overview' }); break;
+    case 'lead': s.openPanel('dept', { deptTab: 'overview', agent: null }); break;
     case 'archive': s.ui$({ floorSheet: 'archive' }); break;
     // the floor's gear, each where it lives: tools in the rack, skills in the library, keys in the cabinet
     case 'rack': s.openPanel('dept', { deptTab: 'tools', agent: null }); break;

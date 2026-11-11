@@ -114,7 +114,7 @@ export type FloorObjectId = 'board' | 'lead' | 'archive' | 'rack' | 'library' | 
 /** What a click opens, so the screen copy and the test agree. */
 export const FLOOR_OBJECT_HELP: Record<FloorObjectId, string> = {
   board: 'This floor\'s jobs on the Ops board',
-  lead: 'The lead\'s profile and chat',
+  lead: 'The department: its people, jobs and status',
   archive: 'The file archive: every file on this floor\'s jobs',
   rack: 'Tools: the toolsets every agent here carries',
   library: 'This floor’s skills: what its agents may use, and what they carry',
