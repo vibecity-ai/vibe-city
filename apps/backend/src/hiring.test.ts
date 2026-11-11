@@ -162,7 +162,7 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
     for (const c of r.candidates.filter((x: any) => x.serious)) {
       assert.equal(c.costPerDay, dailyCredits(list.get(c.loadout.model.id)!));
       assert.match(c.note, /NEAR AI price: \$/);
-      if (c.loadout.model.id === 'model-b') assert.match(c.note, /private: sealed in NEAR AI's TEE/);
+      if (c.loadout.model.id === 'model-b') assert.match(c.note, /Private TEE: sealed in NEAR AI's TEE/);
       seen.add(c.loadout.model.id);
     }
     await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/decline` });

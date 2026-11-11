@@ -241,7 +241,7 @@ export function PixelSelect({ id, value, options, onChange, disabled, placeholde
             <li key={o.value || '_empty'} id={`${lid}-${i}`} data-i={i} role="option" aria-selected={o.value === value} aria-disabled={o.disabled || undefined}
               className={`psel-opt${i === active ? ' on' : ''}${o.value === value ? ' sel' : ''}`}
               onPointerEnter={() => !o.disabled && setActive(i)} onClick={() => choose(i)}>
-              <span>{o.icon}{o.label}{o.tag}</span>{o.note && <small>{o.note}</small>}
+              <span className={o.icon ? 'psel-l has-icon' : 'psel-l'}>{o.icon}<span>{o.label}</span></span>{o.tag}{o.note && <small>{o.note}</small>}
             </li>];
         })}
       </ul>

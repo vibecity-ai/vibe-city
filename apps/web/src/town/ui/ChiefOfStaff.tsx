@@ -7,7 +7,7 @@ import type { ChiefOfStaffModels, CompanySettings } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Icon, PixelSelect } from './kit';
-import { ModelLogo, PRIVACY, PrivacyTag, modelOption } from './ModelBadge';
+import { ModelLogo, PrivacyTag, modelOption, privacyOf } from './ModelBadge';
 
 const KEYS_URL = 'https://cloud.near.ai';
 const per1M = (n: number) => `$${n < 1 ? n.toFixed(2) : n.toFixed(n % 1 ? 2 : 0)}`;
@@ -82,7 +82,7 @@ export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
         )}
         <span className="cos-help">
           {pick ? `${per1M(pick.inPerM)} per 1M tokens in, ${per1M(pick.outPerM)} out. A conversation uses a few thousand tokens.` : 'NEAR AI’s price list is not available right now; any model id NEAR AI offers works.'}
-          {pick?.privacy && ` ${PRIVACY[pick.privacy].note}`}
+          {pick && ` ${privacyOf(pick).note}`}
           {' '}Cheaper models answer fast; bigger ones plan floors better. Your agents keep their own models.
         </span>
       </div>
@@ -114,7 +114,7 @@ export function ChiefOfStaffCard() {
       <h3 className="sec-t" id="cos-h">Chief of Staff</h3>
       <div className="cos-card">
         <div className="cos-row">
-          <span className="cos-now"><small>Thinks with</small><span className="mname">{models && <ModelLogo id={models.current} icon={models.models.find((m) => m.id === models.current)?.icon} />}<b className="mono">{models ? models.current : '…'}</b>{models && <PrivacyTag privacy={models.models.find((m) => m.id === models.current)?.privacy} />}</span>{models && !models.chosen && <i>default</i>}</span>
+          <span className="cos-now"><small>Thinks with</small><span className="mname">{models && <ModelLogo id={models.current} icon={models.models.find((m) => m.id === models.current)?.icon} />}<b className="mono">{models ? models.current : '…'}</b>{models && <PrivacyTag info={models.models.find((m) => m.id === models.current)} />}</span>{models && !models.chosen && <i>default</i>}</span>
           <button className="btn small" onClick={() => setOpen((o) => !o)} aria-expanded={open}>{open ? 'Close' : 'Change'}</button>
         </div>
         {open && <ChiefOfStaffSetup onDone={() => { setOpen(false); void api.assistantModels().then(setModels); }} />}

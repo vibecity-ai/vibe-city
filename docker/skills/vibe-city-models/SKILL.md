@@ -24,18 +24,20 @@ model should X use?" or "why is this floor so expensive?".
 5. **Abliterated models** (`*-abliterated`, refusals removed) only where a template already sets them, for red-team
    or security work. Never propose one on your own.
 
-## Private, confidential, routed
+## Private TEE and Incognito
 
-NEAR AI marks a model `verifiable` when it runs in an attested TEE (Intel TDX + NVIDIA confidential GPUs). Vibe City
-shows two tags for these, with the vendor's logo, in every model picker:
+Vibe City tags every model in its pickers as near.ai/models does, with the vendor's logo. NEAR AI marks a model
+`verifiable` when it runs in an attested TEE (Intel TDX + NVIDIA confidential GPUs).
 
-- **Private**: NEAR AI runs it in its own TEE. Prompts stay sealed even from NEAR AI.
-- **Confidential**: an attested partner TEE (Chutes, Tinfoil) that NEAR AI verifies. Sealed from the host.
+- **Private TEE**: NEAR AI runs it in its own TEE. Prompts stay sealed even from NEAR AI.
+- **Incognito** on a `verifiable` model (owner `attested 3p`): an attested partner TEE (Chutes, Tinfoil) that NEAR AI
+  verifies. Sealed from the host.
+- **Incognito** on any other model: routed to the vendor (OpenAI, Google, xAI, OpenRouter...) with identifying data
+  stripped, not sealed.
 
-Everything else has no tag: it is routed to the vendor (OpenAI, Google, xAI, OpenRouter...) with identifying data
-stripped, not sealed. **Prefer private, then confidential** for anything touching the company's money, wallets, keys,
+**Prefer Private TEE, then a partner-TEE Incognito model** for anything touching the company's money, wallets, keys,
 strategy or customers. Two ids can be
-the same model and differ only here: `deepseek-ai/DeepSeek-V4.1-Flash-1017` (private) vs `deepseek/deepseek-v4.1-flash`
+the same model and differ only here: `deepseek-ai/DeepSeek-V4.1-Flash-1017` (Private TEE) vs `deepseek/deepseek-v4.1-flash`
 (OpenRouter), same price.
 
 ## The roster
@@ -45,10 +47,10 @@ of 2026-11-11. Latency = one tool call and one short chat, measured once that da
 
 | Use | Model | Tag | $/agent-day | Tool call | Notes |
 |---|---|---|---|---|---|
-| **Default, almost every floor** | `deepseek-ai/DeepSeek-V4.1-Flash-1017` | Private | 0.42 | 0.9 s | Reasoning + coding, 1M context, sees images. Vibe City's default. |
-| Cheap chores (triage, summaries, monitoring) | `Qwen/Qwen3.6-35B-A3B-FP8` | Private | 0.28 | 0.8 s | Fastest measured. 262K context. |
-| | `Qwen/Qwen3.8-27B` | Private | 0.18 | 1.2 s | Cheapest input; vision. 262K context. |
-| | `z-ai/glm-5.3-flash` | Private | 0.13 | 1.0 s | Cheapest per day. Slow to answer plain chat (15 s), fine in a task loop. |
+| **Default, almost every floor** | `deepseek-ai/DeepSeek-V4.1-Flash-1017` | Private TEE | 0.42 | 0.9 s | Reasoning + coding, 1M context, sees images. Vibe City's default. |
+| Cheap chores (triage, summaries, monitoring) | `Qwen/Qwen3.6-35B-A3B-FP8` | Private TEE | 0.28 | 0.8 s | Fastest measured. 262K context. |
+| | `Qwen/Qwen3.8-27B` | Private TEE | 0.18 | 1.2 s | Cheapest input; vision. 262K context. |
+| | `z-ai/glm-5.3-flash` | Private TEE | 0.13 | 1.0 s | Cheapest per day. Slow to answer plain chat (15 s), fine in a task loop. |
 | Hard reasoning, long coding, research | `z-ai/glm-5.3` | Confidential | 2.38 | 26 s | Strong long-horizon agent, 1M context. Slow: background work only. |
 | | `moonshotai/kimi-k3` | Confidential | 4.95 | 8 s | Frontier agentic model, 1M context. Expensive, slow chat (19 s). |
 | Untagged, only if the boss asks for a brand | `openai/gpt-5.4-mini` (1.20), `openai/gpt-5.5` (8.00), `google/gemini-3.5-flash` (2.40), `x-ai/grok-4.7` (2.60) | none | | | Routed to the vendor. |

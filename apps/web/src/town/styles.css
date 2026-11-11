@@ -592,9 +592,9 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 /* a model's vendor logo and privacy tag (ModelBadge.tsx), in pickers and on cards */
 .psel > span:has(.mlogo), .psel-opt > span:has(.mlogo), .mname { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .mlogo { width: 16px; height: 16px; flex: none; border-radius: 4px; object-fit: cover; background: #241D31; display: inline-grid; place-items: center; font: 600 10px/1 var(--f-mono); font-style: normal; color: var(--ink); }
-.mpriv { flex: none; font: 700 9px/1 var(--f-mono); font-style: normal; text-transform: uppercase; letter-spacing: .08em; padding: 3px 5px; border-radius: 3px; }
+.mpriv { flex: none; font: 700 9px/1 var(--f-mono); font-style: normal; text-transform: uppercase; letter-spacing: .08em; padding: 3px 5px; border-radius: 3px; white-space: nowrap; }
 .mpriv.private { color: #0F0B17; background: var(--mint); }
-.mpriv.confidential { color: var(--mint); box-shadow: inset 0 0 0 1px var(--mint); }
+.mpriv.incognito { color: var(--ink-dim); background: #2A2238; }
 .psel svg { flex: none; color: var(--cyan); transition: transform .12s cubic-bezier(.2,.8,.2,1); }
 .psel.open svg { transform: rotate(180deg); }
 .psel:disabled { cursor: not-allowed; opacity: .6; }
@@ -602,8 +602,11 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 @keyframes pselIn { from { opacity: 0; transform: translateY(-4px); } }
 .psel-list.mono { font: 14px var(--f-mono); }
 .psel-group { padding: 10px 10px 4px; font: 600 10px var(--f-mono); color: var(--ink-mute); text-transform: uppercase; letter-spacing: .12em; }
-.psel-opt { position: relative; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 8px 30px 8px 10px; cursor: pointer; border-radius: 6px; }
-.psel-opt small { color: var(--ink-dim, #B3ACDD); font-size: 12px; }
+/* name (wrapping, never cut: model ids differ at the end) with its tag on the right, the note on a line below */
+.psel-opt { position: relative; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 10px; padding: 8px 30px 8px 10px; cursor: pointer; border-radius: 6px; }
+.psel-l { display: flex; align-items: center; gap: 6px; min-width: 0; overflow-wrap: anywhere; }
+.psel-opt small { grid-column: 1 / -1; color: var(--ink-dim, #B3ACDD); font-size: 12px; }
+.psel-opt:has(.has-icon) small { padding-left: 22px; }
 .psel-opt.on, .psel-opt:hover { background: rgba(255,255,255,.06); }
 .psel-opt.sel::after { content: ""; position: absolute; right: 10px; top: 50%; width: 8px; height: 4px; margin-top: -4px; border: solid var(--amber); border-width: 0 0 2px 2px; transform: rotate(-45deg); }
 .psel-opt.sel > span { color: var(--ink); font-weight: 600; }
