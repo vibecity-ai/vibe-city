@@ -22,6 +22,8 @@ const USE_TEMPLATE = 'Show me the templates', CUSTOM = 'Design a custom floor';
 const FIRST_JOB = 'Give them a first job', SEE_FLOOR = 'Show me the floor';
 /** Free talk with the Hermes agent: the opener, and after a job it proposed was started. */
 const BRIEF = 'Brief me', SEE_BOARD = 'Show me the board';
+/** The Chief of Staff thinks of a job for a floor and offers it as a Start job card. */
+const JOB = 'Give a floor a job';
 
 export function NewDeptWindow() {
   const open = useStore((s) => s.ui.newDept);
@@ -59,7 +61,8 @@ function NewDept() {
   useEffect(newSession, [newSession]);
   // listing is offered while some floor can still go on the market (not a company-wallet floor, not listed yet)
   const canList = useStore((s) => s.depts.some((d) => !isInternalOnly(d.view.templateId) && !s.market?.agents.some((a) => a.departmentId === d.id)));
-  const menu = [BRIEF, ADD, HIRE, ...(canList ? [LIST] : [])];
+  const canWork = useStore((s) => s.depts.some((d) => d.provisioning === 'ready'));
+  const menu = [BRIEF, ...(canWork ? [JOB] : []), ADD, HIRE, ...(canList ? [LIST] : [])];
   const say = (user: string, text: string, replies: string[]) => setLines((xs) => [...xs,
     { id: crypto.randomUUID(), from: 'user', text: user, mood: null, replies: [], draft: null },
     { id: crypto.randomUUID(), from: 'agent', text, mood: 'happy', replies, draft: null }]);
@@ -76,6 +79,8 @@ function NewDept() {
     // the boss sees their chip; the Chief of Staff gets what it needs to think of the floor's first job itself
     const message = built && m === FIRST_JOB
       ? `${m}. ${built.name} was just built (${built.crew}); its purpose: ${built.purpose.replace(/\.?\s*$/, '.')} Think of its first job: one concrete task it can do today with its skills and tools, a quick win that shows what it is for. Propose it for "${built.name}" now, even while it is still being built: I start it once the floor is ready.`
+      : m === JOB
+      ? `${m}. Pick the floor with the most obvious next step (an idle one first), think of one concrete job it can do now with its skills and tools, and propose it for that floor by its exact name. One job, not a list.`
       : m;
     const cos = s.chiefOfStaff;
     if (!cos?.chief) { setError('I have no desk in Hermes yet, boss: start Hermes and I can talk. The templates, hiring and market shortcuts still work.'); return false; }
@@ -111,7 +116,7 @@ function NewDept() {
     setStarted({ turn, dept: p.departmentId! });
     const id = await createQuest(p.departmentId!, { clientRequestId: crypto.randomUUID(), title: p.title, objective: p.objective });
     if (!id) { setStarted(null); return; } // the toast says why; the card stays to try again
-    setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done, boss: "${p.title}" is on ${p.departmentName}'s board. Ask me how it is going any time.`, mood: 'happy', replies: [SEE_BOARD, BRIEF], draft: null }]);
+    setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done, boss: "${p.title}" is on ${p.departmentName}'s board. Ask me how it is going any time.`, mood: 'happy', replies: [SEE_BOARD, JOB, BRIEF], draft: null }]);
   };
   const last = [...lines].reverse().find((t) => t.from === 'agent') ?? null;
 
@@ -126,7 +131,7 @@ function NewDept() {
         const job = last?.proposal;
         // a floor still being built cannot take a job yet: the card waits for it
         const ready = depts.find((d) => d.id === job?.departmentId)?.provisioning === 'ready';
-        if (job?.departmentId && !started) return (
+        if (job?.departmentId && started?.turn !== last!.id) return (
           <div className="dlg-prop">
             <div><span className="dlg-tag">Job for {job.departmentName}</span><b>{job.title}</b><span>{job.objective}</span></div>
             <div className="dlg-prop-act"><button className="btn primary small" disabled={!ready} title={ready ? undefined : `${job.departmentName} is still being built`} onClick={() => void startJob(last!.id, job)}>{ready ? 'Start job' : 'Waiting for the floor…'}</button></div>

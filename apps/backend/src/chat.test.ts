@@ -228,6 +228,7 @@ test('the Chief of Staff answers from a briefing of every floor and proposes a j
   const system = agentChat.turns[0]!.system;
   assert.match(system, /### Research[\s\S]*\[ready\] Scan competitor pricing/, 'every floor and its board are in the prompt: no tool call to know them');
   assert.match(system, /CEO quests: \d of 7 done/);
+  assert.match(system, /floor sits idle[^\n]*"Give a floor a job"/, 'an idle floor gets a job offered from the chat');
   assert.doesNotMatch(system, /### Chief of Staff/, 'its own empty board is not a floor');
   // a floor that does not exist has no board to put the job on
   assert.equal((await app.inject({ method: 'POST', url, payload: { message: 'nobody' } })).json().agent.proposal, null);
