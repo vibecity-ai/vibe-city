@@ -36,7 +36,7 @@ export function pick<T>(list: readonly T[], seed: number, salt: number): T {
   return list[(hash(`${seed}:${salt}`) % list.length)]!;
 }
 
-/** `taken`: names already on the floor. A hash collision picks again, so two agents of one floor never share a name. */
+/** `taken`: names already in the company. A hash collision picks again, so two agents never share a name. */
 export function generateCharacter(departmentId: string, deptName: string, agentKey: string, taken: ReadonlySet<string> = new Set()): Character {
   const seed = hash(`${departmentId}:${agentKey}`);
   let name = `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`;
@@ -70,6 +70,11 @@ export function chiefOfStaff(companyId: string): Character {
   };
 }
 
+/** Every persona name in the company: a name is unique across floors, so a toast or a call naming someone is never ambiguous. */
+export function takenNames(db: DatabaseSync): Set<string> {
+  return new Set((db.prepare("SELECT json_extract(character_json, '$.name') AS name FROM agent_character").all() as { name: string }[]).map((r) => r.name));
+}
+
 export class CharacterService {
   private db: DatabaseSync;
   constructor(db: DatabaseSync) { this.db = db; }
@@ -85,9 +90,7 @@ export class CharacterService {
       const fresh = generateCharacter(departmentId, deptName, agentKey);
       return { ...c, title: fresh.title };
     }
-    const taken = new Set((this.db.prepare("SELECT json_extract(character_json, '$.name') AS name FROM agent_character WHERE department_id = ?")
-      .all(departmentId) as { name: string }[]).map((r) => r.name));
-    const c = generateCharacter(departmentId, deptName, agentKey, taken);
+    const c = generateCharacter(departmentId, deptName, agentKey, takenNames(this.db));
     this.db.prepare('INSERT OR IGNORE INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)')
       .run(departmentId, agentKey, JSON.stringify(c), new Date().toISOString());
     return c;
