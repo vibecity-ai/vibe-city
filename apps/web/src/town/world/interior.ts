@@ -16,7 +16,8 @@ export const C = {
 export const STATUS_COL: Record<AgentStatus, string> = { running: C.cyan, idle: C.lav, completed: C.mint, failed: C.red, disconnected: C.ash, awaiting: C.amber };
 
 /* layout (u, v in room units) */
-export const DESKS: Pt[] = [[136, 94], [180, 94], [136, 48], [180, 48], [92, 94], [92, 48]];
+/** Three columns centred on the Ops board (u 92..180 on the back wall), so every teammate sits facing it. */
+export const DESKS: Pt[] = [[122, 94], [166, 94], [122, 48], [166, 48], [78, 94], [78, 48]];
 export const seatOf = (i: number): Pt => { const d = DESKS[i % DESKS.length]; return [d[0] + 14, d[1] - 8]; };
 export const CHIEF_SEAT: Pt = [32, 111];
 export const ELEVATOR: Pt = [24, 34];
@@ -26,7 +27,7 @@ export const LOUNGE: Pt = [214, 46];
 export const COOLER: Pt = [12, 2];
 export const OFFICE_DOOR: Pt = [60, 96];
 export const AISLE = 74;
-export const GAPS = [84, 128, 172, 216];
+export const GAPS = [70, 114, 158, 202];
 
 export const hash = (a: number, b = 0) => { let h = Math.imul(a * 374761393 + b * 668265263, 1274126177) ^ 0x5bd1e995; h = Math.imul(h ^ (h >>> 13), 1274126177); return ((h ^ (h >>> 16)) >>> 0) / 4294967296; };
 

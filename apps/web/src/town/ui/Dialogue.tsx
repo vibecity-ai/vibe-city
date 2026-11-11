@@ -13,29 +13,9 @@ import { lookFor, quirkProp, type Look } from '../world/sprites';
 import { portrait, type Gag } from '../world/portrait';
 import { Icon } from './kit';
 
-const PAGE = 92;
-/** Replies longer than this many pages show their opening in the box and the whole text in a panel. */
-const LONG_PAGES = 4;
+/** Answers longer than this are a report, not a line of dialogue: smaller type, typed faster, with a copy button. */
+const LONG = 280;
 const CPS = 42;
-
-/** Split text into pages that fit the text bar: whole sentences where they fit, whole words otherwise. */
-export function paginate(text: string): string[] {
-  const sentences = text.replace(/\s+/g, ' ').trim().match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) ?? [];
-  const pages: string[] = []; let cur = '';
-  const push = () => { if (cur.trim()) pages.push(cur.trim()); cur = ''; };
-  for (const raw of sentences) {
-    const sen = raw.trim(); if (!sen) continue;
-    if ((cur + ' ' + sen).trim().length <= PAGE) { cur = (cur + ' ' + sen).trim(); continue; }
-    push();
-    if (sen.length <= PAGE) { cur = sen; continue; }
-    for (const w of sen.split(' ')) {
-      if ((cur + ' ' + w).trim().length > PAGE && cur) push();
-      cur = (cur + ' ' + w).trim();
-    }
-  }
-  push();
-  return pages.length ? pages : [''];
-}
 
 let audio: AudioContext | null = null;
 export function blip(freq: number, vol = 0.035, len = 0.05) {
@@ -70,7 +50,7 @@ export function PortraitCanvas({ look, mood, talking, size, gag = null, classNam
   return <canvas ref={ref} width={size} height={size} className={className} aria-hidden="true" />;
 }
 
-export interface Line { id: string; from: 'user' | 'agent'; text: string; mood: Mood | null; replies: string[] }
+export interface Line { id: string; from: 'user' | 'agent'; text: string; mood: Mood | null; replies: string[]; skills?: string[] }
 export interface Who { name: string; title: string; color: string; voice: number }
 
 /** The shared window. The parent owns the conversation (lines, waiting, error); the frame owns paging, typing and input. */
@@ -87,7 +67,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   onNewChat?: () => void;
   /** Shown once the speaker has finished talking (proposal cards, brief cards…). */
   cards?: (lastAgent: Line | null) => ReactNode;
-  /** A small line under the text bar (interview stats, scouting timer). */
+  /** A small line under the text bar (stats, notes). */
   below?: ReactNode;
   hideInput?: boolean; inputHint?: string;
   /** Said when the CEO ends a chat they took part in: the speaker signs off before the window closes. */
@@ -103,11 +83,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const inputRef = useRef<HTMLInputElement>(null);
 
   const lastAgent = [...lines].reverse().find((m) => m.from === 'agent') ?? null;
-  // Long answers (Hermes agents report results in full) would be many pages of clicking: the box types the opening and
-  // the whole answer goes in a scrollable panel underneath.
-  const full = !leaving && !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
   const speech = leaving ? farewell! : error ?? (!ready ? (notReady ?? 'No chat model is set up yet. Finish the first quest (your NEAR AI key and the Chief of Staff model), then we can talk.')
-    : full ? `${paginate(full.text).slice(0, LONG_PAGES).join(' ')} …` : lastAgent?.text ?? greeting);
+    : lastAgent?.text ?? greeting);
+  // A long answer (Hermes agents report results in full) stays in this one box: it grows, then scrolls.
+  const long = speech.length > LONG, cps = long ? CPS * 4 : CPS;
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(speech); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
   // The whole reply types into one box that follows the text as it goes (no clicking through pages).
   const text = speech;
   const typing = !waiting && shown < text.length;
@@ -115,6 +96,10 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const mood: Mood = leaving ? 'happy' : waiting ? 'focused' : error ? 'worried' : lastAgent?.mood ?? baseMood;
 
   useEffect(() => { setShown(0); }, [speech]);
+  // a modal: Tab stays inside, and closing hands focus back to whatever opened it (captured before the input takes it)
+  const root = useRef<HTMLDivElement>(null);
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
+  useEffect(() => () => { if (opener?.isConnected) opener.focus(); }, [opener]);
   const textBox = useRef<HTMLDivElement>(null);
   useEffect(() => { const el = textBox.current; if (el) el.scrollTop = el.scrollHeight; }, [shown, waiting, text]);
   useEffect(() => { if (!waiting) inputRef.current?.focus(); }, [waiting, who]);
@@ -124,12 +109,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   useEffect(() => {
     if (!typing) return;
     const id = window.setTimeout(() => {
-      const n = Math.min(text.length, Math.max(shown + 1, Math.floor(((performance.now() - typeStart.current) / 1000) * CPS)));
+      const n = Math.min(text.length, Math.max(shown + 1, Math.floor(((performance.now() - typeStart.current) / 1000) * cps)));
       setShown(n);
       if (!muted && who && /\S/.test(text.slice(shown, n))) blip(who.voice);
     }, 1000 / CPS * 2);
     return () => window.clearTimeout(id);
-  }, [typing, shown, text, muted, who]);
+  }, [typing, shown, text, muted, who, cps]);
 
   const advance = () => { if (typing) setShown(text.length); else if (leaving) onClose(); };
   useEffect(() => {
@@ -146,7 +131,14 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); end(); }
-      else if ((e.key === ' ' || e.key === 'Enter') && typing && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
+      else if (e.key === 'Tab' && root.current) {
+        const f = [...root.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), a[href]')];
+        const first = f[0], last = f.at(-1), at = document.activeElement;
+        if (!first || !last) return;
+        if (!root.current.contains(at)) { e.preventDefault(); first.focus(); }
+        else if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+      } else if ((e.key === ' ' || e.key === 'Enter') && typing && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -157,7 +149,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const shownText = waiting ? '' : text.slice(0, shown);
 
   return (
-    <div className="dlg" role="dialog" aria-modal="true" aria-label={`Talking to ${who?.name ?? 'agent'}`} style={{ ['--who' as string]: color }}>
+    <div className="dlg" ref={root} role="dialog" aria-modal="true" aria-label={`Talking to ${who?.name ?? 'agent'}`} style={{ ['--who' as string]: color }}>
       <div className="dlg-bar dlg-top" />
       <div className="dlg-band" onClick={advance}>
         <div className="dlg-side">
@@ -166,12 +158,13 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
       </div>
       <div className="dlg-bar dlg-bottom">
         <div className="dlg-plate"><b>{who?.name ?? '…'}</b><span>{who?.title ?? ''}</span></div>
-        <div className="dlg-text" ref={textBox} onClick={advance} aria-live="polite">
+        <div className={`dlg-text${long ? ' long' : ''}`} ref={textBox} onClick={advance} aria-live="polite">
           <span className="sr">{waiting ? status ?? 'Thinking' : speech}</span>
-          <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className="dlg-caret">■</span>}</p>
+          <p aria-hidden="true">{shownText}{waiting && <span className="dlg-wait"><span className="dlg-status">{status ?? 'thinking'}</span><span className="dlg-dots"><i /><i /><i /></span></span>}{!waiting && !typing && <span className="dlg-caret">■</span>}</p>
         </div>
+        {done && long && !leaving && !error && <button type="button" className="dlg-copy" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy answer'}</button>}
         {below}
-        {done && full && <FullAnswer key={full.id} text={full.text} />}
+        {done && !leaving && !error && !!lastAgent?.skills?.length && <p className="dlg-note dim">Skills: <span className="hire-skills">{lastAgent.skills.map((s) => <i key={s}>{s}</i>)}</span></p>}
         {done && !leaving && !error && cards?.(lastAgent)}
         <div className="dlg-replies">{replies.map((r) => <button key={r} className="dlg-chip" onClick={() => void send(r)}>{r}</button>)}</div>
         <form className="dlg-input" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
@@ -193,22 +186,10 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
 
 /* ---------- talking to a department agent (chief or worker desk) ---------- */
 
-/** The whole of a long answer: scrollable, line breaks kept, copyable. */
-function FullAnswer({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const words = text.trim().split(/\s+/).length;
-  const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
-  return (
-    <section className="dlg-full" aria-label="Full answer">
-      <header><span className="dlg-tag">Full answer · {words} words</span><button type="button" className="btn small" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button></header>
-      <div className="dlg-full-text" tabIndex={0}>{text}</div>
-    </section>
-  );
-}
-
 /** The agent's work while it answers, in the dialogue's words. */
 export function progressLabel(p: ChatProgress): string {
   if (p.kind === 'thinking') return 'thinking';
+  if (p.kind === 'skill') return `reading skill ${p.name}`;
   if (p.kind === 'approval') return `waiting for approval${p.command ? `: ${p.command.slice(0, 60)}` : ''}`;
   const name = p.name.replace(/^mcp_[a-z0-9]+_/, '').replace(/_/g, ' ');
   return /kanban/.test(p.name) ? 'checking the board' : `using ${name}`;
@@ -219,12 +200,13 @@ const SEE_BOARD = 'Show me the board';
 export function DialogueWindow() {
   const talk = useStore((s) => s.ui.talk);
   if (!talk) return null;
-  return <AgentDialogue key={`${talk.deptId}:${talk.agentKey}:${talk.session ?? ''}:${talk.blocked?.taskId ?? ''}`} deptId={talk.deptId} agentKey={talk.agentKey} session={talk.session} blocked={talk.blocked} />;
+  return <AgentDialogue key={`${talk.deptId}:${talk.agentKey}:${talk.session ?? ''}:${talk.blocked?.taskId ?? ''}:${talk.report ?? ''}`} deptId={talk.deptId} agentKey={talk.agentKey} session={talk.session} blocked={talk.blocked} report={talk.report} />;
 }
 
-function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk }) {
+function AgentDialogue({ deptId, agentKey, session, blocked, report }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk; report?: string }) {
   const d = useStore((s) => s.depts.find((x) => x.id === deptId) ?? (s.chiefOfStaff?.id === deptId ? s.chiefOfStaff : undefined));
   const personas = useStore((s) => s.personas);
+  const quests = useStore((s) => s.quests);
   const worker = agentKey === 'chief' ? null : d?.workers.find((w) => w.id === agentKey) ?? null;
   const close = useCallback(() => useStore.getState().ui$({ talk: null }), []);
 
@@ -247,7 +229,9 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
 
   const look = useMemo(() => ({ ...lookFor(deptId + ':' + agentKey, worker?.shirt ?? '#FFFFFF', agentKey === 'chief'), prop: quirkProp(ch?.quirk) }), [deptId, agentKey, worker?.shirt, ch?.quirk]);
   const status = agentKey === 'chief' ? d?.chief?.status : worker?.status;
-  const greeting = !ch ? '' : blocked
+  const greeting = !ch ? '' : report
+    ? `${ch.name} here. "${report}" is done, boss. Let me pull up what we got.`
+    : blocked
     ? `${ch.name} here. I'm stuck on "${blocked.title}" and need your input before I can carry on.`
     : agentKey === 'chief'
     ? `${ch.name}. ${d?.chief?.activity && d.chief.activity !== 'Waiting for a job' ? d.chief.activity + '.' : 'Nothing on my desk right now.'} What do you need, boss?`
@@ -258,7 +242,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
     setError(null); setWaiting(true); setProgress(null);
     setMessages((xs) => [...xs, { id: 'pending', from: 'user', text: m, mood: null, replies: [], proposal: null, at: new Date().toISOString() }]);
     try {
-      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}), ...(blocked ? { blockedTask: { title: blocked.title, reason: blocked.reason } } : {}) }, (p) => setProgress(progressLabel(p)));
+      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}), ...(blocked ? { blockedTask: { title: blocked.title, reason: blocked.reason } } : {}), ...(report ? { finishedQuest: { title: report } } : {}) }, (p) => setProgress(progressLabel(p)));
       setMessages((xs) => [...xs.filter((x) => x.id !== 'pending'), r.user, r.agent]);
       return true;
     } catch (e) {
@@ -268,13 +252,21 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
     } finally { setWaiting(false); setProgress(null); }
   };
 
+  // a lead's call about a finished quest: picking up asks for the report straight away
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!report || !ch || !ready || asked.current) return;
+    asked.current = true;
+    void onSend(`Give me the report on "${report}".`);
+  }, [report, ch, ready]);
+
   const startQuest = async (msgId: string, p: ChatProposal) => {
     setProposalDone((x) => ({ ...x, [msgId]: 'started' }));
     const id = await createQuest(deptId, { clientRequestId: crypto.randomUUID(), title: p.title, objective: p.objective });
     if (!id) { setProposalDone((x) => { const { [msgId]: _, ...rest } = x; return rest; }); return; }
     // the agent acknowledges, so the proposal's old reply chips ("say the word…") are gone
     setMessages((xs) => [...xs, { id: `ack:${msgId}`, from: 'agent', text: `On it, boss: "${p.title}" is on the board. I'll report back when it's done. Anything else?`,
-      mood: 'happy', replies: [SEE_BOARD, 'What are you working on?'], proposal: null, at: new Date().toISOString() }]);
+      mood: 'happy', replies: [SEE_BOARD, 'I have another job for you'], proposal: null, at: new Date().toISOString() }]);
   };
 
   if (!d) return null;
@@ -289,7 +281,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
       defaultReplies={blocked ? ["What's the problem?", 'What do you need from me?'] : ['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
       onSend={onSend} onClose={close}
-      farewell={farewellLine({ lead: agentKey === 'chief', task: agentKey === 'chief' ? null : worker?.status === 'running' ? worker.task : null, n: messages.length })}
+      {...(agentKey === 'chief' ? {} : { farewell: farewellLine({ task: worker?.status === 'running' ? worker.task : null, n: messages.length }) })}
       onNewChat={() => useStore.getState().ui$({ talk: { deptId, agentKey, session: 'new' } })}
       onProfile={() => { close(); useStore.getState().ui$({ agent: agentKey, panel: 'agent' }); }}
       cards={() => {
@@ -315,6 +307,9 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
         if (proposalDone[last.id] === 'started') return <p className="dlg-note">Job sent to the board. Watch the Ops board.</p>;
         if (!last.proposal || proposalDone[last.id]) return null;
         const p = last.proposal;
+        // a resumed chat forgets that its proposal was started: the board remembers, so never offer a duplicate
+        const same = (t: string) => t.trim().toLowerCase() === p.title.trim().toLowerCase();
+        if (quests.some((q) => q.deptId === deptId && same(q.summary.title))) return <p className="dlg-note">"{p.title}" is already on the board.</p>;
         return (
           <div className="dlg-prop">
             <div><span className="dlg-tag">Job proposal</span><b>{p.title}</b><span>{p.objective}</span></div>

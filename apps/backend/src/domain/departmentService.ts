@@ -5,7 +5,7 @@ import {
   type DepartmentAgent, type DepartmentCreate, type DepartmentUpdate, type DepartmentView, type Inventory, type InventoryPatch, type ModelChoice,
 } from '@vibe-city/shared';
 import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
-import { generateCharacter } from './characters.ts';
+import { generateCharacter, takenNames } from './characters.ts';
 import { WORKER_SKILL } from './marketService.ts';
 
 interface Row {
@@ -253,7 +253,8 @@ export class DepartmentService {
     const key = t?.hidden ? hiddenNameKey(input.name) : nameKey(input.name);
     return this.tx(() => {
       if (!t?.hidden) this.assertUniqueName(input.name);
-      if (t?.single && this.db.prepare('SELECT 1 FROM department WHERE template_id = ? AND archived_at IS NULL').get(t.id)) {
+      // one floor per template: a second is refused while an active one exists (archiving it frees the template)
+      if (t && this.db.prepare('SELECT 1 FROM department WHERE template_id = ? AND archived_at IS NULL').get(t.id)) {
         throw new ConflictError(`The company already has ${t.name}: there is one per company.`);
       }
       const id = randomUUID();
@@ -270,7 +271,7 @@ export class DepartmentService {
         this.insertAgent(id, seat, { model: s?.model ?? null, skills: s?.skills ?? [] }, now);
         // the seat's job title lives on the agent's persona (the city and the dialogue window read it from there)
         if (s) {
-          const c = { ...generateCharacter(id, input.name, seatKey(seat)), title: s.title, ...('name' in s && s.name ? { name: s.name } : {}) };
+          const c = { ...generateCharacter(id, input.name, seatKey(seat), takenNames(this.db)), title: s.title, ...('name' in s && s.name ? { name: s.name } : {}) };
           this.db.prepare('INSERT INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)').run(id, seatKey(seat), JSON.stringify(c), now);
         }
       });

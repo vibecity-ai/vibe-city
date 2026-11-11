@@ -42,8 +42,9 @@ const when = (iso: string | null) => {
   return `${d.toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} (${ms >= 0 ? 'in ' + rel : rel + ' ago'})`;
 };
 
-export async function loadSchedules() {
-  try { useStore.setState({ schedules: await api.schedules() }); } catch { /* keep the last list */ }
+/** Keeps the last list on failure and says why, so an empty list is never shown as "no schedules". */
+export async function loadSchedules(): Promise<string | null> {
+  try { useStore.setState({ schedules: await api.schedules() }); return null; } catch (e) { return e instanceof ApiError ? e.message : 'The schedules could not be loaded.'; }
 }
 
 export function SchedulesView({ deptId }: { deptId: string | null }) {
@@ -53,7 +54,8 @@ export function SchedulesView({ deptId }: { deptId: string | null }) {
   const [adding, setAdding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { void loadSchedules(); }, []);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  useEffect(() => { void loadSchedules().then(setLoadErr); }, []);
   const act = async (id: string, fn: () => Promise<unknown>) => {
     setBusy(id); setError(null);
     try { await fn(); await loadSchedules(); } catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong.'); } finally { setBusy(null); }
@@ -63,7 +65,8 @@ export function SchedulesView({ deptId }: { deptId: string | null }) {
     <div className="sched">
       <p className="fine">Vibe City creates these jobs on the floor's board at the set time, like you would. Agents cannot schedule work themselves (Hermes cron jobs stay off).</p>
       {error && <p className="field-err" role="alert">{error}</p>}
-      {list.length === 0 && !adding && <p className="muted">No schedules yet{deptId ? ` for ${name(deptId)}` : ''}.</p>}
+      {loadErr && <p className="field-err" role="alert">{loadErr}</p>}
+      {list.length === 0 && !adding && !loadErr && <p className="muted">No schedules yet{deptId ? ` for ${name(deptId)}` : ''}.</p>}
       <ul className="sched-list">
         {list.map((x: Schedule) => (
           <li key={x.id} className={`sched-row${x.enabled ? '' : ' off'}`}>

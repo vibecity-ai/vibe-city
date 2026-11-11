@@ -48,6 +48,13 @@ test('the first quest: the CEO pastes a NEAR AI key and picks the Chief of Staff
   assert.equal((await patch({ chiefOfStaffModel: 'small/model-b' })).statusCode, 200);
   assert.deepEqual(model.checks.at(-1), { apiKey: KEY, model: 'small/model-b' });
   assert.deepEqual([(await app.inject('/api/assistant/models')).json().current, (await app.inject('/api/assistant/models')).json().chosen], ['small/model-b', true]);
+
+  // the credits the CEO loaded are what the runway counts down from; no NEAR AI call for that
+  const n = model.checks.length;
+  assert.equal((await app.inject('/api/game')).json().runway.creditsRemainingCents, null);
+  assert.equal((await patch({ nearAiCreditsLoadedCents: 2500 })).json().nearAiCreditsLoadedCents, 2500);
+  assert.equal((await app.inject('/api/game')).json().runway.creditsRemainingCents, 2500);
+  assert.equal(model.checks.length, n);
 });
 
 test('the live chat model reads the pasted key and chosen model on every call, and says why a key fails', async () => {

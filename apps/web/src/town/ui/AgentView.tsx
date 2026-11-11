@@ -2,7 +2,7 @@
    read from the backend (persona, stored chat, quests and tasks Hermes reports); numbers the game cannot know yet
    (cost, review grades) say so instead of guessing. */
 import { useEffect, useMemo, useState } from 'react';
-import type { AgentSession, Character, ChatHistory, ChatMessage, TaskNode, TaskStepsView } from '@vibe-city/shared';
+import type { AgentSession, Character, ChatHistory, ChatMessage, TaskNode, TaskStep, TaskStepsView } from '@vibe-city/shared';
 import { useStore } from '../store';
 import type { Dept, AgentStatus } from '../data/types';
 import { api, ApiError } from '../../api';
@@ -12,7 +12,8 @@ import { PortraitCanvas } from './Dialogue';
 import { formatTime } from './format';
 import { clock } from '../data/derive';
 import { agentLabel, taskStatusView } from '../data/views';
-import { Btn, Glyph } from './kit';
+import { Btn, Glyph, statusColor } from './kit';
+import { GLYPH, VIA } from '../world/City';
 
 /** Loads personas into the store (one request per seat, cached for the session). */
 const loading = new Set<string>();
@@ -142,6 +143,17 @@ export function ChatTranscript({ deptId, agentKey, sessions, sessionsError }: { 
 
 const STEP_POLL_MS = 5000;
 
+/** 7 x 7 symbols for steps with no floor object: a thought bubble for notes, a gear for tools like memory or the plan. */
+const NOTE = ['.#####.', '#.....#', '#.#.#.#', '#.....#', '.#####.', '.#.....', '#......'];
+const GEAR = ['..#.#..', '.#####.', '##...##', '.#.#.#.', '##...##', '.#####.', '..#.#..'];
+
+/** The same pixel symbol and light the city shows when an agent reaches for that tool on the floor. */
+function StepIcon({ s }: { s: TaskStep }) {
+  const rows = s.via ? GLYPH[s.via] : s.kind === 'note' ? NOTE : GEAR;
+  const d = rows.flatMap((r, y) => [...r].map((ch, x) => (ch === '#' ? `M${x} ${y}h1v1h-1z` : ''))).join('');
+  return <svg width={12} height={12} viewBox="0 0 7 7" aria-hidden="true" shapeRendering="crispEdges" style={{ flex: 'none' }}><path d={d} fill={s.via ? VIA[s.via].col : statusColor('idle')} /></svg>;
+}
+
 /** The steps an agent took on one task (tools used, notes it wrote), newest first; refreshed while it is still working. */
 export function TaskSteps({ deptId, agentKey, taskId }: { deptId: string; agentKey: string; taskId: string }) {
   const [v, setV] = useState<TaskStepsView | null>(null);
@@ -164,7 +176,7 @@ export function TaskSteps({ deptId, agentKey, taskId }: { deptId: string; agentK
       {[...v.steps].reverse().map((x, i) => (
         <li key={v.steps.length - i} className={x.kind}>
           <span className="mono muted">{x.at ? clock(x.at) : ''}</span>
-          <Glyph k={x.kind === 'failed' ? 'failed' : x.kind === 'note' ? 'awaiting' : 'completed'} />
+          {x.kind === 'failed' ? <Glyph k="failed" /> : <StepIcon s={x} />}
           <span>{x.kind === 'note' ? <i>{x.text}</i> : x.text}{x.detail && <small className="muted step-detail">{x.detail}</small>}</span>
         </li>
       ))}

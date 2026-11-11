@@ -36,3 +36,12 @@ export function fxBetween(prev: Dept[], next: Dept[], pq: QuestItem[], nq: Quest
   }
   return out;
 }
+
+/* The opening bell (IPO): the ceremony's clock, shared by the city (the bell swings, world/City.ts) and the sound (it
+   strikes, sfx.ts). */
+export const BELL_S = 7, BELL_STRIKES = 5;
+/** When strike `k` lands, in seconds into the ceremony. */
+export const bellStrike = (k: number) => 0.9 + k * 1.1;
+/** The bell's angle in radians `T` seconds in: at rest at both ends, at full swing (alternating sides) on every strike. */
+export const bellSwing = (T: number) => (T <= 0 || T >= BELL_S ? 0
+  : 0.42 * Math.min(1, T / 0.9, (BELL_S - T) / 1.6) * Math.cos((Math.PI * (T - 0.9)) / 1.1));

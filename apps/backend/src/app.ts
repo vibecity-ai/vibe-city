@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
-  CompanyRenameSchema, CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
+  CompanyRenameSchema, CompanyViewSchema, DEFAULT_CHAT_MODEL, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
   InventoryPatchSchema, InventorySchema, ChatSessionIdSchema, HERMES_TASK_ID_RE, TaskAnswerSchema, TaskStepsViewSchema,
 } from '@vibe-city/shared';
 import {
@@ -46,8 +46,8 @@ import { register as registerTemplates } from './routes/templates.ts';
 import { nearAiKey, readSettings, register as registerCompany, secret, writeSettings } from './routes/company.ts';
 import { WalletService } from './domain/walletService.ts';
 import { register as registerWallet } from './routes/wallet.ts';
-import { register as registerAi } from './routes/ai.ts';
-import { register as registerGame } from './routes/game.ts';
+import { aiKeyFor, register as registerAi } from './routes/ai.ts';
+import { gameState, register as registerGame } from './routes/game.ts';
 import { register as registerIpo } from './routes/ipo.ts';
 import { register as registerMarket } from './routes/market.ts';
 import { register as registerQuestFiles } from './routes/questFiles.ts';
@@ -55,13 +55,13 @@ import { register as registerEnv } from './routes/env.ts';
 import { DepartmentEnvService } from './domain/departmentEnv.ts';
 import { MarketService } from './domain/marketService.ts';
 import { IpoService } from './domain/ipoService.ts';
-import { DEFAULT_RPC, NearRpc } from './near/rpc.ts';
+import { DEFAULT_RPC, NearRpc, type NearReader } from './near/rpc.ts';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
-import { AssistantViewSchema, DeptDraftReplySchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
+import { AssistantViewSchema } from '@vibe-city/shared';
 import {
-  HiringBriefConfirmSchema, HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringSendSchema, HiringStartSchema,
-  InterviewReplySchema, InterviewSendSchema,
+  HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringStartSchema,
+  
 } from '@vibe-city/shared';
 
 const parse = <T>(schema: ZodType<T>, v: unknown): T => schema.parse(v);
@@ -93,6 +93,7 @@ export interface AppServices {
   chatModelDefault: string;
   /** Each floor's own env variables (write-only), pushed into its agents' profiles. */
   deptEnv: DepartmentEnvService;
+  aiProxy: ServicesExtra['aiProxy'] | null;
   /** The IPO (brief 06): DAO, city token, revenue share proposals, signed by the company wallet. */
   ipo: IpoService;
 }
@@ -110,10 +111,13 @@ export interface ServicesExtra {
   allowedOrigins?: string[];
   /** Built web app (apps/web/dist). When set, the backend serves it on the same origin as the API. */
   webDist?: string;
-  /** Chat model for AR interviews and the executive assistant (NEAR AI Cloud in the container). Omit: those answer 503 model_unavailable. */
+  /** Chat model for the Chief of Staff (hiring and floor drafting) (NEAR AI Cloud in the container). Omit: those answer 503 model_unavailable. */
   chatModel?: ChatModel;
   /** The gateway API server, for the dialogue window's chat with an agent's own Hermes profile. Omit: agent chat answers 503. */
   agentChat?: AgentChat;
+  /** The metering proxy (brief 04): agents call NEAR AI Cloud through `<publicUrl>/ai/v1` with a per-floor key, and the
+      backend forwards to `upstreamUrl` with the company key. Omit: agents hold the company key and nothing is metered. */
+  aiProxy?: { publicUrl: string; upstreamUrl: string; fetch?: typeof fetch };
   /** Variables each agent profile needs in its .env to answer through the gateway (e.g. NEAR_AI_API_KEY from the
       backend env). A NEAR AI key pasted in the game takes precedence over this one. */
   agentEnv?: Record<string, string>;
@@ -123,8 +127,8 @@ export interface ServicesExtra {
   mcpUrl?: string;
   /** NEAR AI Cloud model prices for AR's shortlist. Omit: costs are guessed from model names. */
   modelPrices?: ModelPrices;
-  /** AR scouting time before the shortlist shows (ms). Default 45 s. */
-  hiringScoutMs?: number;
+  /** What the IPO reads from NEAR (the offline demo passes a fake chain). Default: mainnet RPC. */
+  nearRpc?: NearReader;
 }
 
 /** `hermes` is optional so Milestone 1 callers (and tests) keep working: Hermes routes then answer 503. */
@@ -133,13 +137,25 @@ export function buildApp(db: DatabaseSync, hermes?: HermesRuntime): FastifyInsta
 }
 
 /** The Chief of Staff's model when neither the CEO nor the env chose one (the container's NEAR_AI_MODEL default). */
-export const DEFAULT_CHAT_MODEL = 'deepseek/deepseek-v4.1-flash';
+export { DEFAULT_CHAT_MODEL };
+
+/** The game state as the Chief of Staff reads it: CEO quests, money and what waits on the CEO. Estimates stay labelled. */
+function companyStatus(g: Awaited<ReturnType<typeof gameState>>): string {
+  const usd = (c: number) => `$${(c / 100).toFixed(2)}`, main = g.quests.filter((q) => !q.side), next = main.find((q) => !q.done), r = g.runway;
+  return [
+    `CEO quests: ${main.filter((q) => q.done).length} of ${main.length} done.${next ? ` Next: "${next.title}" (${next.hint})` : ' All done.'}`,
+    `Side quests open: ${g.quests.filter((q) => q.side && !q.done).map((q) => q.title).join(', ') || 'none'}.`,
+    `Money (estimates): earned ${usd(r.earnedCents)}, AI burn ${usd(r.dailyBurnCents)} a day, credits left ${r.creditsRemainingCents === null ? 'unknown (the boss has not said what is on the NEAR AI account)' : usd(r.creditsRemainingCents)}, runway ${r.days === null ? 'unknown' : `${r.days} days`}.`,
+    `Waiting on the boss: ${g.decisions.map((d) => `${d.title} [${d.kind}]`).join('; ') || 'nothing'}.`,
+  ].join('\n');
+}
 
 export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: ServicesExtra = {}): AppServices {
   /** What every agent profile gets for NEAR AI Cloud: the key pasted in the first quest, else the backend env's. */
-  const aiEnv = (): Record<string, string> => {
+  const aiEnv = (deptId: string): Record<string, string> => {
     const key = nearAiKey(db, extra.agentEnv?.NEAR_AI_API_KEY);
-    return { ...extra.agentEnv, ...(key ? { NEAR_AI_API_KEY: key } : {}) };
+    // behind the metering proxy a floor holds its own pseudo key, never the company's
+    return { ...extra.agentEnv, ...(key ? { NEAR_AI_API_KEY: extra.aiProxy ? aiKeyFor(db, deptId) : key } : {}) };
   };
   const company = new CompanyService(db);
   const c = company.ensureCompany();
@@ -299,7 +315,14 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   const chat = new ChatService({
     db, departments, characters, hermes: runtime, companyName: () => company.view().name,
     ...(extra.kanban ? { kanban: extra.kanban } : {}),
-    ...(extra.agentChat ? { agentChat: extra.agentChat } : {}), agentEnv: aiEnv,
+    ...(extra.agentChat ? { agentChat: extra.agentChat } : {}),
+    // `services` exists by the first chat
+    companyStatus: async () => companyStatus(await gameState(services)),
+    floorKit: () => assistant.floorKit(), // built further down; called per chat turn
+    hiringFacts: () => hiring.facts(), // built further down too
+    hiringOpen: () => hiring.isOpen(),
+    listable: () => assistant.listable(),
+    agentEnv: (profile) => aiEnv((db.prepare('SELECT department_id AS id FROM department_agent WHERE profile_ref = ?').get(profile) as { id: string } | undefined)?.id ?? ''),
   });
   /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */
   const sessionOf = (query: unknown): string | undefined => {
@@ -344,44 +367,29 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     db, departments, provisioning, quests: (id) => quests_.list(id), model: extra.chatModel ?? noModel,
     companyId: () => company.view().id, companyName: () => company.view().name,
     savePersona: (d, k, c) => characters.save(d, k, c),
-    ...(extra.hiringScoutMs !== undefined ? { scoutMs: extra.hiringScoutMs } : {}),
     ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
   });
   const reqId = (params: unknown) => (params as { reqId: string }).reqId;
   app.get('/api/hiring/current', async () => parse(HiringCurrentSchema, { request: await hiring.current() }));
+  // the brief comes from the Chief of Staff's chat: the request is created with its candidates
   app.post('/api/hiring/requests', async (req, reply) => {
-    const body = parse(HiringStartSchema, req.body ?? {});
-    if (body.departmentId) idOf({ id: body.departmentId });
-    return reply.code(201).send(parse(HiringRequestViewSchema, hiring.start(body.departmentId)));
+    const { brief } = parse(HiringStartSchema, req.body ?? {});
+    idOf({ id: brief.departmentId });
+    return reply.code(201).send(parse(HiringRequestViewSchema, await hiring.create(brief)));
   });
   app.get('/api/hiring/requests/:reqId', async (req) => parse(HiringRequestViewSchema, hiring.get(reqId(req.params))));
-  app.post('/api/hiring/requests/:reqId/answer', async (req) => parse(HiringRequestViewSchema, hiring.answer(reqId(req.params))));
+  // answering or declining the call closes it: the talk itself is the Chief of Staff's chat
   app.post('/api/hiring/requests/:reqId/decline', async (req) => parse(HiringRequestViewSchema, hiring.decline(reqId(req.params))));
-  app.post('/api/hiring/requests/:reqId/chat', async (req) =>
-    parse(HiringRequestViewSchema, await hiring.send(reqId(req.params), parse(HiringSendSchema, req.body).message)));
-  app.post('/api/hiring/requests/:reqId/brief', async (req) => {
-    const body = parse(HiringBriefConfirmSchema, req.body ?? {});
-    if (body.brief) idOf({ id: body.brief.departmentId });
-    return parse(HiringRequestViewSchema, await hiring.confirmBrief(reqId(req.params), body.brief));
-  });
-  app.get('/api/hiring/requests/:reqId/candidates/:candId/interview', async (req) => {
-    const p = req.params as { candId: string };
-    return hiring.candidateHistory(reqId(req.params), p.candId).messages;
-  });
-  app.post('/api/hiring/requests/:reqId/candidates/:candId/interview', async (req) => {
-    const p = req.params as { candId: string };
-    return parse(InterviewReplySchema, await hiring.interview(reqId(req.params), p.candId, parse(InterviewSendSchema, req.body).message));
-  });
   app.post('/api/hiring/requests/:reqId/offer', async (req) => {
     const body = parse(HiringOfferSchema, req.body);
-    return parse(HiringRequestViewSchema, await hiring.offer(reqId(req.params), body.candidateId, body.acceptConcerns));
+    return parse(HiringRequestViewSchema, await hiring.offer(reqId(req.params), body.candidateId));
   });
 
   // ---- executive assistant: draft a new floor in the dialogue window (feature spec 4.3) ----
   const assistant = new AssistantService({
-    departments, provisioning, model: extra.chatModel ?? noModel,
+    departments, provisioning,
     ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
-    companyId: () => company.view().id, companyName: () => company.view().name,
+    companyId: () => company.view().id,
     isListed: (id) => market.isListed(id), // market is built further down; called per request
   });
   app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
@@ -392,14 +400,9 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(ChiefOfStaffModelsSchema, {
       current: chosen ?? extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, chosen: !!chosen,
       models: [...list].sort(([, a], [, b]) => dailyCredits(a) - dailyCredits(b))
-        .map(([id, p]) => ({ id, inPerM: Math.round(p.inPerM * 100) / 100, outPerM: Math.round(p.outPerM * 100) / 100, context: p.context })),
+        .map(([id, p]) => ({ id, inPerM: Math.round(p.inPerM * 100) / 100, outPerM: Math.round(p.outPerM * 100) / 100, context: p.context, privacy: p.privacy ?? null, icon: p.icon ?? null })),
     });
   });
-  app.post('/api/assistant/department-draft', async (req) =>
-    parse(DeptDraftReplySchema, await assistant.draftDepartment(parse(DeptDraftRequestSchema, req.body).messages)));
-  // ---- the Chief of Staff drafts the Agent Market listing; registering is POST /api/market/register ----
-  app.post('/api/assistant/market-draft', async (req) =>
-    parse(MarketDraftReplySchema, await assistant.draftListing(parse(DeptDraftRequestSchema, req.body).messages)));
 
   // ---- quests between departments + the Vibe City MCP server (feature spec 2.4) ----
   const questRequests = new QuestRequestService({
@@ -424,8 +427,9 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const mkt = market.tokenFor(deptId);
     // every agent thinks with NEAR AI Cloud: the key (pasted in the first quest, else the backend env) goes to all floors
     // the floor's own variables first: a name Vibe City manages always keeps Vibe City's value
-    const env = { ...deptEnv.values(deptId), ...aiEnv(), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
+    const env = { ...deptEnv.values(deptId), ...aiEnv(deptId), ...(mkt ? { MARKET_AGENT_TOKEN: mkt } : {}), ...(t?.wallet === 'company' ? wallet.env() : null) };
     if (!Object.keys(env).length || !hermes?.setProfileEnv) return;
+    if (extra.aiProxy && hermes.setProviderBaseUrl) for (const p of profiles) await hermes.setProviderBaseUrl(p, 'near-ai', `${extra.aiProxy.publicUrl}/ai/v1`);
     for (const p of profiles) await hermes.setProfileEnv(p, env);
     if (profiles.length) deptEnv.markApplied(deptId, at);
     // the `market` quest: a listed floor's agents hold its token
@@ -609,9 +613,9 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
   const services: AppServices = {
     app, provisioning, quests: quests_, hub, schedules, db, departments, wallet, pushDepartmentEnv, market, listOnMarket, chiefOfStaffId,
-    chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv,
+    chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv, aiProxy: extra.aiProxy ?? null,
     ipo: new IpoService({
-      db, wallet, rpc: new NearRpc(DEFAULT_RPC.mainnet),
+      db, wallet, rpc: extra.nearRpc ?? new NearRpc(DEFAULT_RPC.mainnet),
       walletAccount: () => readSettings(db).outlayerAccountId, companyName: () => company.view().name, nearUsd: () => wallet.nearUsd(),
     }),
   };

@@ -1,29 +1,28 @@
-/* The executive assistant (feature spec 4.3; the permanent assistant of 2.3 grows from here). It drafts new floors in
-   the dialogue window. It only drafts: the draft is filtered to what Hermes really has, and nothing is created until
-   the user confirms, through the ordinary department API. */
+/* What the Chief of Staff drafts with the boss. A custom floor and an Agent Market listing are drafted by its Hermes
+   agent in chat (chatService): this service supplies what Hermes really has and which floors may be listed, and filters
+   the drafts down to them. Both only draft: nothing is created until the user confirms, through the ordinary APIs. */
 import {
-  AGENT_EXCLUDED_TOOLSETS, MARKET_CATEGORIES, MARKET_HANDLE_RE, MOODS, TOOLSETS, isInternalOnly,
-  type Character, type DepartmentView, type DeptDraft, type DeptDraftReply, type MarketDraft, type MarketDraftReply, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type Toolset,
+  AGENT_EXCLUDED_TOOLSETS, MARKET_CATEGORIES, REQUIRED_TOOLSETS, MARKET_HANDLE_RE, TOOLSETS, isInternalOnly,
+  type Character, type DepartmentView, type DeptDraft, type MarketDraft, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type Toolset,
 } from '@vibe-city/shared';
-import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
-import { ModelUnavailableError } from '../model/chatModel.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
 import { chiefOfStaff } from './characters.ts';
-import { modelTier, parseJsonReply } from './hiringService.ts';
-import { dailyCredits, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
+import { modelTier } from './hiringService.ts';
+import { dailyCredits, perMillion, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 
 export interface AssistantDeps {
   departments: DepartmentService;
   provisioning: Pick<ProvisioningService, 'hermesModels' | 'hermesDefaults'>;
-  model: ChatModel;
   /** NEAR AI Cloud prices. Omit: every offered model is listed and costs are guessed from model names. */
   prices?: ModelPrices;
   companyId: () => string;
-  companyName: () => string;
   /** The floor is already on the Agent Market (it is listed once). */
   isListed?: (deptId: string) => boolean;
 }
+
+/** See AssistantService.floorKit. */
+export interface FloorKit { prompt: string; clamp: (raw: unknown) => DeptDraft | null }
 
 const TIER_COST = { 1: 30, 2: 100, 3: 300 } as const;
 const EXCLUDED: readonly string[] = AGENT_EXCLUDED_TOOLSETS;
@@ -36,8 +35,12 @@ export class AssistantService {
     return chiefOfStaff(this.d.companyId());
   }
 
-  async draftDepartment(messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> {
-    if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
+  private kit: { at: number; value: FloorKit } | null = null;
+  /** What a custom floor may be built from (installed skills, grantable toolsets, offered models with prices), as
+      prompt lines for the Chief of Staff's Hermes chat, plus the filter its draft goes through. It rides on every chat
+      turn, so Hermes is asked at most once a minute. */
+  async floorKit(): Promise<FloorKit> {
+    if (this.kit && Date.now() - this.kit.at < 60_000) return this.kit.value;
     let defaults: HermesDefaultsView | null = null, models: HermesModelsView | null = null;
     try { defaults = await this.d.provisioning.hermesDefaults(); } catch { /* Hermes down: no skills offered */ }
     try { models = await this.d.provisioning.hermesModels(); } catch { /* keep the profile's own model */ }
@@ -48,64 +51,22 @@ export class AssistantService {
     const all = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
     // Priced: only models NEAR AI prices that can run an agent (text + tools), cheapest first, so the list is not alphabetical brands.
     const offered = prices?.size ? all.filter((m) => prices!.has(m.id)).sort((a, b) => dailyCredits(prices!.get(a.id)!) - dailyCredits(prices!.get(b.id)!)) : all;
-    const label = (m: ModelChoice) => `${m.provider}/${m.id}${prices?.get(m.id) ? ` (${dailyCredits(prices.get(m.id)!)} credits/day)` : ''}`;
-    const me = this.character();
-    const floors = this.d.departments.list().map((d) => `- ${d.name}: ${d.purpose || 'no purpose written'}`);
-    const system = [
-      `You are ${me.name}, ${me.title} at ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents running on Hermes.`,
-      `Personality: ${me.traits.join(', ')}. Way of speaking: ${me.speechStyle}. You call the user "boss".`,
-      'You are helping the boss add a new department (a floor of the tower). A department has a lead agent and optional teammates; every agent is its own Hermes agent and they work in parallel.',
-      `Existing floors (do not duplicate them):\n${floors.join('\n') || '- none yet'}`,
-      `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
-      `Toolsets that can be granted: ${toolsets.join(', ')}`,
-      offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick the cheapest model that can do the purpose well; a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
-      '',
-      'You already asked the boss: a ready template or a custom floor. If they want a template, tell them to pick one in the Templates panel (draft null).',
-      'For a custom floor: if the boss has not said what the department should do, ask that one question, and make your "replies" 2 or 3 concrete floor ideas built from the installed skills above (e.g. "A floor that <does X> with <skill>"). Never suggest work no installed skill or toolset supports.',
-      'Once the purpose is clear, propose the floor right away. Keep it small: grant only what the purpose needs.',
-      '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
-      '- Reply with ONE JSON object only: no text before or after it, do not repeat "say" outside it:',
-      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"name": "<2-3 words>", "purpose": "<1-2 sentences>", "skills": ["<installed skill>"], "toolsets": ["<toolset>"], "model": "<provider/model or null>", "agents": [lead first, 1 to 5 of {"name": "<a first name>", "title": "<job title, 2-4 words>", "does": "<what they do here, under 15 words>"}]}}`,
-    ].join('\n');
-    const turns: ChatTurn[] = [
-      { role: 'system', content: system },
-      ...messages.slice(-16).map((m): ChatTurn => ({ role: m.from === 'user' ? 'user' : 'assistant', content: m.text })),
-    ];
-    // the draft JSON is long, and some models think first: 700 cut it off mid-draft
-    const raw = await this.d.model.complete(turns, { maxTokens: 2000 });
-    const p = parseJsonReply(raw);
-    return { say: p.say, mood: p.mood, replies: p.replies, draft: p.obj ? clampDraft(p.obj.draft, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }) : null };
+    const label = (m: ModelChoice) => { const p = prices?.get(m.id); return `${m.provider}/${m.id}${p ? ` (${perMillion(p)}${p.privacy === 'private' ? ', Private TEE' : p.privacy === 'confidential' ? ', Incognito (partner TEE)' : ', Incognito'})` : ''}`; };
+    const value: FloorKit = {
+      prompt: [
+        `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
+        `Toolsets that can be granted: ${toolsets.join(', ')}. Every agent always has ${REQUIRED_TOOLSETS.join(', ')} on top: never list them, never say a floor lacks them`,
+        offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first, at NEAR AI\'s list price; quote these real prices to the boss, never "credits"' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick a "Private TEE" model (sealed in NEAR AI\'s own TEE, so the company\'s data stays private); an "Incognito" one only when no Private TEE model fits the work or the boss names it, and say so: near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
+      ].join('\n'),
+      clamp: (raw) => clampDraft(raw, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }),
+    };
+    this.kit = { at: Date.now(), value };
+    return value;
   }
 
   /** Floors that may still be listed: not the Chief of Staff, not a company-wallet floor, not already on the market. */
   listable(): DepartmentView[] {
     return this.d.departments.list().filter((d) => !isInternalOnly(d.templateId) && !this.d.isListed?.(d.id));
-  }
-
-  /** The Agent Market listing, drafted with the boss: which floor, then a listing card. Registering is the boss's click. */
-  async draftListing(messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> {
-    if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
-    const me = this.character(), floors = this.listable();
-    const system = [
-      `You are ${me.name}, ${me.title} at ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents running on Hermes.`,
-      `Personality: ${me.traits.join(', ')}. Way of speaking: ${me.speechStyle}. You call the user "boss".`,
-      'You are listing ONE floor of the company as an agent on the NEAR AI Agent Market (market.near.ai). Buyers hire it for jobs paid in USDC; every job lands on that floor\'s board.',
-      `Floors that can be listed:\n${floors.map((d) => `- ${d.name}: ${d.purpose || 'no purpose written'}${d.state === 'ready' ? '' : ' (not synced with Hermes yet)'}`).join('\n') || '- none'}`,
-      `Categories: ${MARKET_CATEGORIES.join(', ')}.`,
-      'Handle: 3-30 characters, lowercase letters, digits and dashes, starting with a letter.',
-      '',
-      'If the boss has not picked a floor, ask which one, with the floor names as "replies". Once they pick, propose the listing right away: promise only what that floor does.',
-      'If the boss asks for changes, propose the whole listing again with the changes.',
-      '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
-      '- Reply with ONE JSON object only: no text before or after it, do not repeat "say" outside it:',
-      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"floor": "<floor name>", "handle": "<handle>", "name": "<display name>", "category": "<category>", "slaHours": <delivery hours>, "tagline": "<one sentence>", "description": "<under 200 characters: what a buyer gets>", "priceUsdc": "<USDC per job, e.g. 5.00>"}}`,
-    ].join('\n');
-    const turns: ChatTurn[] = [
-      { role: 'system', content: system },
-      ...messages.slice(-16).map((m): ChatTurn => ({ role: m.from === 'user' ? 'user' : 'assistant', content: m.text })),
-    ];
-    const p = parseJsonReply(await this.d.model.complete(turns, { maxTokens: 2000 }));
-    return { say: p.say, mood: p.mood, replies: p.replies, draft: p.obj ? clampListing(p.obj.draft, floors) : null };
   }
 }
 

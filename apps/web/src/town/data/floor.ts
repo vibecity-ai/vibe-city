@@ -1,7 +1,10 @@
 /* What a department floor holds (pure, tested): the objects every floor shares, the station each template brings,
    and which tools each kind of floor really needs. The city draws and hit-tests the objects (world/floorRoom.ts); the
    sheets that open show this data. */
-import { TEMPLATE_BASE_TOOLSETS, type Inventory, type Toolset } from '@vibe-city/shared';
+import { REQUIRED_TOOLSETS, TEMPLATE_BASE_TOOLSETS, type Inventory, type Toolset } from '@vibe-city/shared';
+
+/** On for every agent whatever the floor's allowance says: the backend adds them at every sync. */
+export const isRequiredToolset = (t: string) => (REQUIRED_TOOLSETS as readonly string[]).includes(t);
 
 /* ---------------- tools ---------------- */
 
@@ -65,6 +68,8 @@ export const STATIONS: Record<string, Station> = {
   market: { name: 'Marketplace board', blurb: 'Jobs buyers hired this floor for on the NEAR AI Agent Market: in progress, delivered, paid.', toolsets: [], skills: ['marketplace-worker'], marker: null, wallet: false },
 };
 
+/** How long the city takes to put up a station that appears while you watch (a floor just listed on the market). */
+export const STATION_BUILD_MS = 2400;
 export const stationFor = (templateId: string | undefined | null): Station | null => (templateId ? STATIONS[templateId] ?? null : null);
 /** Which station a floor has: the marketplace board on the floor listed on the Agent Market (never a template floor: those all
     spend from the company wallet and can't be listed), else its template's own, else none (the lounge stays). */
@@ -93,7 +98,7 @@ const line = (id: string, on: boolean): ToolLine => {
 };
 
 export function toolsReport(templateId: string | undefined | null, inv: Pick<Inventory, 'allowedToolsets' | 'allowedSkillIds'>): ToolsReport {
-  const on = new Set(inv.allowedToolsets);
+  const on = new Set([...inv.allowedToolsets, ...REQUIRED_TOOLSETS]);
   const st = stationFor(templateId);
   if (!st) return { needed: [], extra: inv.allowedToolsets.filter((t) => !BASE.includes(t)).map((t) => line(t, true)), skills: [], plain: true };
   const need = new Set<string>(st.toolsets);
@@ -112,10 +117,10 @@ export type FloorObjectId = 'board' | 'lead' | 'archive' | 'rack' | 'library' | 
 /** What a click opens, so the screen copy and the test agree. */
 export const FLOOR_OBJECT_HELP: Record<FloorObjectId, string> = {
   board: 'This floor\'s jobs on the Ops board',
-  lead: 'The lead\'s profile and chat',
+  lead: 'The department: its people, jobs and status',
   archive: 'The file archive: every file on this floor\'s jobs',
   rack: 'Tools: the toolsets every agent here carries',
-  library: 'The skill library, this floor first: what each skill does and who carries it',
+  library: 'This floor’s skills: what its agents may use, and what they carry',
   keys: 'Env variables: keys the floor\'s tools read',
   clock: 'This floor\'s schedules',
   station: 'The station: what this team works with',

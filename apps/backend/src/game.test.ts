@@ -70,11 +70,11 @@ test('templates lock until the Chief of Staff is set up (key and model) and thei
   assert.equal(l['trading-desk'], true);
 });
 
-test('a funded treasury opens Treasury Ops; perps and prediction markets wait for their connector policy', () => {
+test('a registered treasury opens Treasury Ops, funded or not; perps and prediction markets wait for their connector policy', () => {
   const i = base();
   i.settings.nearAiApiKeySet = true; i.settings.chiefOfStaffModel = 'deepseek/deepseek-v4.1-flash';
   assert.equal(deriveGame(i).locked['treasury-ops'], true);
-  i.wallet = { ...EMPTY_WALLET, registered: true, balances: [{ token: 'USDC', amount: '5000000', decimals: 6, source: 'intents', chain: 'near', usd: 5, logo: null }] };
+  i.wallet = { ...EMPTY_WALLET, registered: true };
   let l = deriveGame(i).locked;
   assert.equal(l['treasury-ops'], false);
   assert.equal(l['trading-desk'], true);

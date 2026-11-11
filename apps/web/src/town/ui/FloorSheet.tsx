@@ -11,6 +11,7 @@ import { DeskSheet } from './Desk';
 import { FileArchive } from './FileArchive';
 import { listedFloors, stationFor, stationKeyOf, toolsReport, type ToolLine } from '../data/floor';
 import { ClaimStep, JOB_LABEL } from './QuestLog';
+import { ListingPaper } from './MarketListing';
 import { SkillBadge } from './Skills';
 import { skillMeta } from '../data/skills';
 
@@ -25,29 +26,36 @@ function MarketCard({ market }: { market: MarketAgent }) {
   const url = p?.url ?? `https://market.near.ai/a/${market.handle}`;
   const pct = (x: number) => `${Math.round(x * (x <= 1 ? 100 : 1))}%`;
   const dur = (sec: number) => (sec >= 3600 ? `${Math.round(sec / 360) / 10} h` : `${Math.max(1, Math.round(sec / 60))} min`);
-  return (
-    <section className="mk-card" aria-labelledby="mk-card-t">
-      <h3 className="sec-t" id="mk-card-t">On market.near.ai</h3>
-      <div className="mk-card-id">
-        <a className="mono" href={url} target="_blank" rel="noreferrer">@{market.handle}</a>
+  // Live: the page shows what market.near.ai shows. Otherwise the Chief of Staff's text, stamped DRAFT once the market says so.
+  const live = !!p?.found && p.listingStatus === 'live';
+  const text = live ? { tagline: p.description, description: p.bio, price: p.priceUsdc && Number(p.priceUsdc).toFixed(2) }
+    : { tagline: market.tagline, description: market.description, price: market.priceUsdc };
+  // with listing text, the front page carries the link and the status; without it, a plain row does
+  const paper = !!(text.tagline || text.description);
+  const chips = <>
         {verified ? <span className="chip sm mk-claimed" title="The agent token works and the agent is claimed into your market account"><Icon n="check" size={11} /> Verified</span>
           : <span className="chip sm" title={market.verifiedAt ? 'Claim it from the market quest card' : 'The token is checked on the next poll'}>{market.verifiedAt ? 'Not claimed yet' : 'Not verified yet'}</span>}
         {p?.listingStatus && <span className={`chip sm mk-ls ${p.listingStatus}`}>{p.listingStatus}</span>}
-      </div>
+  </>;
+  return (
+    <section className="mk-card" aria-labelledby="mk-card-t">
+      <h3 className="sec-t" id="mk-card-t">On market.near.ai</h3>
+      {!paper && <div className="mk-card-id">
+        <a className="mono" href={url} target="_blank" rel="noreferrer">@{market.handle}</a>
+        {chips}
+      </div>}
       {!market.adoptedAt && <ol className="mk-steps"><ClaimStep deptId={market.departmentId} claimed={false} /></ol>}
-      {(market.tagline || market.description) && (
-        <div className="mk-paste">
-          <span className="muted small">The Chief of Staff's listing text: paste it on market.near.ai (registration can't send it).</span>
-          {market.tagline && <div><i>Tagline</i><span>{market.tagline}</span><button className="btn small" type="button" onClick={() => copy('Tagline', market.tagline!)}>Copy</button></div>}
-          {market.description && <div><i>Description</i><span>{market.description}</span><button className="btn small" type="button" onClick={() => copy('Description', market.description!)}>Copy</button></div>}
-          {market.priceUsdc && <div><i>Price</i><span>{market.priceUsdc} USDC a job</span></div>}
-        </div>
+      {paper && (
+        <ListingPaper name={p?.name ?? market.handle} handle={market.handle} href={url} badges={chips} tagline={text.tagline} description={text.description} priceUsdc={text.price} category={p?.category ?? null}
+          onCopy={live ? undefined : copy} watermark={p && !live ? 'DRAFT' : undefined}>
+          {!live && <p className="paper-fine">The Chief of Staff's listing text: paste it on market.near.ai (registration can't send it).</p>}
+        </ListingPaper>
       )}
       {err && <p className="err-t" role="alert">{err}</p>}
       {!p && !err && <p className="muted small" role="status">Reading the market…</p>}
       {p && !p.found && <p className="muted small">Not public yet: the listing is a <b>Draft</b>. Set a price and switch it to Live under <a href="https://market.near.ai/building/agents" target="_blank" rel="noreferrer">Building → Agents</a>.</p>}
       {p?.found && <>
-        {(p.name || p.description) && <p className="mk-card-d"><b>{p.name}</b>{p.description && <> · {p.description}</>}</p>}
+        {!paper && (p.name || p.description) && <p className="mk-card-d"><b>{p.name}</b>{p.description && <> · {p.description}</>}</p>}
         <dl className="mk-card-stats">
           <div><dt>Delivered</dt><dd>{p.deliveredJobs ?? 0} jobs</dd></div>
           <div><dt>Success</dt><dd>{p.successRate !== null ? pct(p.successRate) : '–'}</dd></div>

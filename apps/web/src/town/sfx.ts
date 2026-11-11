@@ -2,7 +2,9 @@
    and easy to mute (the speaker key in the top bar; remembered in this browser). Browsers only allow sound after the
    player has clicked or typed something, so the first sounds of a visit may be skipped. */
 
-export type Sfx = 'floor' | 'job' | 'done' | 'hire' | 'scout' | 'shortlist' | 'input' | 'tick' | 'fail' | 'lift' | 'pass' | 'coin';
+import { BELL_STRIKES, bellStrike } from './data/fx.ts';
+
+export type Sfx = 'floor' | 'job' | 'done' | 'hire' | 'input' | 'tick' | 'fail' | 'lift' | 'pass' | 'coin' | 'bell';
 
 const KEY = 'vc-sound';
 let muted = (() => { try { return localStorage.getItem(KEY) === 'off'; } catch { return false; } })();
@@ -75,12 +77,6 @@ export function play(kind: Sfx) {
     case 'hire': // the elevator ding
       note(c, N('E6'), t, 1.4, 'sine', 0.3); note(c, N('C6'), t + 0.22, 1.6, 'sine', 0.28); note(c, N('E7'), t, 0.25, 'triangle', 0.05);
       break;
-    case 'scout': // a radar sweep: three pings fading away
-      for (let i = 0; i < 3; i++) note(c, 1320, t + i * 0.28, 0.4, 'sine', 0.22 / (i + 1), 980);
-      break;
-    case 'shortlist': // the desk phone, twice
-      for (let i = 0; i < 2; i++) { note(c, N('A5'), t + i * 0.22, 0.12, 'square', 0.12); note(c, N('C#6'), t + i * 0.22 + 0.06, 0.12, 'square', 0.1); }
-      break;
     case 'input': // a polite two-tone nudge
       seq(['A5', 'E5'], 0.16, 0.32, 'triangle', 0.28);
       break;
@@ -95,6 +91,12 @@ export function play(kind: Sfx) {
       break;
     case 'coin': // money in: two bright notes
       seq(['B5', 'E6'], 0.07, 0.22, 'square', 0.1);
+      break;
+    case 'bell': // the opening bell: brass strikes in time with the swing on the roof (a hum, its octave and two off-key partials)
+      for (let k = 0; k < BELL_STRIKES; k++) {
+        const at = t + bellStrike(k), f = N('E5');
+        note(c, f, at, 1.9, 'sine', 0.3); note(c, f * 2, at, 1.3, 'sine', 0.14); note(c, f * 2.76, at, 0.8, 'sine', 0.1); note(c, f * 5.4, at, 0.25, 'triangle', 0.05);
+      }
       break;
     case 'fail': // a soft low thud
       note(c, 180, t, 0.35, 'triangle', 0.3, 90);

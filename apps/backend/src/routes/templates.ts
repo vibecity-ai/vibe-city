@@ -8,7 +8,7 @@ import { gameState } from './game.ts';
     hiring itself is off, that is the NEAR AI quest). */
 export function templateList(locked: (t: Template) => boolean = () => false, hiringOn = true, hired: ReadonlySet<string> = new Set()) {
   return TemplateListSchema.parse(TEMPLATES.filter((t) => !t.hidden).map((t) => ({
-    ...t, locked: locked(t), unlocks: hiringOn ? t.unlock : 'connect-ai', hired: t.single && hired.has(t.id),
+    ...t, locked: locked(t), unlocks: hiringOn ? t.unlock : 'connect-ai', hired: hired.has(t.id),
   })));
 }
 

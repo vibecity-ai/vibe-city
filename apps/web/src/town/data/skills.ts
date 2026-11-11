@@ -73,6 +73,7 @@ const KNOWN: Record<string, string> = {
   polymarket: 'Hermes\' read-only Polymarket skill: markets and odds.',
   'marketplace-worker': 'Works the Agents Marketplace: finds jobs, bids, delivers and gets paid.',
   'vibe-city': 'Vibe City\'s own: the company\'s MCP tools, and how the Chief of Staff lists a floor on the Agent Market.',
+  'vibe-city-models': 'Vibe City\'s own: how the Chief of Staff picks a NEAR AI model for a floor or hire, by speed, cost and privacy.',
   'near-ai-cloud': 'Private, verifiable inference on NEAR AI Cloud.',
   // building
   'near-api-js': 'Talks to NEAR from JavaScript and TypeScript (near-api-js v7).',

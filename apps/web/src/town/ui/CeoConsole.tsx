@@ -50,7 +50,6 @@ export function CeoConsole() {
   }, []);
   const s = useStore.getState();
   const next = game ? nextQuest(game) : null;
-  const idx = game && next ? game.quests.indexOf(next) + 1 : 0;
   const r = game?.runway;
   const pct = r?.days == null ? 0 : Math.max(0, Math.min(1, r.days / 30));
   return (
@@ -66,7 +65,6 @@ export function CeoConsole() {
       {game && (
         <section className="ceo-quest" aria-label="Your quest">
           <div className="ceo-qhead">
-            <span>{next ? `Quest ${idx}/${game.quests.length}` : 'All quests done'}</span>
             <Pips g={game} />
             <button className="ceo-log" onClick={() => s.ui$({ questLog: true })}>Log · {progressLabel(game)}</button>
           </div>
@@ -81,7 +79,7 @@ export function CeoConsole() {
         <dl className="ceo-stats" aria-label="Money and runway, an estimate">
           <div className="ceo-run">
             <dt>Runway</dt>
-            <dd>{r.days === null ? '—' : `${r.days} d`}</dd>
+            <dd>{r.days === null ? '—' : r.days > 999 ? '999+ d' : `${r.days} d`}</dd>
             <span className="ceo-bar" aria-hidden="true"><i style={{ width: `${pct * 100}%` }} /></span>
           </div>
           <div><dt>Earned</dt><Rolling cents={r.earnedCents} className="up" coin /></div>

@@ -57,6 +57,8 @@ COPY --from=web /src/apps/web/dist apps/web/dist
 
 # s6 service: declared next to Hermes' own (dashboard, main-hermes) and enabled in the "user" bundle.
 COPY --chmod=0755 docker/s6-rc.d/vibe-city/run /etc/s6-overlay/s6-rc.d/vibe-city/run
+# The dashboard session token, generated at start when none is given (runs before Hermes' own cont-init scripts).
+COPY --chmod=0755 docker/cont-init.d/00-vibe-city-token /etc/cont-init.d/00-vibe-city-token
 # NEAR AI Cloud as the default provider when NEAR_AI_API_KEY is set (runs after Hermes' own cont-init scripts).
 COPY --chmod=0755 docker/cont-init.d/03-vibe-city-near /etc/cont-init.d/03-vibe-city-near
 # Vendored skills (docker/skills) and the CoinGecko MCP, added to every profile on start.
@@ -67,7 +69,7 @@ RUN echo longrun > /etc/s6-overlay/s6-rc.d/vibe-city/type \
  && mkdir -p /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d \
  && touch /etc/s6-overlay/s6-rc.d/vibe-city/dependencies.d/base /etc/s6-overlay/s6-rc.d/user/contents.d/vibe-city
 
-# The dashboard stays on loopback (it holds API keys). HERMES_DASHBOARD_SESSION_TOKEN must be provided at run time.
+# The dashboard stays on loopback (it holds API keys). HERMES_DASHBOARD_SESSION_TOKEN is optional: see 00-vibe-city-token.
 ENV HERMES_DASHBOARD=1 \
     HERMES_DASHBOARD_HOST=127.0.0.1 \
     HERMES_DASHBOARD_PORT=9119 \

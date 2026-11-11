@@ -41,11 +41,11 @@ test('backend JSON errors keep message, code and per-field issues', async () => 
   await assert.rejects(api.quests(DEPT_ID), (e: unknown) => e instanceof ApiError && e.hermesUnavailable);
 });
 
-test('non-JSON error bodies are never shown to the user', async () => {
+test('a non-JSON 5xx is a proxy without a backend: unreachable, and its body is never shown', async () => {
   use(fakeBackend().on('GET', '/api/company', { status: 502, raw: '<html>upstream /srv/secret/path token=abc</html>' }));
   await assert.rejects(api.company(), (e: unknown) => {
     assert.ok(e instanceof ApiError);
-    assert.equal(e.status, 502);
+    assert.ok(e.unreachable);
     assert.doesNotMatch(e.message, /secret|token|html/);
     return true;
   });

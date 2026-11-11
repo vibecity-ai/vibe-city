@@ -4,13 +4,14 @@
 # Needs no model credentials: provisioning creates a board and profiles, it does not call a model.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-BASE="http://127.0.0.1:${VIBE_CITY_PORT:-4100}"
-export HERMES_DASHBOARD_SESSION_TOKEN="${HERMES_DASHBOARD_SESSION_TOKEN:-$(openssl rand -hex 24)}"
-COMPOSE=(docker compose)
+# Its own compose project and port: the `down -v` below must never reach the volume of a real run (project vibe-city).
+export VIBE_CITY_PORT="${VIBE_CITY_PORT:-4190}"
+BASE="http://127.0.0.1:$VIBE_CITY_PORT"
+COMPOSE=(docker compose -p vibe-city-smoke)
 cleanup() { status=$?; if [ $status -ne 0 ]; then "${COMPOSE[@]}" logs --no-color --tail=200 || true; fi; "${COMPOSE[@]}" down -v >/dev/null 2>&1 || true; exit $status; }
 trap cleanup EXIT
 
-"${COMPOSE[@]}" up -d --no-build
+"${COMPOSE[@]}" up -d --build
 echo "waiting for the backend..."
 for i in $(seq 1 90); do curl -fsS "$BASE/api/company" >/dev/null 2>&1 && break; sleep 2; [ "$i" = 90 ] && { echo "backend never came up"; exit 1; }; done
 

@@ -172,6 +172,8 @@ test('the Hermes agent client creates the session, follows the stream and maps a
     'event: run.started\ndata: {"run_id":"r1"}\n\n', ': keepalive\n\n',
     'event: tool.progress\ndata: {"tool_name":"_thinking","delta":"hm"}\n\n',
     'event: tool.started\ndata: {"tool_name":"terminal","preview":"ls"}\n\n',
+    // a skill load, as Hermes 0.22.6's session chat stream sends it (api_server: tool_name, preview, args)
+    'event: tool.started\ndata: {"message_id":"m1","tool_name":"skill_view","preview":"vibe-city","args":{"name":"vibe-city"}}\n\n',
     'event: assistant.completed\ndata: {"content":"Found it, boss."}\n\n', 'event: done\ndata: {}\n\n',
   ];
   const fetch_ = (async (url: string, init: RequestInit) => {
@@ -185,7 +187,7 @@ test('the Hermes agent client creates the session, follows the stream and maps a
   const events: unknown[] = [];
   const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', title: 'what did you find?', message: 'what did you find?', system: 'persona' };
   assert.equal(await client.turn(turn, (e) => events.push(e)), 'Found it, boss.');
-  assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }]);
+  assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }, { kind: 'skill', name: 'vibe-city' }]);
   assert.equal(seen[1]!.url, 'http://hermes.test:8642/p/vc-abc-chief/api/sessions/vibecity-ceo-1/chat/stream');
   assert.equal(seen[1]!.auth, `Bearer ${'k'.repeat(48)}`);
   assert.deepEqual(seen[1]!.body, { message: 'what did you find?', system_message: 'persona' });
@@ -211,17 +213,61 @@ test('a chat about a blocked task tells the agent why it is blocked, and its res
   assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
 });
 
-test('the Chief of Staff never proposes a job: its board is not a floor, so the job would vanish', async () => {
-  const { app, services, agentChat, readyDept } = agentApp(() =>
-    'Ask Research.\n<vc>{"mood":"happy","replies":["OK"],"proposal":{"title":"Competitor brief","objective":"Summarise three competitors."}}</vc>');
+test('a lead that phoned about a finished quest is told to report on it, reading the task files first', async () => {
+  const { app, agentChat, readyDept } = agentApp(() => 'Done: three competitors summarised.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>');
+  const d = await readyDept('Desk', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  assert.equal((await app.inject({ method: 'POST', url, payload: { message: 'Report?', finishedQuest: { title: 'Competitor brief' } } })).statusCode, 200);
+  assert.match(agentChat.turns[0]!.system, /the quest "Competitor brief" on your board is finished.*read the task files first/);
+  await app.inject({ method: 'POST', url, payload: { message: 'Thanks' } });
+  assert.doesNotMatch(agentChat.turns[1]!.system, /is finished, and they picked up/, 'only the call carries the report context');
+});
+
+test('the Chief of Staff answers from a briefing of every floor and proposes a job for the floor it names', async () => {
+  const { app, services, agentChat, kanban, readyDept } = agentApp((t) => /nobody/.test(t.message)
+    ? 'Sales should.\n<vc>{"mood":"happy","replies":["OK"],"proposal":{"department":"Sales","title":"Call leads","objective":"Call ten leads."}}</vc>'
+    : 'Research can.\n<vc>{"mood":"happy","replies":["Add a new floor"],"proposal":{"department":"research","title":"Competitor brief","objective":"Summarise three competitors."},"report":{"needs_you":["Win your first job"],"in_flight":[{"text":"Scan competitor pricing is ready","floor":"Research"},{"text":"","floor":"Research"}],"money":"$0 earned (estimate)"}}</vc>');
   const cos = services.chiefOfStaffId;
   assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` })).json().state, 'ready');
-  const r = await app.inject({ method: 'POST', url: `/api/departments/${cos}/characters/chief/chat`, payload: { message: 'Look at our competitors' } });
-  assert.equal(r.statusCode, 200);
-  assert.deepEqual([r.json().agent.text, r.json().agent.proposal], ['Ask Research.', null]);
-  assert.match(agentChat.turns[0]!.system, /never propose a job/);
-  // a floor's lead still proposes
   const d = await readyDept('Research', {});
+  await kanban.createTask(d.board, { title: 'Scan competitor pricing' });
+  const url = `/api/departments/${cos}/characters/chief/chat`;
+  const r = await app.inject({ method: 'POST', url, payload: { message: 'Look at our competitors' } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.deepEqual(r.json().agent.proposal, { kind: 'quest', title: 'Competitor brief', objective: 'Summarise three competitors.', departmentId: d.id, departmentName: 'Research' });
+  // a status report arrives as rows, and a row about a floor that exists carries where to go
+  assert.deepEqual(r.json().agent.briefing, { needsYou: [{ text: 'Win your first job' }], inFlight: [{ text: 'Scan competitor pricing is ready', departmentId: d.id, departmentName: 'Research' }], money: '$0 earned (estimate)' });
+  const system = agentChat.turns[0]!.system;
+  assert.match(system, /### Research[\s\S]*\[ready\] Scan competitor pricing/, 'every floor and its board are in the prompt: no tool call to know them');
+  assert.match(system, /CEO quests: \d of 7 done/);
+  assert.match(system, /floor sits idle[^\n]*"Give a floor a job"/, 'an idle floor gets a job offered from the chat');
+  assert.doesNotMatch(system, /### Chief of Staff/, 'its own empty board is not a floor');
+  // a floor that does not exist has no board to put the job on
+  assert.equal((await app.inject({ method: 'POST', url, payload: { message: 'nobody' } })).json().agent.proposal, null);
+  // a floor's lead still proposes for its own floor
   const f = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'Look at our competitors' } });
-  assert.equal(f.json().agent.proposal.title, 'Competitor brief');
+  assert.deepEqual(f.json().agent.proposal, { kind: 'quest', title: 'Competitor brief', objective: 'Summarise three competitors.' });
+  assert.equal(f.json().agent.briefing, undefined, 'only the Chief of Staff reports on the company');
+});
+
+test('task ids the agent writes reach the window as the task titles from the board', async () => {
+  let id = '';
+  const { app, kanban, agentChat, readyDept } = agentApp(() => `${id} is done; t_unknown is not on the board.\n<vc>{"mood":"happy","replies":["What was in ${id}?"],"proposal":null}</vc>`);
+  const d = await readyDept('Research', {});
+  id = (await kanban.createTask(d.board, { title: 'Scan competitor pricing' })).task.id;
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'Status?' } });
+  assert.equal(r.json().agent.text, '"Scan competitor pricing" is done; t_unknown is not on the board.');
+  assert.deepEqual(r.json().agent.replies, ['What was in "Scan competitor pricing"?']);
+  assert.match(agentChat.turns[0]!.system, new RegExp(`${id} \\[`), 'the prompt keeps the id for the file tools');
+});
+
+test('a floor still being built is briefed as one the Chief of Staff can give its first job', async () => {
+  const { app, services, agentChat, readyDept } = agentApp(() => 'A launch post to start.\n<vc>{"mood":"happy","replies":[],"proposal":{"department":"Growth","title":"Write a launch post","objective":"Draft one launch post."}}</vc>');
+  const cos = services.chiefOfStaffId;
+  await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` });
+  const d = await readyDept('Growth', {});
+  services.departments.patchRow(d.id, { provisioning_state: 'provisioning' });
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${cos}/characters/chief/chat`, payload: { message: 'Give them a first job' } });
+  assert.equal(r.json().agent.proposal?.departmentId, d.id);
+  assert.match(agentChat.turns[0]!.system, /### Growth[\s\S]*being built in Hermes right now: propose its jobs/);
 });

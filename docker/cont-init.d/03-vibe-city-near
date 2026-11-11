@@ -6,7 +6,7 @@
 #                     it into every agent profile's .env (Hermes reads it via key_env at call time). Not written by this
 #                     script either way.
 #   NEAR_AI_BASE_URL  default https://cloud-api.near.ai/v1
-#   NEAR_AI_MODEL     default model for a fresh Hermes home, default deepseek/deepseek-v4.1-flash
+#   NEAR_AI_MODEL     default model for a fresh Hermes home, default deepseek-ai/DeepSeek-V4.1-Flash-1017
 #   NEAR_AI_REASONING_EFFORT  default high. Hermes' built-in "medium" is rejected by DeepSeek V4.x on NEAR
 #                     (HTTP 400: must be low, high, xhigh, max or 1-100), so it is replaced wherever it is in effect
 #
@@ -23,7 +23,7 @@ fi
 
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
 base_url="${NEAR_AI_BASE_URL:-https://cloud-api.near.ai/v1}"
-model="${NEAR_AI_MODEL:-deepseek/deepseek-v4.1-flash}"
+model="${NEAR_AI_MODEL:-deepseek-ai/DeepSeek-V4.1-Flash-1017}"
 effort="${NEAR_AI_REASONING_EFFORT:-high}"
 
 # Hermes CLI as the hermes user, against the shared volume. $1 = profile ("" = main config).
@@ -35,9 +35,13 @@ h() {
 get() { h "$1" config get "$2" 2>/dev/null | tail -n 1 | tr -d '[:space:]'; }
 
 configure_provider() {
-    if [ "$(get "$1" providers.near-ai.api)" = "$base_url" ] && [ "$(get "$1" providers.near-ai.key_env)" = NEAR_AI_API_KEY ]; then
+    api="$(get "$1" providers.near-ai.api)"
+    if [ "$api" = "$base_url" ] && [ "$(get "$1" providers.near-ai.key_env)" = NEAR_AI_API_KEY ]; then
         return 0
     fi
+    # A department profile the backend pointed at its metering proxy (/ai/v1) holds a proxy key, not a NEAR AI key:
+    # putting the NEAR AI URL back would break it.
+    case "$api" in */ai/v1) return 0 ;; esac
     h "$1" config set providers.near-ai.name "NEAR AI Cloud" >/dev/null &&
     h "$1" config set providers.near-ai.api "$base_url" >/dev/null &&
     h "$1" config set providers.near-ai.key_env NEAR_AI_API_KEY >/dev/null &&

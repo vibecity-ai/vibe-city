@@ -1,0 +1,8 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# HERMES_DASHBOARD_SESSION_TOKEN is the shared secret between the Hermes dashboard and the Vibe City backend. Both run
+# in this container and read it through with-contenv, so when none is given one is made here, for this run only
+# (/run is a tmpfs: a restart makes a new one, and both services restart with it).
+[ -n "${HERMES_DASHBOARD_SESSION_TOKEN:-}" ] && exit 0
+head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n' > /run/s6/container_environment/HERMES_DASHBOARD_SESSION_TOKEN
+echo "[vibe-city] HERMES_DASHBOARD_SESSION_TOKEN is not set; generated one for this run."

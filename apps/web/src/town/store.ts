@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameState, MarketView } from '@vibe-city/shared';
+import type { StepVia, GameState, MarketView } from '@vibe-city/shared';
 import type {
   HiringRequestView, QuestOrigin, QuestRequestView, Schedule, Character,
   ActivityEvent, AgentView, CancellationStatus, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
@@ -20,19 +20,22 @@ export type Fx =
   | { k: 'questStarted'; dept: string; title: string }
   /** A job now waits on the CEO. */
   | { k: 'needsYou'; dept: string; title: string }
-  /** The Chief of Staff's hiring moved on: scouting started, a shortlist is in, someone was hired. */
-  | { k: 'hiring'; phase: 'scouting' | 'shortlist' | 'hired'; floor: string | null }
   | { k: 'floorAdded'; dept: string }
   | { k: 'chiefArrived'; dept: string }
   | { k: 'workerJoined'; dept: string; worker: string }
   /** A chief handed work to another department: a packet flies from floor to floor. */
   | { k: 'questRequest'; dept: string; from: string }
+  /** An agent just used a tool: a light carries its symbol from where that tool lives on the floor to the agent. */
+  | { k: 'toolUse'; dept: string; agent: string; via: StepVia }
   /** A schedule fired: the floor holds a short stand-up at its Kanban wall. */
-  | { k: 'standup'; dept: string };
+  | { k: 'standup'; dept: string }
+  /** The IPO just completed: the opening bell rings on the roof. */
+  | { k: 'ipo'; symbol: string };
 
 export type View = 'tower' | 'floor';
 export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';
 export type DeptTab = 'overview' | 'tools' | 'skills' | 'env' | 'quests';
+export type AgentTab = 'now' | 'chat' | 'loadout' | 'record' | 'schedule';
 
 /** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
 export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
@@ -56,7 +59,7 @@ export interface DeptInfo {
 }
 
 interface UI {
-  view: View; floorId: string | null; panel: Panel; deptTab: DeptTab; questId: string | null;
+  view: View; floorId: string | null; panel: Panel; deptTab: DeptTab; agentTab: AgentTab; questId: string | null;
   modal: 'create' | 'archive' | null; composer: boolean; agent: string | null; boardFilter: 'all' | 'active' | 'attention' | 'finished'; boardBy: 'anyone' | 'user' | 'agent' | 'schedule';
   /** Company quest board: department filter (null = every department) and the department the composer starts with. */
   boardDept: string | null; composerDept: string | null;
@@ -64,15 +67,14 @@ interface UI {
   questFrom: 'board' | 'dept';
   /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
       'new'; omitted = their last chat). */
-  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
-  /** AR hiring: the dialogue window on AR's head (intake) or on a candidate (interview), or the shortlist popup. */
-  call: { mode: 'ar' | 'interview' | 'shortlist'; reqId: string; candId?: string } | null;
+  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk; /** a finished quest the lead phoned about */ report?: string } | null;
+  /** Why the Chief of Staff's window was opened to hire (an answered call, a floor's Hire button): its opening context. */
+  cosCall: string | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */
   boardQuest: string | null;
   /** New floor through the dialogue window with the executive assistant (the form stays as the accessible fallback). */
   newDept: boolean;
   /** The Chief of Staff drafting the Agent Market listing with the boss. */
-  marketDraft: boolean;
   /** Inside the Executive Office (the penthouse opened up, feature spec 3.1), and which of its screens is open. */
   execRoom: boolean; execModal: 'safe' | 'calendar' | null;
   /** Calendar opened from a floor: show only that floor's schedules. */
@@ -84,6 +86,9 @@ interface UI {
   /** The Skill library window: opened from a floor (that floor first) or the Executive Office, maybe on one skill. */
   skillLib: { deptId: string | null; skill: string | null } | null;
 }
+
+/** Every sheet on the desk (App.tsx's desk layer), put away. */
+const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, modal: null } satisfies Partial<UI>;
 
 export interface State {
   company: { name: string } | null;
@@ -109,7 +114,7 @@ export interface State {
   /** In-flight mutations, keyed e.g. `provision:<deptId>`. */
   busy: Record<string, true>;
   ui: UI;
-  /** The open AR hiring request (ringing, intake, scouting, shortlist), polled from the backend. */
+  /** The open AR hiring request (ringing, intake, shortlist), polled from the backend. */
   hiring: HiringRequestView | null;
   /** Quests between departments (spec 2.4): recent requests, and who created each quest. */
   requests: QuestRequestView[];
@@ -152,7 +157,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, cosCall: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, market: null, origins: {}, schedules: [], personas: {},
@@ -162,7 +167,8 @@ export const useStore = create<State>((set) => ({
   openFloor: (id) => set((s) => ({ ui: { ...s.ui, view: 'floor', floorId: id, panel: 'dept', deptTab: 'overview', agent: null, composer: false, execRoom: false, execModal: null, floorSheet: null } })),
   openExec: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: true } })),
   closeFloor: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: false, execModal: null, floorSheet: null } })),
-  openPanel: (panel, extra) => set((s) => ({ ui: { ...s.ui, panel, ...extra } })),
+  // the desk's sheets lie over the panel: opening a panel puts them away, or the panel would open unseen behind them
+  openPanel: (panel, extra) => set((s) => ({ ui: { ...s.ui, ...SHEETS_CLOSED, panel, ...extra } })),
   toast: (text, tone = 'good') => {
     const id = ++toastSeq;
     set((s) => ({ toasts: [...s.toasts, { id, text, tone }] }));

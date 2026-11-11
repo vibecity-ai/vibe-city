@@ -91,7 +91,7 @@ export function deriveDept(i: DeriveInput): Dept {
     if (disconnected) chief = { ...base, status: 'disconnected', activity: 'Hermes is not reachable', since: hhmm(v.updatedAt) };
     else if (runningChief) {
       const q = runningChief.q;
-      chief = { ...base, status: 'running', activity: `${q.status === 'planning' ? 'Planning' : 'Working on'} “${q.title}”`, since: hhmm(runningChief.t.startedAt) };
+      chief = { ...base, taskId: runningChief.t.id, status: 'running', activity: `${q.status === 'planning' ? 'Planning' : 'Working on'} “${q.title}”`, since: hhmm(runningChief.t.startedAt) };
     } else if (failedChief) chief = { ...base, status: 'failed', activity: `Failed on “${failedChief.q.title}”`, since: hhmm(failedChief.t.startedAt) };
     else if (quests.some((q) => q.flags.planningComplete && q.status !== 'cancelling')) {
       const q = quests.find((x) => x.flags.planningComplete)!;
@@ -101,13 +101,14 @@ export function deriveDept(i: DeriveInput): Dept {
 
   let state: DeptState;
   let attention: string | undefined;
+  const failedTask = quests.flatMap((q) => q.tasks).find((t) => t.failed && t.status !== 'archived');
   if (v.state === 'unconfigured' || v.state === 'provisioning') state = 'unconfigured';
   else if (v.state === 'error') { state = 'attention'; attention = prov?.error?.message ?? 'Sync with Hermes failed'; }
   else if (disconnected) { state = 'offline'; attention = i.hermesUp ? 'Hermes resources could not be verified' : 'Hermes is not reachable'; }
-  else if (workers.some((w) => w.status === 'failed') || chief?.status === 'failed') {
+  // any failed task, not just the one a desk shows: an agent running one task can still have another stuck
+  else if (failedTask || chief?.status === 'failed') {
     state = 'attention';
-    const w = workers.find((x) => x.status === 'failed');
-    attention = w ? `Task failed: ${w.task}` : chief?.activity;
+    attention = failedTask ? `Task failed: ${failedTask.title}` : chief?.activity;
   } else if (chief?.status === 'running' || workers.some((w) => w.status === 'running')) state = 'active';
   else state = 'idle';
 

@@ -8,9 +8,9 @@ import {
   type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary,
 } from '@vibe-city/shared';
 import {
-  InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
-  type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
-  AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply, MarketDraftReplySchema, type MarketDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
+  HiringCurrentSchema, HiringRequestViewSchema,
+  type HiringBrief, type HiringRequestView,
+  AssistantViewSchema, type AssistantView, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
@@ -76,6 +76,8 @@ async function request<T>(method: string, path: string, schema: z.ZodType<T>, bo
   }
   // Non-JSON bodies (proxy error pages, HTML) are never shown: they can contain anything.
   const json: unknown = await res.json().catch(() => undefined);
+  // the backend always answers errors in JSON: a bare 5xx is a proxy (Vite, a load balancer) saying it is not there
+  if (!res.ok && res.status >= 500 && json === undefined) throw new ApiError(0, 'backend_unreachable', 'The Vibe City backend is not reachable.');
   if (!res.ok) throw errorFrom(res.status, json);
   const parsed = schema.safeParse(json);
   if (!parsed.success) throw new ApiError(res.status, 'invalid_response', 'The backend sent a response this app does not understand. Reload the page; if it persists, the app and backend versions differ.');
@@ -179,18 +181,11 @@ export const api = {
   questOrigins: async (): Promise<QuestOrigin[]> => (await request('GET', '/api/quest-origins', QuestOriginListSchema)).origins,
   assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
   assistantModels: (): Promise<ChiefOfStaffModels> => request('GET', '/api/assistant/models', ChiefOfStaffModelsSchema),
-  marketDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> => request('POST', '/api/assistant/market-draft', MarketDraftReplySchema, { messages }),
-  departmentDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> => request('POST', '/api/assistant/department-draft', DeptDraftReplySchema, { messages }),
   hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
-  hiringStart: (departmentId?: string): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, departmentId ? { departmentId } : {}),
-  hiring: (id: string): Promise<HiringRequestView> => request('GET', h(id), HiringRequestViewSchema),
-  hiringAnswer: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/answer`, HiringRequestViewSchema),
+  /** The brief from the Chief of Staff's chat: the request comes back with its candidates. */
+  hiringStart: (brief: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, { brief }),
   hiringDecline: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/decline`, HiringRequestViewSchema),
-  hiringChat: (id: string, message: string): Promise<HiringRequestView> => request('POST', `${h(id)}/chat`, HiringRequestViewSchema, { message }),
-  hiringBrief: (id: string, brief?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', `${h(id)}/brief`, HiringRequestViewSchema, brief ? { brief } : {}),
-  interviewHistory: (id: string, cand: string): Promise<ChatMessage[]> => request('GET', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewHistorySchema),
-  interview: (id: string, cand: string, message: string): Promise<InterviewReply> => request('POST', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewReplySchema, { message }),
-  hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
+  hiringOffer: (id: string, candidateId: string): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId }),
   chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
     chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),
   cancellation: (dept: string, quest: string): Promise<CancellationStatus> => request('GET', `${q(dept, quest)}/cancellation`, CancellationStatusSchema),

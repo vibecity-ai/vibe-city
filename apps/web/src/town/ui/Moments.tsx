@@ -1,5 +1,5 @@
 /* The big moments of the company, celebrated: a neon banner drops in at the top of the screen with a sound when a floor
-   is built, a job starts or finishes, the Chief of Staff starts scouting or has a shortlist, someone is hired, or a job
+   is built, a job starts or finishes, someone is hired, or a job
    needs the CEO. Small things (a task done or failed) only get a sound. Banners queue, one at a time; the city draws
    its own effect for each (world/City.ts play). */
 import { useEffect, useRef, useState } from 'react';
@@ -26,10 +26,7 @@ function momentOf(fx: Fx, key: number): { m: Moment | null; sfx: Sfx | null } {
       const name = agentLabel(fx.worker, s.personas[`${fx.dept}:${fx.worker}`]);
       return { m: m('New hire', name, `joined ${floor(fx.dept)}`, 'var(--pink, #FF3EA5)', 'plus', true), sfx: 'hire' };
     }
-    case 'hiring':
-      if (fx.phase === 'scouting') return { m: m('Scouting', 'The Chief of Staff is looking for a hire', fx.floor ? `for ${fx.floor}` : null, '#9B5CFF', 'search'), sfx: 'scout' };
-      if (fx.phase === 'shortlist') return { m: m('Shortlist ready', 'Candidates are waiting to meet you', 'Pick up the Chief of Staff’s call', '#9B5CFF', 'phone'), sfx: 'shortlist' };
-      return { m: null, sfx: null };
+    case 'ipo': return { m: m('Opening bell', `${fx.symbol} is listed`, 'Shares are on offer: the safe has the subscription link', 'var(--gold)', 'bell', true), sfx: 'bell' };
     case 'taskDone': return { m: null, sfx: 'tick' };
     case 'taskFail': return { m: null, sfx: 'fail' };
     case 'chiefArrived': return { m: null, sfx: 'hire' };
@@ -55,13 +52,6 @@ export function Moments() {
     }
     if (fresh.length) setQueue((q) => [...q, ...fresh].slice(-4));
   }, [fx]);
-
-  // the Chief of Staff's hiring request moving on (polled): scouting started, shortlist in
-  useEffect(() => useStore.subscribe((s, p) => {
-    const h = s.hiring, was = p.hiring;
-    if (!h || !was || h.id !== was.id || h.state === was.state) return;
-    if (h.state === 'scouting' || h.state === 'shortlist') s.emit({ k: 'hiring', phase: h.state, floor: h.brief?.departmentName ?? null });
-  }), []);
 
   useEffect(() => {
     if (cur || !queue.length) return;

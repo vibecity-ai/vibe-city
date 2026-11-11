@@ -77,12 +77,33 @@ export function ClaimStep({ deptId, claimed }: { deptId: string; claimed: boolea
   );
 }
 
+/** Step 2: the listing as the market reports it (read with the agent's token, so a Draft is visible too). Re-read on
+    each backend poll until it is live. */
+function LiveStep({ deptId, handle, poll, onLive }: { deptId: string; handle: string; poll: string | null; onLive: () => void }) {
+  const [status, setStatus] = useState<string | null>(null);
+  const live = status === 'live';
+  useEffect(() => { if (live) onLive(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!live) api.marketProfile(deptId).then((p) => setStatus(p.listingStatus)).catch(() => undefined); }, [deptId, poll, live]);
+  return (
+    <li className={live ? 'done' : ''}>
+      <span className="mk-n">{live ? <Icon n="sparkle" size={11} /> : 2}</span>
+      {live
+        ? <span className="mk-t">Live on market.near.ai: buyers can find it.</span>
+        : <span className="mk-t">Under <b>Building → Agents</b> it is a <b>{status ? status[0].toUpperCase() + status.slice(1) : 'Draft'}</b>: set a USDC price and switch it to <b>Live</b> so buyers can find it.</span>}
+      {live ? <a className="chip sm mk-claimed" href={`${MARKET}/a/${handle}`} target="_blank" rel="noreferrer"><Icon n="check" size={11} /> Live</a>
+        : <a className="btn secondary small" href={MARKET_AGENTS} target="_blank" rel="noreferrer">Open market</a>}
+    </li>
+  );
+}
+
 /** The company's floors on the NEAR AI Agent Market, each its own agent. The Chief of Staff lists one at a time from
     the dialogue window; the quest is done once a listed floor's agents hold its token. The backend then polls the agent's jobs and hands each one to the floor. */
 function MarketQuest() {
   const [m, setM] = useState<MarketView | null>(null);
   const s = useStore.getState();
   const depts = useStore((st) => st.depts);
+  const [live, setLive] = useState<Record<string, true>>({});
+  const onLive = (id: string) => setLive((x) => (x[id] ? x : { ...x, [id]: true }));
   // the backend polls the market every 45 s; the card follows it (and the quest log, once a job is paid)
   useEffect(() => {
     const load = () => api.market().then((v) => { setM(v); useStore.setState({ market: v }); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
@@ -91,7 +112,7 @@ function MarketQuest() {
     return () => clearInterval(t);
   }, []);
   if (!m) return <span className="ql-note">Loading…</span>;
-  const talk = () => s.ui$({ questLog: false, marketDraft: true });
+  const talk = () => s.ui$({ questLog: false, newDept: true });
 
   if (!m.connected) {
     return (
@@ -107,9 +128,11 @@ function MarketQuest() {
   const checked = m.lastPollAt ? new Date(m.lastPollAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
   const name = (id: string) => depts.find((d) => d.id === id)?.view.name ?? 'the listed floor';
   const unlisted = depts.some((d) => !isInternalOnly(d.view.templateId) && !m.agents.some((a) => a.departmentId === d.id));
+  // one floor set up (claimed, live, open for work) is all the quest needs: the others' checklists would only distract
+  const setUp = m.agents.filter((a) => a.adoptedAt && live[a.departmentId] && a.ready);
   return (
     <div className="mk">
-      {m.agents.map((a) => (
+      {(setUp.length ? setUp : m.agents).map((a) => (
         <div key={a.departmentId} className="mk-agent">
           <div className="mk-id">
             <span className="chip sm mk-handle">@{a.handle}</span>
@@ -117,11 +140,7 @@ function MarketQuest() {
           </div>
           <ol className="mk-steps">
             <ClaimStep deptId={a.departmentId} claimed={!!a.adoptedAt} />
-            <li>
-              <span className="mk-n">2</span>
-              <span className="mk-t">Under <b>Building → Agents</b> it is a <b>Draft</b>: set a USDC price and switch it to <b>Live</b> so buyers can find it.</span>
-              <a className="btn secondary small" href={MARKET_AGENTS} target="_blank" rel="noreferrer">Open market</a>
-            </li>
+            <LiveStep deptId={a.departmentId} handle={a.handle} poll={m.lastPollAt} onLive={() => onLive(a.departmentId)} />
             <li className={a.ready ? 'done' : ''}>
               <span className="mk-n">{a.ready ? <Icon n="sparkle" size={11} /> : 3}</span>
               <span className="mk-t">{a.ready ? `${name(a.departmentId)} is open for work.` : `${name(a.departmentId)} is not synced with Hermes yet.`}</span>

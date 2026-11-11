@@ -1,39 +1,43 @@
 /* What an agent did on a task, from its Kanban run's Hermes session: every tool call in plain words, and what the
    agent wrote along the way. Tool arguments and results are never forwarded raw: one short, path-scrubbed detail. */
-import type { TaskStep } from '@vibe-city/shared';
+import type { StepVia, TaskStep } from '@vibe-city/shared';
 import type { SessionMessage } from '../hermes/ports.ts';
 import { scrub } from './scrub.ts';
 
-const VERBS: [RegExp, string][] = [
-  [/^web_search$/, 'Searched the web'],
-  [/^(web_extract|web_fetch|browser_navigate|browser_open)$/, 'Read a web page'],
-  [/^browser_/, 'Used the browser'],
-  [/^terminal$/, 'Ran a command'],
-  [/^execute_code$/, 'Ran code'],
-  [/^read_file$/, 'Read a file'],
-  [/^write_file$/, 'Wrote a file'],
-  [/^(patch|edit_file)$/, 'Edited a file'],
-  [/^search_files$/, 'Searched files'],
-  [/^kanban_show$/, 'Read the task'],
-  [/^kanban_list$/, 'Checked the board'],
-  [/^kanban_create$/, 'Handed out a task'],
-  [/^kanban_complete$/, 'Finished the task'],
-  [/^kanban_comment$/, 'Commented on the task'],
-  [/^kanban_block$/, 'Blocked the task'],
-  [/^kanban_attachments$/, 'Checked the attachments'],
-  [/^kanban_attach/, 'Attached a file'],
-  [/^kanban_/, 'Updated the board'],
-  [/^tool_(search|describe)$/, 'Looked for tools'],
-  [/^skills?_(list|view)$/, 'Checked its skills'],
-  [/^skill/, 'Changed its skills'],
-  [/^memory$/, 'Updated its memory'],
-  [/^todo$/, 'Updated its plan'],
-  [/^delegate_task$/, 'Delegated work'],
-  [/^vision_analyze$/, 'Looked at an image'],
+/** Tool name -> what the step says, and where on the floor that tool lives (TaskStep.via). */
+const VERBS: [RegExp, string, StepVia | null][] = [
+  [/^web_search$/, 'Searched the web', 'web'],
+  [/^(web_extract|web_fetch|browser_navigate|browser_open)$/, 'Read a web page', 'web'],
+  [/^browser_/, 'Used the browser', 'web'],
+  [/^terminal$/, 'Ran a command', 'terminal'],
+  [/^execute_code$/, 'Ran code', 'terminal'],
+  [/^read_file$/, 'Read a file', 'file'],
+  [/^write_file$/, 'Wrote a file', 'file'],
+  [/^(patch|edit_file)$/, 'Edited a file', 'file'],
+  [/^search_files$/, 'Searched files', 'file'],
+  [/^kanban_show$/, 'Read the task', 'board'],
+  [/^kanban_list$/, 'Checked the board', 'board'],
+  [/^kanban_create$/, 'Handed out a task', 'board'],
+  [/^kanban_complete$/, 'Finished the task', 'board'],
+  [/^kanban_comment$/, 'Commented on the task', 'board'],
+  [/^kanban_block$/, 'Blocked the task', 'board'],
+  [/^kanban_attachments$/, 'Checked the attachments', 'file'],
+  [/^kanban_attach/, 'Attached a file', 'file'],
+  [/^kanban_/, 'Updated the board', 'board'],
+  [/^tool_(search|describe)$/, 'Looked for tools', null],
+  [/^skills?_(list|view)$/, 'Checked its skills', 'skill'],
+  [/^skill/, 'Changed its skills', 'skill'],
+  [/^memory$/, 'Updated its memory', null],
+  [/^todo$/, 'Updated its plan', null],
+  [/^delegate_task$/, 'Delegated work', null],
+  [/^vision_analyze$/, 'Looked at an image', 'file'],
 ];
 const DETAIL_KEYS = ['query', 'queries', 'url', 'urls', 'command', 'path', 'title', 'summary', 'reason', 'body', 'pattern', 'name'];
 
-const verb = (name: string) => VERBS.find(([re]) => re.test(name))?.[1] ?? `Used ${name.replace(/^mcp_+[a-z0-9]+_+/, '').replace(/_/g, ' ')}`;
+const known = (name: string) => VERBS.find(([re]) => re.test(name));
+const verb = (name: string) => known(name)?.[1] ?? `Used ${name.replace(/^mcp_+[a-z0-9]+_+/, '').replace(/_/g, ' ')}`;
+// Vibe City's own file tools read task files: the archive
+const viaOf = (name: string): StepVia | null => known(name)?.[2] ?? (/task_files?$/.test(name) ? 'file' : null);
 
 /** `tool_call` runs other tools (`{"calls": [{"name": …}]}`): name those instead. */
 function callsOf(c: { name: string; args: string }): { name: string; args: string }[] {
@@ -72,8 +76,8 @@ export function buildSteps(messages: SessionMessage[]): TaskStep[] {
   for (const m of messages) {
     if (m.role !== 'assistant') continue; // the user message is the task prompt; tool messages are results
     const said = scrub(m.content.replace(/<think>[\s\S]*?<\/think>/gi, '').trim(), 300);
-    if (said) out.push({ at: m.at, kind: 'note', text: said, detail: null });
-    for (const c of m.calls) for (const x of callsOf(c)) out.push({ at: m.at, kind: bad.has(c.id) ? 'failed' : 'tool', text: verb(x.name), detail: detailOf(x.args) });
+    if (said) out.push({ at: m.at, kind: 'note', text: said, detail: null, via: null });
+    for (const c of m.calls) for (const x of callsOf(c)) out.push({ at: m.at, kind: bad.has(c.id) ? 'failed' : 'tool', text: verb(x.name), detail: detailOf(x.args), via: viaOf(x.name) });
   }
   return out;
 }

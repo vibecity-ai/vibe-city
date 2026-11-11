@@ -8,7 +8,6 @@ import { Tour } from './ui/Tour';
 import { DialogueWindow } from './ui/Dialogue';
 import { HiringLayer } from './ui/Hiring';
 import { NewDeptWindow } from './ui/NewDept';
-import { MarketListingWindow } from './ui/MarketListing';
 import { RequestsPoll } from './ui/Requests';
 import { ExecRoomModal } from './ui/ExecRoom';
 import { QuestLogWindow } from './ui/QuestLog';
@@ -77,7 +76,6 @@ export default function App() {
           <QuestLogWindow />
           <CreateDeptModal />
           <NewDeptWindow />
-          <MarketListingWindow />
           <HiringLayer />
           <SkillLibraryWindow />
         </div>

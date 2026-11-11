@@ -36,15 +36,18 @@ export function pick<T>(list: readonly T[], seed: number, salt: number): T {
   return list[(hash(`${seed}:${salt}`) % list.length)]!;
 }
 
-export function generateCharacter(departmentId: string, deptName: string, agentKey: string): Character {
+/** `taken`: names already in the company. A hash collision picks again, so two agents never share a name. */
+export function generateCharacter(departmentId: string, deptName: string, agentKey: string, taken: ReadonlySet<string> = new Set()): Character {
   const seed = hash(`${departmentId}:${agentKey}`);
+  let name = `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`;
+  for (let k = 1; taken.has(name) && k < 100; k++) name = `${pick(FIRST, seed, 100 + k)} ${pick(LAST, seed, 200 + k)}`;
   const role = agentKey === 'chief' ? 'chief' : 'worker';
   const t1 = pick(TRAITS, seed, 3);
   let t2 = pick(TRAITS, seed, 4);
   if (t2 === t1) t2 = TRAITS[(TRAITS.indexOf(t1) + 5) % TRAITS.length]!;
   return CharacterSchema.parse({
     departmentId, agentKey, role,
-    name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`,
+    name,
     title: role === 'chief' ? `${deptName} lead` : `${deptName} specialist`,
     traits: [t1, t2],
     speechStyle: pick(STYLES, seed, 5),
@@ -67,6 +70,11 @@ export function chiefOfStaff(companyId: string): Character {
   };
 }
 
+/** Every persona name in the company: a name is unique across floors, so a toast or a call naming someone is never ambiguous. */
+export function takenNames(db: DatabaseSync): Set<string> {
+  return new Set((db.prepare("SELECT json_extract(character_json, '$.name') AS name FROM agent_character").all() as { name: string }[]).map((r) => r.name));
+}
+
 export class CharacterService {
   private db: DatabaseSync;
   constructor(db: DatabaseSync) { this.db = db; }
@@ -82,7 +90,7 @@ export class CharacterService {
       const fresh = generateCharacter(departmentId, deptName, agentKey);
       return { ...c, title: fresh.title };
     }
-    const c = generateCharacter(departmentId, deptName, agentKey);
+    const c = generateCharacter(departmentId, deptName, agentKey, takenNames(this.db));
     this.db.prepare('INSERT OR IGNORE INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)')
       .run(departmentId, agentKey, JSON.stringify(c), new Date().toISOString());
     return c;

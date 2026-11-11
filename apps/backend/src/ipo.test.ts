@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from './db/db.ts';
-import { DAO_DEPOSIT, IpoService, MIN_VALUATION_USD, PAYOUT, TOKEN_FACTORY, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, offerFrom, shares, units } from './domain/ipoService.ts';
+import { DAO_DEPOSIT, IpoService, BASE_VALUATION_USD, PAYOUT, TOKEN_FACTORY, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, offerFrom, shares, units } from './domain/ipoService.ts';
 import type { AccountInfo, NearReader } from './near/rpc.ts';
 import { ConflictError, UpstreamError } from './domain/errors.ts';
 
@@ -23,6 +23,9 @@ function fakeChain() {
   const calls: { receiver: string; method: string; args: Record<string, unknown>; deposit: string }[] = [];
   let failNext: string | null = null;
   let needsApproval = false;
+  /** How many reads of a just-created token account still answer "no such account": the factory lists a token one block before its account exists. */
+  let lag = 0;
+  const late = new Map<string, number>();
   let walletNear = 10n ** 26n; // 100 NEAR
   const queued = new Map<string, () => { status: 'success'; txHash: string; result: unknown }>();
   const requests = new Map<string, 'pending' | 'rejected' | { status: 'success'; txHash: string; result: unknown }>();
@@ -30,7 +33,7 @@ function fakeChain() {
   const setBal = (c: string, a: string, n: bigint) => { if (!ft.has(c)) ft.set(c, new Map()); ft.get(c)!.set(a, n); };
   const rpc: NearReader = {
     balance: async (id) => (id === WALLET ? String(walletNear) : '0'),
-    account: async (id) => accounts.get(id) ?? null,
+    account: async (id) => { const n = late.get(id) ?? 0; if (n > 0) { late.set(id, n - 1); return null; } return accounts.get(id) ?? null; },
     keyCount: async (id) => keys.get(id) ?? 0,
     view: async <T>(contract: string, method: string, args: Record<string, unknown> = {}) => {
       if (method === 'get_policy') { if (!policies.has(contract)) throw new Error('no contract'); return policies.get(contract) as T; }
@@ -58,6 +61,7 @@ function fakeChain() {
       const a = args.args as { owner_id: string; total_supply: string; sale_amount: string; price: string; metadata: { symbol: string } };
       const token = `${a.metadata.symbol.toLowerCase()}.${TOKEN_FACTORY}`;
       accounts.set(token, { amount: '0', codeHash: TOKEN_HASH, globalCodeHash: null });
+      late.set(token, lag);
       tokens.set(a.metadata.symbol.toLowerCase(), { owner_id: a.owner_id });
       setBal(token, a.owner_id, BigInt(a.total_supply) - BigInt(a.sale_amount));
       setBal(token, token, BigInt(a.sale_amount));
@@ -91,7 +95,7 @@ function fakeChain() {
   };
   /** The owner approves (or rejects) every queued request in OutLayer. */
   const decide = (ok: boolean) => { for (const [id, run] of queued) { requests.set(id, ok ? run() : 'rejected'); queued.delete(id); } };
-  return { rpc, wallet, calls, sent, accounts, keys, tokens, sales, setBal, bal, buy, fund: (y: bigint) => { walletNear = y; }, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide };
+  return { rpc, wallet, calls, sent, accounts, keys, tokens, sales, setBal, bal, buy, fund: (y: bigint) => { walletNear = y; }, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide, late, lagAccounts: (reads: number) => { lag = reads; } };
 }
 
 function service(chain = fakeChain()) {
@@ -100,16 +104,17 @@ function service(chain = fakeChain()) {
   return { ipo, chain, db };
 }
 const LAUNCH = { ceoAccountId: CEO, symbol: 'ACME' };
-/** $500 earned: 20 x 500 = $10,000 valuation */
+/** $500 earned: $1,000 + 20 x 500 = $11,000 valuation */
 const EARNED = 50_000;
 
-test('the offer: valuation from earnings (with a floor), 40% float, the price per token in NEAR', () => {
+test('the offer: a base valuation plus earnings, 40% float, the price per token in NEAR', () => {
   const o = offerFrom(EARNED, NEAR_USD);
-  assert.equal(o.valuationUsd, 10_000);
+  assert.equal(o.valuationUsd, 11_000);
   assert.equal(o.floatTokens, 400_000);
-  assert.equal(o.priceNear, 0.0025, '$10,000 / 1,000,000 tokens = $0.01 = 0.0025 NEAR at $4');
-  assert.equal(o.priceYocto, '2500000000000000000000');
-  assert.equal(offerFrom(0, NEAR_USD).valuationUsd, MIN_VALUATION_USD);
+  assert.equal(o.priceNear, 0.00275, '$11,000 / 1,000,000 tokens = $0.011 = 0.00275 NEAR at $4');
+  assert.equal(o.priceYocto, '2750000000000000000000');
+  assert.equal(offerFrom(0, NEAR_USD).valuationUsd, BASE_VALUATION_USD);
+  assert.ok(offerFrom(48, NEAR_USD).priceNear > offerFrom(0, NEAR_USD).priceNear, 'a first job of 48 cents already moves the price');
   assert.equal(offerFrom(-500, NEAR_USD).earnedUsd, 0);
 });
 
@@ -117,7 +122,7 @@ test('locked: 409 and nothing is called; the offer is still previewed', async ()
   const { ipo, chain } = service();
   const v = await ipo.view(false, EARNED);
   assert.equal(v.state, 'locked');
-  assert.equal(v.offer?.priceNear, 0.0025);
+  assert.equal(v.offer?.priceNear, 0.00275);
   await assert.rejects(ipo.launch(LAUNCH, false, EARNED), ConflictError);
   assert.equal(chain.calls.length, 0);
 });
@@ -142,12 +147,12 @@ test('unlocked: the DAO (CEO approves, wallet only proposes), its registrations,
   const tok = chain.calls[3]!;
   assert.equal(tok.deposit, '2228440000000000000000000', 'what the factory asks for');
   const a = tok.args.args as Record<string, string>;
-  assert.deepEqual([a.owner_id, a.total_supply, a.sale_amount, a.price], [DAO, '1000000000000', '400000000000', '2500000000000000000000']);
+  assert.deepEqual([a.owner_id, a.total_supply, a.sale_amount, a.price], [DAO, '1000000000000', '400000000000', '2750000000000000000000']);
   assert.equal(s.state, 'done');
   assert.equal(s.tokenAccountId, TOKEN);
   assert.deepEqual(s.sale, { open: true, sold: 0, remaining: 400_000, raisedNear: 0, buyers: 0 });
   assert.ok(ipo.isDone());
-  assert.equal((await ipo.view(true, 9_999_999)).offer?.priceNear, 0.0025, 'the price is fixed once the IPO starts');
+  assert.equal((await ipo.view(true, 9_999_999)).offer?.priceNear, 0.00275, 'the price is fixed once the IPO starts');
   await assert.rejects(ipo.launch(LAUNCH, true, EARNED), ConflictError, 'only once');
 });
 
@@ -164,7 +169,7 @@ test('a failure between steps, then a retry (now locked: the IPO spent the funds
   assert.equal(chain.calls.filter((c) => c.method === 'create').length, 1);
   assert.equal(chain.calls.filter((c) => c.method === 'storage_deposit').length, 2, 'registrations are not repeated');
   assert.equal(s.ceoAccountId, CEO, 'the council is fixed once the DAO exists');
-  assert.equal(s.offer?.priceNear, 0.0025, 'and so is the price');
+  assert.equal(s.offer?.priceNear, 0.00275, 'and so is the price');
 });
 
 test('a DAO name or token symbol someone else owns is refused, not adopted', async () => {
@@ -190,6 +195,39 @@ test('a factory or token that is not the code we checked is not paid / not marke
   chain2.keys.set(TOKEN, 1);
   await assert.rejects(s2.ipo.launch(LAUNCH, true, EARNED), /not the token code/);
   assert.equal(s2.ipo.isDone(), false);
+});
+
+test('a token account that appears a block after the factory lists it is waited for, not called the wrong code', async () => {
+  const { ipo, chain } = service();
+  chain.lagAccounts(2);
+  const s = await ipo.launch(LAUNCH, true, EARNED);
+  assert.equal(s.state, 'done');
+  assert.equal(s.tokenAccountId, TOKEN);
+  assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 1);
+});
+
+test('a mint whose check failed is finished with the same symbol; another symbol is refused instead of paying for a second token', async () => {
+  const { ipo, chain } = service();
+  chain.lagAccounts(99); // the account never shows up while we wait
+  await assert.rejects(ipo.launch(LAUNCH, true, EARNED), /did not answer after it was created; press IPO again/);
+  const failed = await ipo.view(false, EARNED);
+  assert.equal(failed.state, 'error');
+  assert.equal(failed.awaiting, `${TOKEN_FACTORY} create_token`, 'the step that failed is named, so the board lights the right lamp');
+  chain.lagAccounts(0);
+  await assert.rejects(ipo.launch({ ceoAccountId: CEO, symbol: 'OTHER' }, false, EARNED), (e: Error) => e instanceof ConflictError && /already exist as ACME/.test(e.message));
+  assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 1, 'no second token was paid for');
+  chain.late.clear();
+  const s = await ipo.launch(LAUNCH, false, EARNED);
+  assert.equal(s.state, 'done');
+  assert.equal(s.awaiting, null);
+  assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 1);
+});
+
+test('a failed registration names its step', async () => {
+  const { ipo, chain } = service();
+  chain.failOn('storage_deposit');
+  await assert.rejects(ipo.launch(LAUNCH, true, EARNED));
+  assert.match((await ipo.view(false, EARNED)).awaiting!, / storage_deposit$/);
 });
 
 test('a wallet too short for a step is told how much to send, before anything is asked of OutLayer', async () => {
@@ -263,7 +301,7 @@ test('shareholders are the buyers: the dividend is pro rata over what they hold,
   chain.buy(TOKEN, 'ann.near', 30_000);
   let s = await ipo.view(true, EARNED);
   assert.deepEqual(s.holders, [{ accountId: 'ann.near', balance: 30_000 }, { accountId: 'bob.near', balance: 10_000 }], 'largest first');
-  assert.deepEqual(s.sale, { open: true, sold: 40_000, remaining: 360_000, raisedNear: 100, buyers: 2 });
+  assert.deepEqual(s.sale, { open: true, sold: 40_000, remaining: 360_000, raisedNear: 110, buyers: 2 });
 
   s = await ipo.dividend({ token: 'USDC', amount: 100 });
   const div = chain.calls.at(-1)!;

@@ -160,7 +160,11 @@ export function KV({ rows }: { rows: [ReactNode, ReactNode][] }) {
 /* ---------- PixelSelect: the game's dropdown (native <select> menus render as OS widgets, white on Windows). ----------
    A button that opens a framed listbox in a portal: below the trigger (above when there is no room), a bottom sheet
    on phones. Keyboard: arrows/Home/End move, Enter/Space choose, Esc closes, typing jumps to a matching option. */
-export interface SelectOption { value: string; label: string; group?: string; disabled?: boolean; note?: string }
+export interface SelectOption {
+  value: string; label: string; group?: string; disabled?: boolean; note?: string;
+  /** Shown before / after the label, e.g. a model's logo and privacy tag. Typing still matches the label. */
+  icon?: ReactNode; tag?: ReactNode;
+}
 
 export function PixelSelect({ id, value, options, onChange, disabled, placeholder = 'Choose…', mono, ...aria }: {
   id?: string; value: string; options: readonly SelectOption[]; onChange: (v: string) => void; disabled?: boolean;
@@ -237,7 +241,7 @@ export function PixelSelect({ id, value, options, onChange, disabled, placeholde
             <li key={o.value || '_empty'} id={`${lid}-${i}`} data-i={i} role="option" aria-selected={o.value === value} aria-disabled={o.disabled || undefined}
               className={`psel-opt${i === active ? ' on' : ''}${o.value === value ? ' sel' : ''}`}
               onPointerEnter={() => !o.disabled && setActive(i)} onClick={() => choose(i)}>
-              <span>{o.label}</span>{o.note && <small>{o.note}</small>}
+              <span className={o.icon ? 'psel-l has-icon' : 'psel-l'}>{o.icon}<span>{o.label}</span></span>{o.tag}{o.note && <small>{o.note}</small>}
             </li>];
         })}
       </ul>
@@ -248,7 +252,7 @@ export function PixelSelect({ id, value, options, onChange, disabled, placeholde
       <button ref={btn} type="button" id={id} className={`input psel${mono ? ' mono' : ''}${open ? ' open' : ''}`} disabled={disabled}
         aria-haspopup="listbox" aria-expanded={open} aria-controls={open ? lid : undefined} {...aria}
         onClick={() => (open ? hide() : show())} onKeyDown={onKey}>
-        <span className={cur ? '' : 'muted'}>{cur?.label ?? placeholder}</span>
+        <span className={cur ? '' : 'muted'}>{cur?.icon}{cur?.label ?? placeholder}{cur?.tag}</span>
         <svg width="12" height="8" viewBox="0 0 6 4" aria-hidden="true" shapeRendering="crispEdges"><path d="M0 0h6L3 4z" fill="currentColor" /></svg>
       </button>
       {menu}

@@ -3,10 +3,10 @@
    opening bell. After it: the symbol and price on split-flap tiles, a ticker tape, the share register, and the
    board's two acts: declare a dividend (a DAO proposal) and close the books (end the offering). */
 import { useEffect, useRef, useState } from 'react';
-import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState } from '@vibe-city/shared';
+import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState, type WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
+import { ipoRang, ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.');
 const NB = 'https://nearblocks.io';
@@ -19,7 +19,8 @@ const LAMP: Record<IpoStep['status'], string> = { done: 'Done', working: 'Workin
 /** A NEAR amount with enough decimals to show three significant digits of small prices. */
 export const fmtNear = (n: number) => n.toFixed(n >= 1 || n === 0 ? 2 : Math.min(9, 2 - Math.floor(Math.log10(n))));
 const whole = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+// cents while small, so a first job's $0.48 does not read as $0
+const usd = (n: number) => `$${n < 100 ? n.toFixed(2).replace(/\.00$/, '') : Math.round(n).toLocaleString()}`;
 const short = (a: string) => (a.length > 30 ? `${a.slice(0, 14)}…${a.slice(-12)}` : a);
 const ext = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>;
 
@@ -41,9 +42,17 @@ function Bell() {
   );
 }
 
-export function IpoCard({ ceo }: { ceo: string | null }) {
+export function IpoCard({ wallet }: { wallet: WalletState }) {
+  const ceo = wallet.binding.accountId;
   const company = useStore((s) => s.company?.name ?? '');
-  const [ipo, setIpo] = useState<IpoState | null>(null);
+  const [ipo, setIpoState] = useState<IpoState | null>(null);
+  const was = useRef<IpoState['state'] | null>(null);
+  /** Every answer from the server comes through here: the one that completes the IPO shuts the safe and rings the bell
+      on the roof (world/City.ts), where the player can see it. */
+  const setIpo = (x: IpoState) => {
+    if (ipoRang(was.current, x.state)) { const s = useStore.getState(); s.closeFloor(); s.emit({ k: 'ipo', symbol: x.symbol ?? '' }); }
+    was.current = x.state; setIpoState(x);
+  };
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);
@@ -62,7 +71,8 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
   };
   const checkRef = useRef(check);
   checkRef.current = check;
-  useEffect(() => { void load(); }, []);
+  // the wallet's funds unlock the listing: read it again whenever the wallet was (Fund, Refresh, a new key)
+  useEffect(() => { void load(); }, [wallet]);
   useEffect(() => {
     if (ipo?.state !== 'running' && ipo?.state !== 'awaiting_approval') return;
     const t = window.setInterval(() => void (ipo.state === 'running' ? load() : checkRef.current()), ipo.state === 'running' ? 3000 : APPROVAL_POLL_MS);
@@ -109,7 +119,7 @@ function Prospectus({ ipo, ceo, company, busy, checking, err, onLaunch, onCheck 
         <div className="xb-cell"><span className="xb-k">Offer price · NEAR</span><Flaps text={o ? fmtNear(o.priceNear) : '—'} label="Offer price" /></div>
       </div>
       <p className="xb-fine">
-        {o ? <>Earned {usd(o.earnedUsd)} × {o.multiple} (minimum $1,000) over {o.supply.toLocaleString()} shares; {o.floatTokens.toLocaleString()} offered to the public, the rest kept by the company's DAO.</>
+        {o ? <>$1,000 + earned {usd(o.earnedUsd)} × {o.multiple} over {o.supply.toLocaleString()} shares; {o.floatTokens.toLocaleString()} offered to the public, the rest kept by the company's DAO.</>
           : 'NEAR price unavailable: the offering is priced when the bell rings.'}
       </p>
       {locked ? <p className="xb-fine">The listing opens after your first paid market job and with 4 NEAR in the company wallet.</p> : <>
@@ -136,7 +146,8 @@ function Prospectus({ ipo, ceo, company, busy, checking, err, onLaunch, onCheck 
           : <button className="bell" type="button" disabled={!ok} onClick={() => onLaunch({ ceoAccountId: account.trim(), symbol })}><Bell />
             <span>{started ? 'Listing…' : ipo.state === 'error' ? 'Ring the bell again' : daoFixed ? 'Continue the listing' : 'Ring the opening bell'}</span></button>}
         <span className="xb-links">
-          {ext(OUTLAYER_APP, 'OutLayer ▸')}
+          {/* only when there is something to approve there; the safe's Policy button covers the rest of OutLayer */}
+          {waiting && ext(OUTLAYER_APP, 'Approve in OutLayer ▸')}
           {ipo.daoAccountId && ext(trezu(ipo.daoAccountId), 'DAO on Trezu ▸')}
         </span>
       </div>

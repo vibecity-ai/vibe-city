@@ -21,6 +21,9 @@ export function lookFor(id: string, shirt: string, chief: boolean): Look {
   };
 }
 
+/** The Chief of Staff is one person: the same look at the desk in the Executive Office and in every dialogue portrait. */
+export const COS_LOOK: Look = { key: 'chief-of-staff', skin: 0, hair: 1, style: 0, acc: 0, shirt: '#9B5CFF', pants: PANTS[0]!, chief: true };
+
 export interface Pose { dir: 'f' | 'b'; frame: number; seated: boolean; type: number }
 export interface Sprite { img: HTMLCanvasElement; sil: HTMLCanvasElement }
 const cache = new Map<string, Sprite>();

@@ -35,7 +35,7 @@ test('hiring Treasury Ops creates three agents with their titles and no schedule
   assert.equal(swapper.title, 'Swap Operator');
 });
 
-test('there is one Treasury Ops per company: a second is refused while the first is active, and the grid shows it taken', async () => {
+test('every template is one per company: a second is refused while the first is active, and the grid shows it taken', async () => {
   const { app } = memApp();
   const hire = (name: string) => app.inject({ method: 'POST', url: '/api/departments', payload: { name, template: 'treasury-ops' } });
   const hired = async () => Object.fromEntries((await app.inject('/api/templates')).json().map((t: any) => [t.id, t.hired]));
@@ -46,7 +46,10 @@ test('there is one Treasury Ops per company: a second is refused while the first
   assert.equal(second.statusCode, 409);
   assert.match(second.json().message, /one per company/);
   assert.deepEqual(await hired(), { 'treasury-ops': true, 'trading-desk': false, 'prediction-desk': false });
-  assert.equal((await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Desk', template: 'trading-desk' } })).statusCode, 201, 'other templates are not single');
+  const desk = (name: string) => app.inject({ method: 'POST', url: '/api/departments', payload: { name, template: 'trading-desk' } });
+  assert.equal((await desk('Desk')).statusCode, 201, 'another template is still free');
+  assert.equal((await desk('Desk Two')).statusCode, 409, 'and is one per company too');
+  assert.equal((await hired())['trading-desk'], true);
   // archived, it frees the slot
   await app.inject({ method: 'DELETE', url: `/api/departments/${first.json().id}` });
   assert.equal((await hire('Treasury Two')).statusCode, 201);
