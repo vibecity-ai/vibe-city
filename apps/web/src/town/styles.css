@@ -545,6 +545,13 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .dlg-text p { margin: 0; white-space: pre-wrap; min-height: 4.35em; max-width: 980px; font: 500 clamp(18px, 1.55vw, 23px)/1.45 var(--f-ui); color: var(--ink); text-wrap: pretty; }
 .dlg-caret { display: inline-block; width: .5em; height: .5em; margin-left: .35em; vertical-align: .05em; background: var(--who, #FFC75A); font-size: 0; animation: blink 1s steps(2) infinite; }
 .dlg-status { color: var(--who, #FFC75A); opacity: .85; font-size: .8em; font-family: var(--f-mono); }
+/* waiting for a reply: what the speaker is doing ("thinking" from the first moment), then three pixels hopping in a wave */
+.dlg-wait { display: inline-flex; align-items: center; gap: 12px; }
+.dlg-dots { display: inline-flex; align-items: flex-end; gap: 5px; height: 1em; }
+.dlg-dots i { width: 7px; height: 7px; background: var(--who, #FFC75A); box-shadow: 0 0 8px var(--who, #FFC75A); animation: dlgHop .9s cubic-bezier(.3, 0, .3, 1) infinite; }
+.dlg-dots i:nth-child(2) { animation-delay: .12s; } .dlg-dots i:nth-child(3) { animation-delay: .24s; }
+@keyframes dlgHop { 0%, 60%, 100% { transform: translateY(0); opacity: .45; } 30% { transform: translateY(-9px); opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .dlg-dots i { animation: blink 1.2s steps(2) infinite; } }
 .dlg-replies { display: flex; flex-wrap: wrap; gap: 8px; min-height: 0; }
 .dlg-chip { display: inline-flex; align-items: center; gap: 8px; height: 36px; padding: 0 14px 0 12px; border-radius: 999px; cursor: pointer;
   background: color-mix(in srgb, var(--who, #FFC75A) 9%, #110C19); color: var(--ink); border: 1px solid color-mix(in srgb, var(--who, #FFC75A) 55%, transparent); font: 600 13px/1 var(--f-ui);

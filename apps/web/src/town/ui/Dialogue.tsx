@@ -149,7 +149,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
         <div className="dlg-plate"><b>{who?.name ?? '…'}</b><span>{who?.title ?? ''}</span></div>
         <div className={`dlg-text${long ? ' long' : ''}`} ref={textBox} onClick={advance} aria-live="polite">
           <span className="sr">{waiting ? status ?? 'Thinking' : speech}</span>
-          <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{!waiting && !typing && <span className="dlg-caret">■</span>}</p>
+          <p aria-hidden="true">{shownText}{waiting && <span className="dlg-wait"><span className="dlg-status">{status ?? 'thinking'}</span><span className="dlg-dots"><i /><i /><i /></span></span>}{!waiting && !typing && <span className="dlg-caret">■</span>}</p>
         </div>
         {done && long && !leaving && !error && <button type="button" className="dlg-copy" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy answer'}</button>}
         {below}
