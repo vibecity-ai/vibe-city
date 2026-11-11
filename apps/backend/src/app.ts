@@ -137,7 +137,7 @@ export function buildApp(db: DatabaseSync, hermes?: HermesRuntime): FastifyInsta
 }
 
 /** The Chief of Staff's model when neither the CEO nor the env chose one (the container's NEAR_AI_MODEL default). */
-export const DEFAULT_CHAT_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
 
 /** The game state as the Chief of Staff reads it: CEO quests, money and what waits on the CEO. Estimates stay labelled. */
 function companyStatus(g: Awaited<ReturnType<typeof gameState>>): string {
