@@ -96,6 +96,10 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const mood: Mood = leaving ? 'happy' : waiting ? 'focused' : error ? 'worried' : lastAgent?.mood ?? baseMood;
 
   useEffect(() => { setShown(0); }, [speech]);
+  // a modal: Tab stays inside, and closing hands focus back to whatever opened it (captured before the input takes it)
+  const root = useRef<HTMLDivElement>(null);
+  const [opener] = useState(() => document.activeElement as HTMLElement | null);
+  useEffect(() => () => { if (opener?.isConnected) opener.focus(); }, [opener]);
   const textBox = useRef<HTMLDivElement>(null);
   useEffect(() => { const el = textBox.current; if (el) el.scrollTop = el.scrollHeight; }, [shown, waiting, text]);
   useEffect(() => { if (!waiting) inputRef.current?.focus(); }, [waiting, who]);
@@ -127,7 +131,14 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); end(); }
-      else if ((e.key === ' ' || e.key === 'Enter') && typing && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
+      else if (e.key === 'Tab' && root.current) {
+        const f = [...root.current.querySelectorAll<HTMLElement>('button:not([disabled]), input:not([disabled]), textarea:not([disabled]), a[href]')];
+        const first = f[0], last = f.at(-1), at = document.activeElement;
+        if (!first || !last) return;
+        if (!root.current.contains(at)) { e.preventDefault(); first.focus(); }
+        else if (e.shiftKey && at === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && at === last) { e.preventDefault(); first.focus(); }
+      } else if ((e.key === ' ' || e.key === 'Enter') && typing && (document.activeElement !== inputRef.current || !input.trim())) { e.preventDefault(); advance(); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -138,7 +149,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const shownText = waiting ? '' : text.slice(0, shown);
 
   return (
-    <div className="dlg" role="dialog" aria-modal="true" aria-label={`Talking to ${who?.name ?? 'agent'}`} style={{ ['--who' as string]: color }}>
+    <div className="dlg" ref={root} role="dialog" aria-modal="true" aria-label={`Talking to ${who?.name ?? 'agent'}`} style={{ ['--who' as string]: color }}>
       <div className="dlg-bar dlg-top" />
       <div className="dlg-band" onClick={advance}>
         <div className="dlg-side">
@@ -193,6 +204,7 @@ export function DialogueWindow() {
 function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk }) {
   const d = useStore((s) => s.depts.find((x) => x.id === deptId) ?? (s.chiefOfStaff?.id === deptId ? s.chiefOfStaff : undefined));
   const personas = useStore((s) => s.personas);
+  const quests = useStore((s) => s.quests);
   const worker = agentKey === 'chief' ? null : d?.workers.find((w) => w.id === agentKey) ?? null;
   const close = useCallback(() => useStore.getState().ui$({ talk: null }), []);
 
@@ -283,6 +295,9 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
         if (proposalDone[last.id] === 'started') return <p className="dlg-note">Job sent to the board. Watch the Ops board.</p>;
         if (!last.proposal || proposalDone[last.id]) return null;
         const p = last.proposal;
+        // a resumed chat forgets that its proposal was started: the board remembers, so never offer a duplicate
+        const same = (t: string) => t.trim().toLowerCase() === p.title.trim().toLowerCase();
+        if (quests.some((q) => q.deptId === deptId && same(q.summary.title))) return <p className="dlg-note">"{p.title}" is already on the board.</p>;
         return (
           <div className="dlg-prop">
             <div><span className="dlg-tag">Job proposal</span><b>{p.title}</b><span>{p.objective}</span></div>
