@@ -46,10 +46,12 @@ The container uses [NEAR AI Cloud](https://cloud.near.ai) as its model provider.
 ```
 NEAR_AI_API_KEY=...
 # optional
-NEAR_AI_MODEL=deepseek/deepseek-v4.1-flash
+NEAR_AI_MODEL=deepseek-ai/DeepSeek-V4.1-Flash-1017
 NEAR_AI_BASE_URL=https://cloud-api.near.ai/v1
 NEAR_AI_REASONING_EFFORT=high
 ```
+
+The default model is NEAR AI's own snapshot of DeepSeek V4.1 Flash, served from its attested TEE (`verifiable` in NEAR AI's model list), so prompts stay private. `deepseek/deepseek-v4.1-flash` is the same model routed through OpenRouter: same price, not attested. Claude models on NEAR AI cannot run Hermes agents (they reject the `reasoning_effort` Hermes always sends), so Vibe City never offers them. How the Chief of Staff picks models: `docker/skills/vibe-city-models`.
 
 On every start, `docker/cont-init.d/03-vibe-city-near` does three things before any Hermes service runs:
 
@@ -60,7 +62,7 @@ On every start, `docker/cont-init.d/03-vibe-city-near` does three things before 
 
 Under the gateway's profile multiplexing a profile reads credentials **only from its own `.env`**. So the backend writes `NEAR_AI_API_KEY` into every agent profile's `.env`: when the floor is provisioned, whenever the key is saved in the game (every existing floor at once), and with the profile's `API_SERVER_KEY` the first time someone chats with an agent. Without any key, provisioning and the UI still work, hiring stays locked behind the first quest, and quests cannot run.
 
-The Chief of Staff (who drafts floors and hires) is not a Hermes agent: the backend calls NEAR AI directly with the model chosen in the first quest (changeable later in the Executive Office), else `CHAT_MODEL` / `NEAR_AI_MODEL`, else `deepseek/deepseek-v4.1-flash`. Saving a key or a model first makes one tiny NEAR AI call with both, so a wrong key is refused instead of saved.
+The Chief of Staff (who drafts floors and hires) is not a Hermes agent: the backend calls NEAR AI directly with the model chosen in the first quest (changeable later in the Executive Office), else `CHAT_MODEL` / `NEAR_AI_MODEL`, else `deepseek-ai/DeepSeek-V4.1-Flash-1017`. Saving a key or a model first makes one tiny NEAR AI call with both, so a wrong key is refused instead of saved.
 
 The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
 

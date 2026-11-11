@@ -48,7 +48,7 @@ export class AssistantService {
     const all = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
     // Priced: only models NEAR AI prices that can run an agent (text + tools), cheapest first, so the list is not alphabetical brands.
     const offered = prices?.size ? all.filter((m) => prices!.has(m.id)).sort((a, b) => dailyCredits(prices!.get(a.id)!) - dailyCredits(prices!.get(b.id)!)) : all;
-    const label = (m: ModelChoice) => `${m.provider}/${m.id}${prices?.get(m.id) ? ` (${dailyCredits(prices.get(m.id)!)} credits/day)` : ''}`;
+    const label = (m: ModelChoice) => { const p = prices?.get(m.id); return `${m.provider}/${m.id}${p ? ` (${dailyCredits(p)} credits/day${p.private ? ', private' : ''})` : ''}`; };
     const me = this.character();
     const floors = this.d.departments.list().map((d) => `- ${d.name}: ${d.purpose || 'no purpose written'}`);
     const system = [
@@ -58,7 +58,7 @@ export class AssistantService {
       `Existing floors (do not duplicate them):\n${floors.join('\n') || '- none yet'}`,
       `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
       `Toolsets that can be granted: ${toolsets.join(', ')}`,
-      offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick the cheapest model that can do the purpose well; a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
+      offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Prefer "private" models (they run in an attested TEE, so the company\'s data stays sealed): near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
       '',
       'You already asked the boss: a ready template or a custom floor. If they want a template, tell them to pick one in the Templates panel (draft null).',
       'For a custom floor: if the boss has not said what the department should do, ask that one question, and make your "replies" 2 or 3 concrete floor ideas built from the installed skills above (e.g. "A floor that <does X> with <skill>"). Never suggest work no installed skill or toolset supports.',

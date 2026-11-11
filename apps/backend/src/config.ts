@@ -32,7 +32,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     chat: {
       baseUrl: env.CHAT_BASE_URL ?? env.NEAR_AI_BASE_URL ?? 'https://cloud-api.near.ai/v1',
       apiKey: env.CHAT_API_KEY || env.NEAR_AI_API_KEY || null,
-      model: env.CHAT_MODEL ?? env.NEAR_AI_MODEL ?? 'deepseek/deepseek-v4.1-flash',
+      model: env.CHAT_MODEL ?? env.NEAR_AI_MODEL ?? 'deepseek-ai/DeepSeek-V4.1-Flash-1017',
     },
     mcpUrl: env.VIBE_CITY_MCP_URL ?? `http://127.0.0.1:${Number(env.PORT ?? 4100)}/mcp`,
     ...(env.WEB_DIST ? { webDist: env.WEB_DIST } : {}),

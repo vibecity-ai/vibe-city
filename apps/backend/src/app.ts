@@ -133,7 +133,7 @@ export function buildApp(db: DatabaseSync, hermes?: HermesRuntime): FastifyInsta
 }
 
 /** The Chief of Staff's model when neither the CEO nor the env chose one (the container's NEAR_AI_MODEL default). */
-export const DEFAULT_CHAT_MODEL = 'deepseek/deepseek-v4.1-flash';
+export const DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
 
 export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: ServicesExtra = {}): AppServices {
   /** What every agent profile gets for NEAR AI Cloud: the key pasted in the first quest, else the backend env's. */
