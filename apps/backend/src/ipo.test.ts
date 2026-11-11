@@ -23,6 +23,9 @@ function fakeChain() {
   const calls: { receiver: string; method: string; args: Record<string, unknown>; deposit: string }[] = [];
   let failNext: string | null = null;
   let needsApproval = false;
+  /** How many reads of a just-created token account still answer "no such account": the factory lists a token one block before its account exists. */
+  let lag = 0;
+  const late = new Map<string, number>();
   let walletNear = 10n ** 26n; // 100 NEAR
   const queued = new Map<string, () => { status: 'success'; txHash: string; result: unknown }>();
   const requests = new Map<string, 'pending' | 'rejected' | { status: 'success'; txHash: string; result: unknown }>();
@@ -30,7 +33,7 @@ function fakeChain() {
   const setBal = (c: string, a: string, n: bigint) => { if (!ft.has(c)) ft.set(c, new Map()); ft.get(c)!.set(a, n); };
   const rpc: NearReader = {
     balance: async (id) => (id === WALLET ? String(walletNear) : '0'),
-    account: async (id) => accounts.get(id) ?? null,
+    account: async (id) => { const n = late.get(id) ?? 0; if (n > 0) { late.set(id, n - 1); return null; } return accounts.get(id) ?? null; },
     keyCount: async (id) => keys.get(id) ?? 0,
     view: async <T>(contract: string, method: string, args: Record<string, unknown> = {}) => {
       if (method === 'get_policy') { if (!policies.has(contract)) throw new Error('no contract'); return policies.get(contract) as T; }
@@ -58,6 +61,7 @@ function fakeChain() {
       const a = args.args as { owner_id: string; total_supply: string; sale_amount: string; price: string; metadata: { symbol: string } };
       const token = `${a.metadata.symbol.toLowerCase()}.${TOKEN_FACTORY}`;
       accounts.set(token, { amount: '0', codeHash: TOKEN_HASH, globalCodeHash: null });
+      late.set(token, lag);
       tokens.set(a.metadata.symbol.toLowerCase(), { owner_id: a.owner_id });
       setBal(token, a.owner_id, BigInt(a.total_supply) - BigInt(a.sale_amount));
       setBal(token, token, BigInt(a.sale_amount));
@@ -91,7 +95,7 @@ function fakeChain() {
   };
   /** The owner approves (or rejects) every queued request in OutLayer. */
   const decide = (ok: boolean) => { for (const [id, run] of queued) { requests.set(id, ok ? run() : 'rejected'); queued.delete(id); } };
-  return { rpc, wallet, calls, sent, accounts, keys, tokens, sales, setBal, bal, buy, fund: (y: bigint) => { walletNear = y; }, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide };
+  return { rpc, wallet, calls, sent, accounts, keys, tokens, sales, setBal, bal, buy, fund: (y: bigint) => { walletNear = y; }, failOn: (m: string) => { failNext = m; }, approvals: (on: boolean) => { needsApproval = on; }, decide, late, lagAccounts: (reads: number) => { lag = reads; } };
 }
 
 function service(chain = fakeChain()) {
@@ -191,6 +195,39 @@ test('a factory or token that is not the code we checked is not paid / not marke
   chain2.keys.set(TOKEN, 1);
   await assert.rejects(s2.ipo.launch(LAUNCH, true, EARNED), /not the token code/);
   assert.equal(s2.ipo.isDone(), false);
+});
+
+test('a token account that appears a block after the factory lists it is waited for, not called the wrong code', async () => {
+  const { ipo, chain } = service();
+  chain.lagAccounts(2);
+  const s = await ipo.launch(LAUNCH, true, EARNED);
+  assert.equal(s.state, 'done');
+  assert.equal(s.tokenAccountId, TOKEN);
+  assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 1);
+});
+
+test('a mint whose check failed is finished with the same symbol; another symbol is refused instead of paying for a second token', async () => {
+  const { ipo, chain } = service();
+  chain.lagAccounts(99); // the account never shows up while we wait
+  await assert.rejects(ipo.launch(LAUNCH, true, EARNED), /did not answer after it was created; press IPO again/);
+  const failed = await ipo.view(false, EARNED);
+  assert.equal(failed.state, 'error');
+  assert.equal(failed.awaiting, `${TOKEN_FACTORY} create_token`, 'the step that failed is named, so the board lights the right lamp');
+  chain.lagAccounts(0);
+  await assert.rejects(ipo.launch({ ceoAccountId: CEO, symbol: 'OTHER' }, false, EARNED), (e: Error) => e instanceof ConflictError && /already exist as ACME/.test(e.message));
+  assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 1, 'no second token was paid for');
+  chain.late.clear();
+  const s = await ipo.launch(LAUNCH, false, EARNED);
+  assert.equal(s.state, 'done');
+  assert.equal(s.awaiting, null);
+  assert.equal(chain.calls.filter((c) => c.method === 'create_token').length, 1);
+});
+
+test('a failed registration names its step', async () => {
+  const { ipo, chain } = service();
+  chain.failOn('storage_deposit');
+  await assert.rejects(ipo.launch(LAUNCH, true, EARNED));
+  assert.match((await ipo.view(false, EARNED)).awaiting!, / storage_deposit$/);
 });
 
 test('a wallet too short for a step is told how much to send, before anything is asked of OutLayer', async () => {
