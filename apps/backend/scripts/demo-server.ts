@@ -38,6 +38,9 @@ const net = new FakeNet();
 const hermes = new FakeHermes({ model: cfg.chat.model });
 const kanban = new FakeKanban();
 kanban.realClock = true;
+// Real Hermes gives a floor its Kanban board when the floor is provisioned; the fake board appears at the same moment.
+const createBoard = hermes.createBoard.bind(hermes);
+hermes.createBoard = async (slug, name) => { await createBoard(slug, name); if (!kanban.boards.has(slug)) kanban.addBoard(slug); };
 
 const scripted = new FakeChatModel((turns) => {
   const last = turns.at(-1)?.content.toLowerCase() ?? '';
@@ -66,30 +69,31 @@ const scripted = new FakeChatModel((turns) => {
     if (joke) return JSON.stringify({ say: /test|summar/.test(last) ? "Great question. I'd circle back on that after we align on the vision. Also, is the corner office still free?" : "Honestly? I'm the best hire you'll ever make. My last three companies said so, right before they shut down.", mood: 'smug', replies: ['What did you do last job?', 'Thanks, next'] });
     return JSON.stringify({ say: /test|summar/.test(last) ? 'Your floor: support tickets in, answers out, nothing left waiting overnight. That is the job and I like it.' : 'I pick up the queue on day one, ask before I guess, and write down what I learn.', mood: 'happy', replies: ['What would you cost me?', 'Test: summarise our floor in one line'] });
   }
-  // The executive assistant drafting a new floor.
-  if (sys.includes('Executive assistant')) {
-    const kinds: Record<string, [string, string, string[]]> = {
-      research: ['Research Lab', 'Digs into papers and markets and writes short, sourced briefs.', ['arxiv', 'pdf']],
-      sales: ['Sales', 'Finds leads, drafts outreach and keeps the pipeline tidy.', ['github']],
-      support: ['Customer Care', 'Answers tickets and keeps the help centre current.', ['pdf']],
-      finance: ['Finance', 'Tracks spend and credits, reconciles invoices and flags anything odd.', ['pdf', 'spreadsheet-pro']],
-      legal: ['Legal', 'Reviews contracts and terms and flags risky clauses.', ['pdf']],
-      trading: ['Trading Desk', 'Paper-trades on market data and reports the P&L daily.', ['arxiv']],
-    };
-    const key = Object.keys(kinds).find((k) => last.includes(k));
-    if (!key) return JSON.stringify({ say: 'Love it. One question: is this floor about research, sales, support, finance, legal or trading?', mood: 'focused', replies: ['Finance', 'Research'], draft: null });
-    const [name, purpose, skills] = kinds[key]!;
-    return JSON.stringify({ say: `${name} it is. Small team to start: a lead and two teammates. Here's the blueprint.`, mood: 'happy', replies: ['Make it cheaper', 'Add web search'],
-      draft: { name, purpose, skills, toolsets: ['web', 'file'], model: 'near-ai/model-a', teammates: 2 } });
-  }
-  // The AR intake call.
-  if (sys.includes('Head of Agent Resources')) {
+  // The Chief of Staff's hiring call: which floor, then the daily budget in dollars, then the brief.
+  if (sys.includes('about a new hire')) {
     const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
     if (/not now/.test(last)) return JSON.stringify({ say: "Your call, boss. I'll keep the file open. Ring me when the floor starts smoking.", mood: 'annoyed', replies: ['Fine, find someone'], brief: null });
-    if (!/\d/.test(said)) return JSON.stringify({ say: "Good. Support needs someone who can work tickets and keep the queue moving. What's the daily budget?", mood: 'focused', replies: ['200 credits a day', '500 a day, get someone good'], brief: null });
-    const budget = Number(/(\d+)/.exec(said)![1]);
-    return JSON.stringify({ say: `Got it. Ticket handler for Support, ${budget} credits a day. Here's the brief. Say the word and I'm out the door.`, mood: 'happy', replies: ['Change the budget'],
-      brief: { department: 'Support', focus: 'Works support tickets and keeps the queue moving', skills: ['github', 'pdf'], budgetPerDay: budget, notes: '' } });
+    const floors = [...sys.matchAll(/^- "([^"]+)"/gm)].map((m) => m[1]!);
+    const why = /Why you are talking: ([^\n]*)/.exec(sys)?.[1] ?? '';
+    const floor = floors.find((f) => said.includes(f.toLowerCase())) ?? floors.find((f) => why.includes(f));
+    if (!floor) return JSON.stringify({ say: 'Happy to find someone, boss. Which floor is the hire for?', mood: 'focused', replies: floors.slice(0, 3), brief: null });
+    const usd = Number(/\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:dollars?|a day|per day)/.exec(said)?.slice(1).find(Boolean) ?? NaN);
+    if (!(usd > 0)) return JSON.stringify({ say: `${floor} needs someone who can pick up its queue and keep it moving. What's the daily budget?`, mood: 'focused', replies: ['$2 a day', '$5 a day, get someone good'], brief: null });
+    const focus = `Picks up ${floor}'s queue and keeps it moving`;
+    return JSON.stringify({ say: `Got it: ${focus.toLowerCase()}, $${usd} a day. Here's the brief. Say the word and I'm out the door.`, mood: 'happy', replies: ['Change the budget'],
+      brief: { department: floor, focus, skills: [], budgetPerDay: Math.round(usd * 100), notes: '' } });
+  }
+  // The Chief of Staff drafting an Agent Market listing.
+  if (sys.includes('NEAR AI Agent Market')) {
+    const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
+    const block = /Floors that can be listed:\n([\s\S]*?)\nCategories:/.exec(sys)?.[1] ?? '';
+    const floors = [...block.matchAll(/^- ([^:\n]+): (.*)$/gm)].map((m) => ({ name: m[1]!, purpose: m[2]!.replace(/ \(not synced.*$/, '') }));
+    const floor = floors.find((f) => said.includes(f.name.toLowerCase()));
+    if (!floor) return JSON.stringify({ say: 'Which floor goes on the market, boss?', mood: 'focused', replies: floors.slice(0, 3).map((f) => f.name), draft: null });
+    const category = ({ research: 'research', growth: 'marketing', support: 'customer_support' } as Record<string, string>)[floor.name.toLowerCase()] ?? 'other';
+    return JSON.stringify({ say: `${floor.name} it is. Here's the listing: register it and it goes on the market as a Draft.`, mood: 'happy', replies: ['Make it cheaper', 'Thanks'],
+      draft: { floor: floor.name, handle: floor.name, name: floor.name, category, slaHours: 24, tagline: `${floor.name} on demand: a Hermes team that does the work and writes it up.`,
+        description: floor.purpose, priceUsdc: /cheaper/.test(said) ? '3.00' : '5.00' } });
   }
   return JSON.stringify({ say: 'Ready when you are, boss.', mood: 'happy', replies: [], proposal: null });
 });
@@ -102,15 +106,17 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
   // the Chief of Staff answers from its company briefing and proposes jobs for a floor by name
   if (/the Chief of Staff:/.test(t.system)) {
-    const floor = /### ([^\n(]+)/.exec(t.system)?.[1]?.trim(), quests = /CEO quests: [^\n]+/.exec(t.system)?.[0] ?? '';
-    if (/floor|department/.test(last)) {
-      return `A small research floor would earn its keep, boss. Here is my pitch.${meta({ mood: 'happy', replies: ['Looks good', 'Make it one agent'], proposal: null,
-        floor: { name: 'Market Watch', purpose: 'Tracks competitor moves and price changes and reports them weekly.', skills: [], toolsets: ['web'], model: null,
-          agents: [{ name: 'Iris', title: 'Research Lead', does: 'Plans the watchlist and writes the digest.' }, { name: 'Tomas', title: 'Web Scout', does: 'Checks pricing pages and launches.' }] } })}`;
-    }
+    // a job for a named floor (the first job of a floor just built), else the first floor in the briefing
+    const floor = /Propose it for "([^"]+)"/.exec(t.message)?.[1] ?? /### ([^\n(]+)/.exec(t.system)?.[1]?.trim(), quests = /CEO quests: [^\n]+/.exec(t.system)?.[0] ?? '';
     if (floor && /job|task|can you|need|look into|research|write/.test(last)) {
-      return `${floor} is the floor for that, boss. Say the word and it is on their board.${meta({ mood: 'focused', replies: ['Brief me', 'Never mind'],
+      return `${floor} is the floor for that, boss. Hit Start job and it is on their board.${meta({ mood: 'focused', replies: ['Brief me', 'Never mind'],
         proposal: { department: floor, title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' } })}`;
+    }
+    if (/floor|department|one agent/.test(last)) {
+      const agents = [{ name: 'Iris', title: 'Research Lead', does: 'Plans the watchlist and writes the digest.' }, { name: 'Tomas', title: 'Web Scout', does: 'Checks pricing pages and launches.' }];
+      return `A small research floor would earn its keep, boss. Here is my pitch.${meta({ mood: 'happy', replies: ['Make it one agent', 'Never mind'], proposal: null,
+        floor: { name: 'Market Watch', purpose: 'Tracks competitor moves and price changes and reports them weekly.', skills: [], toolsets: ['web'], model: null,
+          agents: agents.slice(0, /one agent/.test(last) ? 1 : 2) } })}`;
     }
     const next = /Next: "([^"]+)"/.exec(quests)?.[1];
     return `Here is where we stand, boss.${meta({ mood: 'happy', replies: ['I have a job for a floor', 'Add a new floor'], proposal: null,
@@ -118,7 +124,7 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   }
   if (/job|task|can you|need you|look into|research|write/.test(last)) {
     return `Say no more, boss. I'll put a proper quest on the board so the team can run with it. Here's what I'd do.${meta({
-      mood: 'focused', replies: ['Ship it', 'Make it smaller', 'Never mind'],
+      mood: 'focused', replies: ['What will it take?', 'Never mind'],
       proposal: { title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' } })}`;
   }
   if (/report|find|results|summary|summarise/.test(last)) {
@@ -133,7 +139,7 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
       'Market sizing is still running. The public estimates are collected; the bottom-up model is half built and should be ready this afternoon.',
       '',
       'Next, I would retry the blocked scrape with the browser toolset instead of plain HTTP, then merge all three into one brief.',
-    ].join('\n') + meta({ mood: 'focused', replies: ['Retry the scrape', 'Send me the brief', 'Thanks'], proposal: { title: 'Retry competitor scrape with the browser', objective: 'Fetch the blocked competitor pricing page with the browser toolset and add it to the pricing brief.' } });
+    ].join('\n') + meta({ mood: 'focused', replies: ['Send me the brief', 'Thanks'], proposal: { title: 'Retry competitor scrape with the browser', objective: 'Fetch the blocked competitor pricing page with the browser toolset and add it to the pricing brief.' } });
   }
   if (/how|status|doing|working/.test(last)) {
     return `Demo mode, boss: no real Hermes behind me, so I can't open the board for you. Ask me for something new and I'll plan it.${meta({ mood: 'smug', replies: ['I have a job for you', 'Who are you again?'], proposal: null })}`;
@@ -205,7 +211,6 @@ async function seed(name: string, purpose: string, tasks: string[], teammates = 
   const res = await app.inject({ method: 'POST', url: '/api/departments', payload: { name, purpose, teammates, inventory: { limits: { dailyBudgetCredits } } } });
   const dept = res.json() as { id: string; hermesBoardSlug: string };
   const prov = (await app.inject({ method: 'POST', url: `/api/departments/${dept.id}/provision` })).json() as { agents: { ref: string }[] };
-  kanban.addBoard(dept.hermesBoardSlug);
   const r = refs[name] = { board: dept.hermesBoardSlug, agents: prov.agents.map((a) => a.ref) };
   const lead = r.agents[0]!;
   if (teammates === 0) {
@@ -258,12 +263,6 @@ await seed('Support', 'Answer customer tickets and keep the help centre current.
   await add('Support', { name: 'Inbox sweep', cron: '0 * * * *', title: 'Inbox sweep', objective: 'Triage new tickets and answer the easy ones.', enabled: false });
   setInterval(() => void schedules.tick(), 10_000).unref();
 }
-const boards = new Set(Object.values(refs).map((r) => r.board));
-// Real Hermes creates a board when a department is provisioned; the fake needs a nudge for floors added in the demo.
-setInterval(async () => {
-  const list = (await app.inject('/api/departments')).json() as { departments: { hermesBoardSlug: string; state: string }[] };
-  for (const d of list.departments) if (d.state === 'ready' && !boards.has(d.hermesBoardSlug)) { boards.add(d.hermesBoardSlug); kanban.addBoard(d.hermesBoardSlug); }
-}, 1500).unref();
 
 // The agents at work, the way Hermes' dispatcher runs them: a ready task starts on its agent's desk; a running one posts
 // a progress note now and then (kanban_heartbeat, shown over the agent's head) and a tool step in its run's session (the
