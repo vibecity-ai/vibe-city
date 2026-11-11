@@ -31,7 +31,7 @@ test('AR rings when a one-agent floor has quests piling up, and only once', asyn
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);
 });
 
-test('full hire: a confirmed brief -> candidates right away (2 serious, 2 joke) -> offer adds an agent with its own profile', async () => {
+test('full hire: a confirmed brief -> the three best-fitting candidates right away -> offer adds an agent with its own profile', async () => {
   const { app, hermes, readyDept } = questApp({ chatModel: arModel() });
   const d = await readyDept('Research');
   assert.equal((await scout(app, { departmentId: 'nope' })).statusCode, 404);
@@ -43,22 +43,18 @@ test('full hire: a confirmed brief -> candidates right away (2 serious, 2 joke) 
   assert.equal(r.ar.name, (await app.inject('/api/assistant')).json().character.name);
   assert.deepEqual([r.brief.departmentName, r.brief.budgetPerDay], ['Research', 300]);
   assert.equal(r.state, 'shortlist'); // no scouting wait
-  assert.equal(r.candidates.length, 4);
-  const serious = r.candidates.filter((c: any) => c.serious);
-  const jokes = r.candidates.filter((c: any) => !c.serious);
-  assert.equal(serious.length, 2);
-  assert.equal(jokes.length, 2);
+  assert.equal(r.candidates.length, 3);
+  const serious = r.candidates;
+  assert.ok(serious.every((c: any) => c.serious && c.gag === null), 'no joke candidates');
+  assert.deepEqual(serious.map((c: any) => c.fitScore), [...serious.map((c: any) => c.fitScore)].sort((a: number, b: number) => b - a), 'best fit first');
   for (const c of r.candidates) {
     for (const s of c.loadout.skills) assert.ok(FAKE_SKILLS.includes(s), `skill ${s} must be installed in Hermes`);
     assert.ok(c.loadout.model, 'every candidate has a model Hermes offers');
   }
   assert.ok(serious.every((c: any) => c.loadout.skills.includes('pdf')));
   assert.ok(serious.some((c: any) => c.character.name === 'Ada Brightwell'));
-  assert.ok(jokes.every((c: any) => c.fitScore < 25 && c.gag));
-  assert.ok(Math.min(...serious.map((c: any) => c.fitScore)) > Math.max(...jokes.map((c: any) => c.fitScore)));
 
-  // A joke candidate needs the CEO to overrule AR's concerns.
-  assert.equal((await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/offer`, payload: { candidateId: jokes[0].id } })).statusCode, 409);
+  assert.equal(new Set(serious.map((c: any) => c.loadout.model.id)).size, 3, 'three different models');
 
   const before = (await app.inject(`/api/departments/${d.id}/inventory`)).json();
   const hired = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/offer`, payload: { candidateId: serious[0].id } })).json();
@@ -172,8 +168,8 @@ test('the Chief of Staff hires in its own Hermes chat: brief, models with prices
   // confirming the brief card: candidates right away, and the chat knows them on the next turn
   const { departmentName: _, ...input } = brief;
   const r = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { brief: input } })).json();
-  assert.equal(r.candidates.length, 4);
-  assert.equal(r.candidates.find((c: any) => c.serious && c.loadout.model.id === 'model-b')?.serious, true, 'the recommended model is on a serious candidate');
+  assert.equal(r.candidates.length, 2, 'only two priced models: two candidates, never a made-up third');
+  assert.match(r.candidates.find((c: any) => c.loadout.model.id === 'model-b').note, /The model I recommended/);
   // no hiring words in this turn: the open request alone keeps the candidates in the briefing
   await say('Then nothing changes?');
   for (const c of r.candidates) assert.ok(agentChat.turns.at(-1)!.system.includes(`${c.character.name} (`), 'every candidate is in the briefing');

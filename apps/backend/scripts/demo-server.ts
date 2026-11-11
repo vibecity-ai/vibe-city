@@ -42,11 +42,12 @@ kanban.realClock = true;
 const scripted = new FakeChatModel((turns) => {
   const last = turns.at(-1)?.content.toLowerCase() ?? '';
   const sys = turns[0]!.content;
-  // The Chief of Staff writes the two serious candidates' personas.
+  // The Chief of Staff writes the candidates' personas.
   if (sys.startsWith('You write short')) {
     return JSON.stringify({ candidates: [
       { name: 'Ines Okoro', pitch: 'I clear queues. Give me the tickets nobody wants and a quiet desk.', traits: ['steady', 'organised'], speechStyle: 'calm and precise', quirk: 'labels everything with a label maker' },
       { name: 'Kai Lindgren', pitch: 'Bigger brain, more skills. I take the hard cases and write it all down.', traits: ['sharp', 'thorough'], speechStyle: 'confident, numbers-first', quirk: 'keeps three timers running' },
+      { name: 'Noor Haddad', pitch: 'Quiet, careful, cheap to run. I double-check everything before it ships.', traits: ['careful', 'patient'], speechStyle: 'soft-spoken, exact', quirk: 'keeps a tidy checklist taped to the monitor' },
     ] });
   }
   // The executive assistant drafting a new floor.

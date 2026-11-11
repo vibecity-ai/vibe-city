@@ -1,14 +1,13 @@
 /* AR: scouting and hiring (feature spec 7.1). The phone rings when AR's rules fire; answering opens the Chief of Staff's
-   dialogue (NewDept.tsx) with the reason, where the talk ends in a brief and confirming it puts four candidates (two
-   serious, two joke) right in that dialogue. Every number on a card comes from the backend: loadouts are built from what
-   Hermes really offers, and the joke candidates' numbers are honestly bad. */
+   dialogue (NewDept.tsx) with the reason, where the talk ends in a brief and confirming it puts the three candidates that
+   fit it best right in that dialogue. Every number on a card comes from the backend: loadouts are built from what
+   Hermes really offers, priced at NEAR AI's list prices. */
 import { useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import type { Candidate, HiringRequestView } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api } from '../../api';
 import { COS_LOOK, lookFor } from '../world/sprites';
-import type { Gag } from '../world/portrait';
 import { PortraitCanvas, blip, readMuted } from './Dialogue';
 import { Icon } from './kit';
 import { ModelName } from './ModelBadge';
@@ -76,19 +75,16 @@ function IncomingCall({ h }: { h: HiringRequestView }) {
   );
 }
 
-/** The candidates for a confirmed brief, as cards with a Hire button (the Chief of Staff's dialogue shows them). A joke
-    candidate takes a second click: the Chief of Staff's concerns are on the card. */
+/** The candidates for a confirmed brief, as cards with a Hire button (the Chief of Staff's dialogue shows them). */
 export function CandidateCards({ h, busy, onHire }: { h: HiringRequestView; busy: boolean; onHire: (c: Candidate) => void }) {
-  const [concern, setConcern] = useState<string | null>(null);
-  const hire = (c: Candidate) => { if (!c.serious && concern !== c.id) { setConcern(c.id); return; } setConcern(null); onHire(c); };
   return (
     <div className="hire-grid">
       {h.candidates.map((c) => {
         const over = c.costPerDay > (h.brief?.budgetPerDay ?? Infinity);
         return (
-          <article key={c.id} className={`cand${c.serious ? '' : ' joke'}`} style={{ ['--who' as string]: c.character.color }}>
+          <article key={c.id} className="cand" style={{ ['--who' as string]: c.character.color }}>
             <div className="cand-top">
-              <div className="cand-face"><PortraitCanvas look={candLook(c)} mood={c.serious ? 'happy' : 'smug'} talking={false} size={96} gag={(c.gag as Gag | null) ?? null} className="cand-portrait" /></div>
+              <div className="cand-face"><PortraitCanvas look={candLook(c)} mood="happy" talking={false} size={96} className="cand-portrait" /></div>
               <div className="cand-id"><b>{c.character.name}</b><span>{c.character.title}</span><span className="cand-traits">{c.character.traits.join(' · ')}</span></div>
             </div>
             <dl className="cand-stats">
@@ -97,9 +93,9 @@ export function CandidateCards({ h, busy, onHire }: { h: HiringRequestView; busy
               <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{dollars(c.costPerDay)} a day <small title="One busy agent: 1M input + 100k output tokens a day at the model's NEAR AI list price">estimate{over ? ', over budget' : ''}</small></dd>
               <dt>Fit</dt><dd><span className="fit" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.fitScore} aria-label="Fit score"><i style={{ width: `${c.fitScore}%` }} /></span> <b>{c.fitScore}</b></dd>
             </dl>
-            <p className={`cand-note${concern === c.id ? ' bad' : ''}`}><span>Chief of Staff:</span> {c.note}{concern === c.id ? ' Boss, are you sure?' : ''}</p>
+            <p className="cand-note"><span>Chief of Staff:</span> {c.note}</p>
             <div className="cand-act">
-              <button className={`btn small${c.serious ? ' primary' : concern === c.id ? ' warn' : ''}`} disabled={busy} onClick={() => hire(c)}>{concern === c.id ? 'Hire anyway' : 'Hire'}</button>
+              <button className="btn small primary" disabled={busy} onClick={() => onHire(c)}>Hire</button>
             </div>
           </article>
         );

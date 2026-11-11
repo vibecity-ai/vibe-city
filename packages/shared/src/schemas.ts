@@ -760,8 +760,8 @@ export type ChatProgress = z.infer<typeof ChatProgressSchema>;
 
 // ---- AR: scouting and hiring (feature spec 7.1) -------------------------------------------------------------------
 // AR's rules notice when a floor needs people and the Chief of Staff calls the CEO. The talk happens in the Chief of
-// Staff's own Hermes chat, which ends in a brief (ChatMessage.hire); confirming it scouts four candidates (two serious,
-// two joke) and the CEO hires one. Nothing changes in Hermes until the offer: a hire adds an agent (its own Hermes
+// Staff's own Hermes chat, which ends in a brief (ChatMessage.hire); confirming it scouts the three candidates that fit
+// it best and the CEO hires one. Nothing changes in Hermes until the offer: a hire adds an agent (its own Hermes
 // profile, with the candidate's model and skills).
 
 export const HIRING_STATES = ['ringing', 'intake', 'scouting', 'shortlist', 'hired', 'closed'] as const;
@@ -792,11 +792,11 @@ export type HiringBrief = z.infer<typeof HiringBriefSchema>;
 export const GAGS = ['shades', 'frazzled', 'intern', 'guru'] as const;
 export const CandidateSchema = z.object({
   id: z.string(),
-  /** False for the two joke candidates. Their numbers are honestly bad too. */
+  /** Always true now (joke candidates are gone); kept so stored candidates still parse. */
   serious: z.boolean(),
   character: CharacterSchema,
   pitch: z.string(),
-  /** Exaggerated portrait parts for joke candidates. */
+  /** Always null now (joke candidates are gone); kept so stored candidates still parse. */
   gag: z.enum(GAGS).nullable(),
   loadout: z.object({ model: ModelChoiceSchema.nullable(), skills: z.array(z.string()), toolsets: z.array(z.string()) }).strict(),
   /** Model size class: from the NEAR AI price when known (1 under $0.30/day, 2 under $3, 3 above), else guessed from the name. */
@@ -828,7 +828,7 @@ export type HiringRequestView = z.infer<typeof HiringRequestViewSchema>;
 export const HiringCurrentSchema = z.object({ request: HiringRequestViewSchema.nullable() }).strict();
 /** The brief the boss confirmed in the Chief of Staff's chat: a request with its candidates right away. */
 export const HiringStartSchema = z.object({ brief: HiringBriefSchema.omit({ departmentName: true }) }).strict();
-export const HiringOfferSchema = z.object({ candidateId: z.string(), acceptConcerns: z.boolean().optional() }).strict();
+export const HiringOfferSchema = z.object({ candidateId: z.string() }).strict();
 
 // ---- executive assistant: new departments through the dialogue window (feature spec 4.3) ---------------------------
 // The assistant drafts a floor (name, purpose, starter inventory) from a short chat. The backend keeps only what Hermes

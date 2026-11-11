@@ -1,8 +1,7 @@
 /* AR (Agent Resources): scouting and hiring (feature spec 7.1).
    AR watches the boards with a few plain rules and calls the CEO when a floor needs people. The talk is the Chief of
-   Staff's own Hermes chat (chatService), which ends in a brief; confirming it shows two serious candidates (loadouts
-   built from what Hermes really has: its models and installed skills) and two joke candidates (an original, curated cast
-   whose numbers are honestly bad). `facts()` is what the Chief of Staff knows while hiring: the offered models with NEAR
+   Staff's own Hermes chat (chatService), which ends in a brief; confirming it shows three candidates that fit it (loadouts
+   built from what Hermes really has: its models and installed skills, priced at NEAR AI's list prices). `facts()` is what the Chief of Staff knows while hiring: the offered models with NEAR
    AI prices and the candidates on screen. Nothing changes in Hermes until the offer. An offer adds one agent to the
    department, with the candidate's own model and skills, then re-provisions the department through the normal path,
    which creates the agent's Hermes profile. */
@@ -53,16 +52,9 @@ export function modelTier(id: string): 1 | 2 | 3 {
   return 2;
 }
 const TIER_COST = { 1: 40, 2: 140, 3: 420 } as const;
+const TIER = ['', 'Small', 'Mid-size', 'Large'] as const;
 /** Size class from real daily cost (credits = cents): under $0.30, under $3, above. */
 export const priceTier = (credits: number): 1 | 2 | 3 => (credits <= 30 ? 1 : credits <= 300 ? 2 : 3);
-
-/* The joke cast: original personas played for laughs, never real people or groups. */
-const JOKES = [
-  { gag: 'intern', title: 'Overconfident intern', pitch: "I've used AI for three whole weeks, so I'm basically a founder. I'll need the corner office and a ring light.", style: 'hype, buzzwords, zero substance', quirk: 'films a vlog during every task', traits: ['overconfident', 'loud'], cost: 900, fit: 8, note: 'Demands equity. Has never finished a task.' },
-  { gag: 'frazzled', title: 'Burned-out veteran', pitch: 'Per my last email, I can do the job. Please do not schedule a sync about it.', style: 'tired, passive-aggressive, everything is "per my last email"', quirk: 'answers every question with a forwarded email', traits: ['exhausted', 'passive-aggressive'], cost: 70, fit: 17, note: 'Cheap, but only ever replies with "noted".' },
-  { gag: 'shades', title: 'Visionary disruptor', pitch: 'Every task is a token launch if you believe hard enough. I only work in moonshots.', style: 'grandiose, says "paradigm" a lot', quirk: 'wears sunglasses at night, indoors', traits: ['grandiose', 'unfocused'], cost: 4200, fit: 3, note: 'Costs more than the whole floor. Brought no relevant skills.' },
-  { gag: 'guru', title: 'Productivity guru', pitch: "I don't do tasks, I do frameworks. Here's a 40-slide deck about your to-do list.", style: 'motivational poster energy', quirk: 'rebrands every task as a "journey"', traits: ['preachy', 'slow'], cost: 1500, fit: 11, note: 'Will turn one task into a five-week workshop.' },
-] as const;
 
 
 export class HiringService {
@@ -122,7 +114,7 @@ export class HiringService {
     });
     const open = this.openRow();
     const brief = open?.state === 'shortlist' && open.brief_json ? HiringBriefSchema.parse(JSON.parse(open.brief_json)) : null;
-    const cands = brief ? this.candidates(open!.id).map((c) => `- ${c.character.name} (${c.serious ? 'serious' : `joke candidate, your honest concern: ${c.note}`}): model ${c.loadout.model?.id ?? 'floor default'}, about ${usd(c.costPerDay)} a day, fit ${c.fitScore}/100, skills ${c.loadout.skills.join(', ') || 'none'}`) : [];
+    const cands = brief ? this.candidates(open!.id).map((c) => `- ${c.character.name} (${c.note}): model ${c.loadout.model?.id ?? 'floor default'}, about ${usd(c.costPerDay)} a day, fit ${c.fitScore}/100, skills ${c.loadout.skills.join(', ') || 'none'}`) : [];
     return [
       modelFacts.length ? `Models Hermes offers (NEAR AI list prices; a day = 1M input + 100k output tokens, an estimate; "Private TEE"/"Incognito" is how sealed the model runs):\n${modelFacts.join('\n')}` : 'The list of models Hermes offers is unavailable right now: say so if asked, do not guess prices.',
       brief ? `Candidates on the boss's screen for "${brief.focus}" on ${brief.departmentName} (budget ${usd(brief.budgetPerDay)} a day), each with a Hire button; the boss hires, you never do. These cards are the only candidates: describe only these models, never claim a card has a model it does not:\n${cands.join('\n')}` : 'No candidates are on screen yet.',
@@ -131,11 +123,10 @@ export class HiringService {
 
   // ---- offer ------------------------------------------------------------------------------------------------------
 
-  async offer(id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> {
+  async offer(id: string, candidateId: string): Promise<HiringRequestView> {
     const r = this.row(id);
     if (r.state !== 'shortlist') throw new ConflictError(`no shortlist to hire from (request is ${r.state})`);
     const c = CandidateSchema.parse(JSON.parse(this.candidateRow(id, candidateId).candidate_json));
-    if (!c.serious && !acceptConcerns) throw new ConflictError('The Chief of Staff has concerns about this candidate: confirm to hire anyway');
     const brief = HiringBriefSchema.parse(JSON.parse(r.brief_json!));
     const before = this.d.departments.agents(brief.departmentId).length;
     if (before > MAX_TEAMMATES) throw new ConflictError(`${brief.departmentName} already has the maximum of ${MAX_TEAMMATES} teammates`);
@@ -191,7 +182,7 @@ export class HiringService {
     return { all: models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [], prices };
   }
 
-  /** Builds the four candidates. Serious loadouts only use models Hermes offers and skills Hermes has installed. */
+  /** Builds three candidates that fit the brief. Loadouts only use models Hermes offers and skills Hermes has installed. */
   private async scout(requestId: string, brief: HiringBrief): Promise<Candidate[]> {
     const inv = this.d.departments.getInventory(brief.departmentId);
     const { all, prices } = await this.offeredModels();
@@ -199,93 +190,71 @@ export class HiringService {
     try { installed = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name); } catch { /* unknown */ }
     const pool = all.length ? all : inv.model ? [inv.model] : [];
     const seed = hash(`${requestId}:${brief.departmentId}`);
-    const pickOne = <T>(xs: T[], salt: string) => (xs.length ? xs[hash(`${seed}:${salt}`) % xs.length]! : null);
     // Real prices: only models Hermes offers that NEAR AI prices and that can run an agent (text + tools), cheapest first.
     const priced = prices && prices.size ? pool.filter((m) => prices!.has(m.id)) : [];
     const price = (m: ModelChoice | null) => (m && prices?.get(m.id)) || null;
-    const daily = (m: ModelChoice) => dailyCredits(price(m)!);
-    let cheapest: ModelChoice | null, balanced: ModelChoice | null, premium: ModelChoice | null;
-    if (priced.length) {
-      const ranked = [...priced].sort((a, b) => daily(a) - daily(b));
-      const within = ranked.filter((m) => daily(m) <= brief.budgetPerDay);
-      const vendor = (m: ModelChoice | null) => m?.id.split('/')[0];
-      // Seeded picks so every shortlist differs: balanced from the cheaper half of what fits, premium from above it.
-      cheapest = pickOne(ranked.slice(0, 5), 'cheap');
-      // The model the Chief of Staff recommended in the brief, when Hermes offers it, is the balanced pick.
-      balanced = ranked.find((m) => m.id === brief.model) ?? pickOne(within.slice(0, Math.ceil(within.length / 2)), 'bal') ?? ranked[0]!;
-      const up = ranked.filter((m) => daily(m) > daily(balanced!));
-      premium = pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay && vendor(m) !== vendor(balanced)), 'prem')
-        ?? pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay), 'prem') ?? pickOne(up.slice(0, 3), 'prem') ?? balanced;
-    } else {
-      const byTier = (t: number) => pool.filter((m) => modelTier(m.id) === t);
-      cheapest = byTier(1)[0] ?? byTier(2)[0] ?? pool[0] ?? null;
-      balanced = pool.find((m) => m.id === brief.model) ?? byTier(2)[0] ?? byTier(1)[0] ?? pool[0] ?? null;
-      premium = byTier(3)[0] ?? [...byTier(2)].reverse().find((m) => m.id !== balanced?.id) ?? balanced;
-    }
+    // Cost per day: the model's real NEAR AI price, else a guess from the size its name suggests (labelled as one).
+    const cost = (m: ModelChoice) => { const p = price(m); return p ? dailyCredits(p) : TIER_COST[modelTier(m.id)]; };
+    const ranked = [...(priced.length ? priced : pool)].sort((a, b) => cost(a) - cost(b));
+    const within = ranked.filter((m) => cost(m) <= brief.budgetPerDay);
+    const vendor = (m: ModelChoice) => m.id.split('/')[0];
+    // Three fits: the Chief of Staff's model when Hermes offers it, then the strongest the budget buys (a different
+    // vendor each when it can). ponytail: price stands in for strength; a benchmark score would rank better.
+    const picks: ModelChoice[] = [];
+    const add = (m: ModelChoice | undefined) => { if (m && picks.length < 3 && !picks.some((x) => x.id === m.id)) picks.push(m); };
+    add(ranked.find((m) => m.id === brief.model));
+    for (const m of [...within].reverse()) if (!picks.some((x) => vendor(x) === vendor(m))) add(m);
+    for (const m of [...within].reverse()) add(m);
+    for (const m of ranked) add(m); // the budget buys fewer than three: the cheapest above it, marked over budget
     const tierOf = (m: ModelChoice | null) => { const p = price(m); return p ? priceTier(dailyCredits(p)) : m ? modelTier(m.id) : 2; };
 
     const known = installed.length ? new Set(installed) : null;
     const wanted = brief.skills.filter((s) => !known || known.has(s));
     const words = brief.focus.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
     const related = installed.filter((s) => !wanted.includes(s) && words.some((w) => s.toLowerCase().includes(w))).slice(0, 2);
-    const baseSkills = [...new Set([...wanted, ...inv.allowedSkillIds.filter((s) => !known || known.has(s))])].slice(0, 6);
-    const premiumSkills = [...new Set([...baseSkills, ...related])].slice(0, 8);
-    const offBrief = installed.filter((s) => !brief.skills.includes(s) && !inv.allowedSkillIds.includes(s));
+    const skills = [...new Set([...wanted, ...inv.allowedSkillIds.filter((s) => !known || known.has(s)), ...related])].slice(0, 8);
 
-    const fit = (skills: string[], cost: number, tier: number) => {
+    const fit = (cost: number, tier: number) => {
       const need = brief.skills.length ? brief.skills.filter((s) => skills.includes(s)).length / brief.skills.length : 0.8;
       const budget = cost <= brief.budgetPerDay ? 1 : Math.max(0, 1 - (cost - brief.budgetPerDay) / brief.budgetPerDay);
       return Math.round(Math.min(98, 30 * need + 30 * budget + 12 * tier + 20));
     };
-    const serious = [
-      { model: balanced, skills: baseSkills, label: 'balanced' },
-      { model: premium, skills: premiumSkills, label: 'premium' },
-    ].map((s, i) => {
-      const tier = tierOf(s.model);
-      const p = price(s.model);
-      // Priced: the model's real cost at DAY_TOKENS. Unpriced guess: the premium hire asks more (more skills, senior rate).
-      const cost = p ? dailyCredits(p) : Math.round(TIER_COST[tier] * (s.label === 'premium' ? 1.6 : 1)) + 10 * s.skills.length;
-      return { ...s, tier, cost, fit: fit(s.skills, cost, tier), i };
-    });
-    const personas = await this.seriousPersonas(brief, serious.map((s) => ({ model: s.model?.id ?? 'unknown', skills: s.skills, label: s.label })));
-
-    const out: Candidate[] = serious.map((s, i) => {
-      const p = personas[i];
-      const ch = this.persona(`${seed}:s${i}`, p?.name, p?.traits, p?.speechStyle, p?.quirk, `${s.label === 'premium' ? 'Senior' : 'Steady'} ${brief.departmentName} specialist`.slice(0, 80));
-      const overBudget = s.cost > brief.budgetPerDay;
+    const slots: (ModelChoice | null)[] = picks.length ? picks : [null];
+    const fits = slots.map((m) => {
+      const tier = tierOf(m), c = m ? cost(m) : TIER_COST[2];
+      return { model: m, tier, cost: c, fit: fit(c, tier), mine: !!m && m.id === brief.model };
+    }).sort((a, b) => b.fit - a.fit || a.cost - b.cost);
+    const personas = await this.seriousPersonas(brief, fits.map((f) => ({ model: f.model?.id ?? 'unknown', skills, label: `${TIER[f.tier]} model` })));
+    const usd = (credits: number) => `$${(credits / 100).toFixed(2)}`;
+    return fits.map((f, i) => {
+      const p = personas[i], pr = price(f.model);
+      const ch = this.persona(`${seed}:s${i}`, p?.name, p?.traits, p?.speechStyle, p?.quirk, `${brief.departmentName} specialist`.slice(0, 80));
       return CandidateSchema.parse({
         id: randomUUID(), serious: true, character: ch, gag: null,
-        pitch: p?.pitch ?? (s.label === 'premium' ? `Bigger model, more skills. I'll take the hard ${brief.departmentName} jobs and get them right the first time.` : `Reliable and affordable. I'll keep ${brief.departmentName}'s queue moving without burning the budget.`),
-        loadout: { model: s.model, skills: s.skills, toolsets: [] }, tier: s.tier, costPerDay: s.cost, fitScore: s.fit,
-        note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the $${(brief.budgetPerDay / 100).toFixed(2)} a day budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}${price(s.model) ? ` NEAR AI price: ${priceNote(price(s.model)!)}.` : ' Price unknown, cost guessed from the model name.'}`,
+        pitch: p?.pitch ?? `I'll keep ${brief.departmentName}'s queue moving and get the ${brief.focus.toLowerCase()} right.`,
+        loadout: { model: f.model, skills, toolsets: [] }, tier: f.tier, costPerDay: f.cost, fitScore: f.fit,
+        note: [
+          f.mine ? 'The model I recommended.' : '',
+          f.cost > brief.budgetPerDay ? `Over the ${usd(brief.budgetPerDay)} a day budget.` : 'Within budget.',
+          f.model ? '' : 'Hermes offered no model list, so the floor keeps its model.',
+          pr ? `NEAR AI price: ${priceNote(pr)}.` : f.model ? 'Price unknown, cost guessed from the model name.' : '',
+        ].filter(Boolean).join(' '),
       });
     });
-    const a = seed % JOKES.length, b = (a + 1 + (seed >>> 4) % (JOKES.length - 1)) % JOKES.length;
-    for (const [k, j] of [a, b].map((x, k) => [k, JOKES[x]!] as const)) {
-      const ch = this.persona(`${seed}:j${k}`, undefined, [...j.traits], j.style, j.quirk, j.title);
-      const skills = offBrief.length ? [offBrief[(seed >>> (k + 3)) % offBrief.length]!] : [];
-      out.push(CandidateSchema.parse({
-        id: randomUUID(), serious: false, character: ch, gag: j.gag, pitch: j.pitch,
-        loadout: { model: cheapest, skills, toolsets: [] }, tier: cheapest ? tierOf(cheapest) : 1,
-        costPerDay: j.cost, fitScore: j.fit, note: j.note,
-      }));
-    }
-    // Shuffle so the jokes are not always last.
-    return out.map((c, i) => ({ c, k: hash(`${seed}:${i}`) })).sort((x, y) => x.k - y.k).map((x) => x.c);
   }
 
-  /** Asks AR's model to write the two serious personas. Falls back to the generated pools. */
+  /** Asks AR's model to write the candidates' personas. Falls back to the generated pools. */
   private async seriousPersonas(brief: HiringBrief, slots: { model: string; skills: string[]; label: string }[]) {
     type P = { name?: string; pitch?: string; traits: string[]; speechStyle: string; quirk: string };
     if (!this.d.model.ready) return [] as P[];
     try {
       const raw = await this.d.model.complete([
         { role: 'system', content: 'You write short, fun but professional candidate personas for a game where employees are AI agents. Original invented names only, never real people. Reply with JSON only.' },
-        { role: 'user', content: `Role: ${brief.focus} for the ${brief.departmentName} floor. Two candidates:\n${slots.map((s, i) => `${i + 1}. ${s.label}: model ${s.model}, skills ${s.skills.join(', ') || 'none'}`).join('\n')}\nReturn {"candidates": [{"name": "First Last", "pitch": "<one sentence, first person, under 25 words>", "traits": ["<two adjectives>"], "speechStyle": "<few words>", "quirk": "<a visible desk habit>"}, ...]} in the same order.` },
+        { role: 'user', content: `Role: ${brief.focus} for the ${brief.departmentName} floor. ${slots.length} candidates:\n${slots.map((s, i) => `${i + 1}. ${s.label}: model ${s.model}, skills ${s.skills.join(', ') || 'none'}`).join('\n')}\nReturn {"candidates": [{"name": "First Last", "pitch": "<one sentence, first person, under 25 words>", "traits": ["<two adjectives>"], "speechStyle": "<few words>", "quirk": "<a visible desk habit>"}, ...]} in the same order.` },
       ], { maxTokens: 500, temperature: 0.9 });
       const obj = JSON.parse(extractJson(raw) ?? 'null') as { candidates?: unknown } | null;
       const list = Array.isArray(obj?.candidates) ? obj!.candidates as Record<string, unknown>[] : [];
-      return list.slice(0, 2).map((c): P => ({
+      return list.slice(0, slots.length).map((c): P => ({
         ...(typeof c.name === 'string' && c.name.trim() ? { name: c.name.trim().slice(0, 40) } : {}),
         ...(typeof c.pitch === 'string' && c.pitch.trim() ? { pitch: c.pitch.trim().slice(0, 220) } : {}),
         traits: Array.isArray(c.traits) ? c.traits.filter((t): t is string => typeof t === 'string').slice(0, 3).map((t) => t.slice(0, 20)) : [],

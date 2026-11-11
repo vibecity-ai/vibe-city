@@ -382,7 +382,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   app.post('/api/hiring/requests/:reqId/decline', async (req) => parse(HiringRequestViewSchema, hiring.decline(reqId(req.params))));
   app.post('/api/hiring/requests/:reqId/offer', async (req) => {
     const body = parse(HiringOfferSchema, req.body);
-    return parse(HiringRequestViewSchema, await hiring.offer(reqId(req.params), body.candidateId, body.acceptConcerns));
+    return parse(HiringRequestViewSchema, await hiring.offer(reqId(req.params), body.candidateId));
   });
 
   // ---- executive assistant: draft a new floor in the dialogue window (feature spec 4.3) ----

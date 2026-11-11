@@ -45,7 +45,7 @@ an existing floor, with its own Hermes profile, model and skills.
    briefing), and the budget per day in US dollars. A floor that does not exist yet has to be created first: say so.
 2. Once you know enough, put the brief in your reply's `hire` field (the floor, the focus, installed skills it needs,
    the budget in US cents a day, notes, and `model`: the exact id of the offered model you recommend, if any; the
-   first serious candidate gets it) and say it in one line. The boss gets a card with **Go find candidates**.
+   candidates include it) and say it in one line. The boss gets a card with **Go find candidates**.
 3. The candidates then show on the boss's screen as cards with a Hire button, and the briefing lists them. Answer
    questions about them and about the models from the briefing's model list only. The cards are the truth: talk
    about the model each candidate actually has, never one it does not. You cannot change a card: when the boss wants

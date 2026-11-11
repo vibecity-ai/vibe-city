@@ -139,9 +139,9 @@ function NewDept() {
     if (!hiring) return;
     setWaiting(true);
     try {
-      const h = await api.hiringOffer(hiring.h.id, c.id, !c.serious);
+      const h = await api.hiringOffer(hiring.h.id, c.id);
       setHiring({ ...hiring, h });
-      setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done. ${c.character.name} joins ${h.brief?.departmentName}. ${c.serious ? 'Good call.' : "I've noted my concerns in the file."}`, mood: 'happy', replies: [], draft: null }]);
+      setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done. ${c.character.name} joins ${h.brief?.departmentName}. Good call.`, mood: 'happy', replies: [], draft: null }]);
       // The floor re-provisions in the background: refresh it now and once more when that is likely done.
       const dep = h.brief!.departmentId, again = () => { void refreshDept(dep); void loadDeptInfo(dep); };
       again(); window.setTimeout(again, 4000);

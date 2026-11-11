@@ -183,7 +183,7 @@ export const api = {
   /** The brief from the Chief of Staff's chat: the request comes back with its candidates. */
   hiringStart: (brief: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, { brief }),
   hiringDecline: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/decline`, HiringRequestViewSchema),
-  hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
+  hiringOffer: (id: string, candidateId: string): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId }),
   chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
     chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),
   cancellation: (dept: string, quest: string): Promise<CancellationStatus> => request('GET', `${q(dept, quest)}/cancellation`, CancellationStatusSchema),
