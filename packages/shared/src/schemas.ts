@@ -832,13 +832,6 @@ export const HiringStartSchema = z.object({ departmentId: z.string().optional() 
 export const HiringSendSchema = z.object({ message: z.string().trim().min(1).max(2000) }).strict();
 export const HiringBriefConfirmSchema = z.object({ brief: HiringBriefSchema.omit({ departmentName: true }).optional() }).strict();
 export const HiringOfferSchema = z.object({ candidateId: z.string(), acceptConcerns: z.boolean().optional() }).strict();
-export const InterviewSendSchema = z.object({ message: z.string().trim().min(1).max(1000) }).strict();
-export const InterviewReplySchema = z.object({
-  user: ChatMessageSchema, agent: ChatMessageSchema,
-  stats: z.object({ ms: z.number().int(), tokens: z.number().int().nullable(), model: z.string(), costNote: z.string() }).strict(),
-}).strict();
-export type InterviewReply = z.infer<typeof InterviewReplySchema>;
-export const InterviewHistorySchema = z.array(ChatMessageSchema);
 
 // ---- executive assistant: new departments through the dialogue window (feature spec 4.3) ---------------------------
 // The assistant drafts a floor (name, purpose, starter inventory) from a short chat. The backend keeps only what Hermes

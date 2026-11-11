@@ -633,7 +633,7 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .psel-list.sheet { left: 0; right: 0; bottom: 0; max-height: 62vh; border-width: 1px 0 0; border-radius: 14px 14px 0 0; padding: 10px 10px calc(10px + env(safe-area-inset-bottom)); animation: dlgBottom .18s cubic-bezier(.2,.8,.2,1) both; }
 .psel-list.sheet .psel-opt { padding: 13px 34px 13px 12px; font-size: 15px; }
 
-/* ---------- AR hiring: incoming call, scouting banner, shortlist (feature spec 7.1) ---------- */
+/* ---------- AR hiring: incoming call, candidates in the dialogue (feature spec 7.1) ---------- */
 .dlg-spacer { flex: 1; }
 .dlg-stats { margin: 0; font: 12px var(--f-mono); color: var(--mint); }
 .hire-skills { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
@@ -657,49 +657,34 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .ring-why { position: absolute; top: calc(100% + 8px); right: 0; width: 280px; margin: 0; padding: 10px 12px; border-radius: 10px; background: #0F1A14; border: 1px solid rgba(111,214,154,.5);
   color: var(--ink); font-size: 13px; line-height: 1.45; box-shadow: 0 12px 30px rgba(0,0,0,.5); opacity: 0; transform: translateY(-4px); pointer-events: none; transition: opacity .15s, transform .15s; z-index: 30; }
 .ring:hover .ring-why, .ring:focus-within .ring-why { opacity: 1; transform: none; }
-.scout { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 8px; max-width: 320px;
-  background: #0F1A14; color: var(--ink); border: 1px solid #3C5A48; font: 13px var(--f-body); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.scout b { font: 600 12px var(--f-ui); color: #7CF5B4; }
-.scout.ready { border-color: #7CF5B4; box-shadow: 0 0 14px rgba(111,214,154,.3); }
-.scout-dot { width: 8px; height: 8px; border-radius: 50%; background: #7CF5B4; flex: none; animation: blink 1s steps(2) infinite; }
 @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
-@media (max-width: 640px) { .ring-body, .ring-why { display: none; } .scout { max-width: 150px; } }
-.hire { display: block; }
+@media (max-width: 640px) { .ring-body, .ring-why { display: none; } }
 .hire-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 14px; }
 .hire-head > div { display: flex; flex-direction: column; gap: 4px; }
 .hire-head h2 { margin: 0; font: 600 22px/1.2 var(--f-ui); color: var(--ink); letter-spacing: -.01em; }
-.hire-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
-.cand { display: flex; flex-direction: column; gap: 10px; padding: 12px; background: #130E1B; border: 1px solid color-mix(in srgb, var(--who) 55%, #46385E); }
+.hire-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.cand { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #130E1B; border: 1px solid color-mix(in srgb, var(--who) 55%, #46385E); }
 .cand.joke { background: repeating-linear-gradient(-45deg, #130E1B 0 10px, #161021 10px 20px); }
 .cand-top { display: flex; gap: 10px; align-items: center; }
-.cand-face { flex: none; width: 76px; height: 76px; background: linear-gradient(160deg, var(--who), #271F35); overflow: hidden; }
-.cand-portrait { width: 76px; height: 76px; image-rendering: pixelated; display: block; }
+.cand-face { flex: none; width: 48px; height: 48px; background: linear-gradient(160deg, var(--who), #271F35); overflow: hidden; }
+.cand-portrait { width: 48px; height: 48px; image-rendering: pixelated; display: block; }
 .cand-id { display: flex; flex-direction: column; min-width: 0; }
 .cand-id b { font: 600 15px/1 var(--f-ui); color: #fff; }
 .cand-id span { font-size: 12px; color: var(--ink-dim); }
 .cand-traits { color: var(--who) !important; }
-.cand-pitch { margin: 0; font-size: 13px; color: #F2E3C6; font-style: italic; min-height: 3.6em; }
 .cand-stats { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 0; font-size: 13px; }
 .cand-stats dt { font: 600 12px var(--f-ui); color: var(--ink-mute); text-transform: uppercase; }
 .cand-stats dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .cand-stats small { color: var(--ink-mute); }
-.cand-stats .bad, .hire-confirm .bad { color: #FF7A8F; }
+.cand-stats .bad, .cand-note.bad { color: #FF7A8F; }
 .fit { display: inline-block; width: 70px; height: 8px; background: #282036; vertical-align: middle; }
 .fit i { display: block; height: 100%; background: var(--who); }
 .cand-note { margin: 0; font-size: 12px; color: var(--ink-dim); }
 .cand-note span { font: 600 12px var(--f-ui); color: #7CF5B4; }
 .cand-act { display: flex; gap: 8px; margin-top: auto; }
 .cand-act .btn { flex: 1; }
-.hire-confirm { position: sticky; bottom: 0; margin-top: 14px; padding: 12px 14px; background: #161021; border: 1px dashed #FFC75A; display: flex; flex-direction: column; gap: 6px; }
-.hire-confirm b { font: 600 15px var(--f-ui); color: #fff; }
-.hire-confirm p, .hire-confirm ul { margin: 0; font-size: 13px; }
-.hire-confirm ul { padding-left: 18px; color: var(--ink-dim); }
-@media (max-width: 1100px) { .hire-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 640px) {
-  .hire-grid { grid-template-columns: 1fr; }
   .hire-head h2 { font-size: 20px; }
-
-  .scout { top: 64px; }
 }
 
 /* ---------- quest board v2 (feature spec 1.2): compact cards, one toolbar, drawer details ---------- */
