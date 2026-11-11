@@ -1037,10 +1037,11 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
             <section className="pane-sec" aria-busy={extra?.loading}>
               {extra?.loading && !extra.activity.length && <p className="muted">Loading…</p>}
               {extra && !extra.loading && !extra.error && !extra.activity.length && <p className="muted">No events yet.</p>}
-              <ol className="timeline">{[...(extra?.activity ?? [])].reverse().map((e) => (
-                <li key={e.id}><span className="mono muted" title={formatTime(e.at)}>{clock(e.at)}</span><Glyph k={/fail|block|crash|timed/i.test(e.kind) ? 'failed' : /complet/i.test(e.kind) ? 'completed' : 'running'} />
-                  <span><span>{e.label}</span> <small className="muted">{e.taskTitle}</small>{e.detail && <small className="err-t">{e.detail}</small>}</span></li>
-              ))}</ol>
+              <ol className="timeline">{[...(extra?.activity ?? [])].reverse().map((e) => {
+                const bad = /fail|block|crash|timed/i.test(e.kind);
+                return <li key={e.id}><span className="mono muted" title={formatTime(e.at)}>{clock(e.at)}</span><Glyph k={bad ? 'failed' : /complet/i.test(e.kind) ? 'completed' : 'running'} />
+                  <span><span>{e.label}</span> <small className="muted">{e.taskTitle}</small>{e.detail && <small className={bad ? 'err-t' : 'muted'}>{e.detail}</small>}</span></li>;
+              })}</ol>
               {ACTIVE.has(sum.status) && <p className="muted small live"><Glyph k="running" />Live · refreshes when Hermes reports an event</p>}
             </section>
           )}

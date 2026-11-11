@@ -125,8 +125,9 @@ function ScoutBanner({ h }: { h: HiringRequestView }) {
   return (
     <button className={`scout${ready ? ' ready' : ''}`} onClick={() => call({ mode: ready ? 'shortlist' : 'ar', reqId: h.id })}>
       <span className="scout-dot" aria-hidden="true" />
-      {ready ? <>{h.ar.name} is back with {h.candidates.length} candidates for {h.brief?.departmentName} · <b>View shortlist</b></>
-        : <>{h.ar.name} is scouting for {h.brief?.departmentName} · <b>{fmtLeft(left)}</b></>}
+      {/* the sentence gives way, never the call to action */}
+      {ready ? <><span className="scout-t">{h.ar.name} is back with {h.candidates.length} candidates for {h.brief?.departmentName} ·</span><b>View shortlist</b></>
+        : <><span className="scout-t">{h.ar.name} is scouting for {h.brief?.departmentName} ·</span><b>{fmtLeft(left)}</b></>}
     </button>
   );
 }

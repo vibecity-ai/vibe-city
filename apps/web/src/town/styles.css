@@ -659,7 +659,8 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .ring:hover .ring-why, .ring:focus-within .ring-why { opacity: 1; transform: none; }
 .scout { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 12px; border-radius: 8px; max-width: 320px;
   background: #0F1A14; color: var(--ink); border: 1px solid #3C5A48; font: 13px var(--f-body); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.scout b { font: 600 12px var(--f-ui); color: #7CF5B4; }
+.scout b { font: 600 12px var(--f-ui); color: #7CF5B4; flex: none; }
+.scout-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .scout.ready { border-color: #7CF5B4; box-shadow: 0 0 14px rgba(111,214,154,.3); }
 .scout-dot { width: 8px; height: 8px; border-radius: 50%; background: #7CF5B4; flex: none; animation: blink 1s steps(2) infinite; }
 @media (prefers-reduced-motion: reduce) { .ring { animation: none; } }
