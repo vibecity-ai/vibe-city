@@ -17,6 +17,7 @@ import { loadDeptInfo, refreshDept } from '../data/live';
 
 const POLL_MS = 15_000;
 const TIER = ['', 'Small model', 'Balanced model', 'Large model'];
+const NOT_NOW = 'Not now';
 
 const set = (h: HiringRequestView | null) => useStore.getState().hiring$(h);
 const call = (c: ReturnType<typeof useStore.getState>['ui']['call']) => useStore.getState().ui$({ call: c });
@@ -154,10 +155,12 @@ function ArDialogue({ reqId }: { reqId: string }) {
     : h.trigger.kind === 'manual' ? `Who are we hiring, boss? Tell me what the new person should be good at.`
     : `Boss, ${h.trigger.reason} Want me to find someone?`;
   const lines: Line[] = intake ? [...h.messages, ...(pending ? [{ id: 'pending', from: 'user' as const, text: pending, mood: null, replies: [] }] : [])] : [];
-  const defaults = trigDept ? [`Yes, find someone for ${trigDept.name}`, 'What would they need?', 'Not now']
+  const defaults = trigDept ? [`Yes, find someone for ${trigDept.name}`, 'What would they need?', NOT_NOW]
     : depts.slice(0, 3).map((d) => `We need help on ${d.name}`);
 
   const onSend = async (m: string) => {
+    // "Not now" ends the call (like Decline), so the request does not stay open and block the next ring
+    if (m === NOT_NOW) { try { set(await api.hiringDecline(h.id)); } catch { /* closing anyway */ } set(null); close(); return true; }
     setError(null); setWaiting(true); setPending(m);
     try { set(await api.hiringChat(h.id, m)); return true; }
     catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong.'); return false; }
