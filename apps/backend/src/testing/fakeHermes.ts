@@ -1,4 +1,4 @@
-import type { ModelChoice } from '@vibe-city/shared';
+import { DEFAULT_CHAT_MODEL, type ModelChoice } from '@vibe-city/shared';
 import {
   HermesAuthError, HermesNotFoundError, HermesRejectedError, HermesUnavailableError,
   type BoardInfo, type HermesHealth, type HermesRuntime, type ModelCatalog, type ProfileInfo, type SessionInfo, type SessionMessage, type SkillInfo, type ToolsetPlatform,
@@ -13,7 +13,7 @@ interface FakeProfile {
 export const FAKE_TOOLSETS = ['web', 'browser', 'terminal', 'file', 'code_execution', 'vision', 'skills', 'todo', 'kanban', 'memory', 'delegation', 'cronjob', 'tts'];
 /** What the fake reports as Hermes' model picker: two authenticated providers. */
 export const FAKE_MODELS: ModelCatalog['providers'] = [
-  { slug: 'near-ai', name: 'NEAR AI Cloud', current: true, models: ['base-model', 'm-1', 'model-a', 'model-b'] },
+  { slug: 'near-ai', name: 'NEAR AI Cloud', current: true, models: ['base-model', 'm-1', 'model-a', 'model-b', DEFAULT_CHAT_MODEL] },
   { slug: 'anthropic', name: 'Anthropic', current: false, models: ['claude-x'] },
 ];
 export const FAKE_SKILLS = ['hermes-agent', 'pdf', 'arxiv', 'github', 'omarchy'];
