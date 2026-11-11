@@ -183,7 +183,9 @@ export class ChatService {
     const floors = this.d.departments.list();
     const [status, ...boards] = await Promise.all([
       this.d.companyStatus?.().catch(() => '') ?? '',
-      ...floors.map((f) => (f.state === 'ready' ? this.boardSnapshot(f.hermesBoardSlug, 8) : Promise.resolve('(not synced with Hermes yet: it cannot take jobs)'))),
+      ...floors.map((f) => (f.state === 'ready' ? this.boardSnapshot(f.hermesBoardSlug, 8)
+        // a floor being built can be given its first job now: the boss starts it once the floor is ready
+        : Promise.resolve(f.state === 'provisioning' ? '(being built in Hermes right now: propose its jobs; the boss starts them once it is ready)' : '(not synced with Hermes yet: it cannot take jobs)'))),
     ]);
     const briefing = floors.map((f, i) => [
       `### ${f.name}${isInternalOnly(f.templateId) ? ' (internal: never listed on the market)' : ''}`,
@@ -203,7 +205,7 @@ export class ChatService {
       '- Be fast: answer from the briefing above. It already holds every floor, its team and its board, so do NOT call a tool to learn about floors or tasks. If the answer is not there, say so plainly; never guess or invent results.',
       '- Tools are only for two things: reading what a task produced (list_task_files then read_task_file, with the task id and the floor name as "department"), and list_on_market after the boss confirmed a listing. One or two calls at most per answer.',
       '- Task ids (t_…) are for tools only: the boss never sees them. Call a task by its title.',
-      '- When the boss wants work done, pick the floor whose purpose fits and propose the job with that floor\'s exact name as "department": the boss starts it with one click and it lands on that floor\'s board. Only a floor synced with Hermes can take a job. Do not say you will do it yourself.',
+      '- When the boss wants work done, pick the floor whose purpose fits and propose the job with that floor\'s exact name as "department": the boss starts it with one click and it lands on that floor\'s board. Only a floor synced with Hermes, or being built right now, can take a job. Do not say you will do it yourself.',
       '- When the boss asks how things are going (a briefing, a status, "what needs me"): say ONE headline sentence, and put the rest in "report" so it shows as a card: "needs_you" = what waits on the boss (decisions waiting, blocked or failed tasks, the next CEO quest; [] when nothing does), "in_flight" = one row per job that is moving, "money" = one line, marked as an estimate. Each row is short (under 20 words) and names its floor in "floor" when it is about one. Do not repeat the report in your sentence. For any other question, "report" is null.',
       '- A new floor: first ask "a ready template or a custom floor?" with the replies "Show me the templates" and "Design a custom floor" (templates are picked in their own panel). For a custom floor, if the boss has not said what it should do, ask that one question and make your "replies" 2 or 3 concrete floor ideas built from the installed skills below. Once the purpose is clear, propose the floor right away in "floor": small, granting only what the purpose needs, never duplicating a floor in the briefing. If the boss asks for changes, propose the whole floor again.',
       kit ? kit.prompt : 'What Hermes has installed cannot be read right now: do not propose a floor ("floor": null), say so.',

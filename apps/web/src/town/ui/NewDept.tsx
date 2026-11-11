@@ -18,7 +18,7 @@ import { ModelName } from './ModelBadge';
 const ADD = 'Add a new floor', HIRE = 'Hire a new agent', LIST = 'List a floor on the Agent Market';
 /** Adding a department: a ready template (opens the hire grid, no model needed) or a custom floor drafted in conversation. */
 const USE_TEMPLATE = 'Show me the templates', CUSTOM = 'Design a custom floor';
-/** After a floor is built: what the boss can do next (handled here, no model). */
+/** After a floor is built: what the boss can do next. A first job is thought up by the Chief of Staff; the floor is shown here. */
 const FIRST_JOB = 'Give them a first job', SEE_FLOOR = 'Show me the floor';
 /** Free talk with the Hermes agent: the opener, and after a job it proposed was started. */
 const BRIEF = 'Brief me', SEE_BOARD = 'Show me the board';
@@ -46,7 +46,8 @@ function NewDept() {
   const [lines, setLines] = useState<Turn[]>([]);
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [built, setBuilt] = useState<string | null>(null);
+  const [built, setBuilt] = useState<{ id: string; name: string; purpose: string; crew: string } | null>(null);
+  const depts = useStore((s) => s.depts);
   const [progress, setProgress] = useState<string | null>(null);
   const [started, setStarted] = useState<{ turn: string; dept: string } | null>(null);
   // ponytail: a fresh Hermes session per visit keeps turns short and fast; pass the last session id to make it remember
@@ -72,7 +73,10 @@ function NewDept() {
     if (m === USE_TEMPLATE) { s.ui$({ newDept: false, modal: 'create' }); return true; }
     if (built && m === SEE_FLOOR) { close(); return true; }
     if (started && m === SEE_BOARD) { close(); s.openPanel('board', { composer: false, boardDept: started.dept, boardFilter: 'all', boardQuest: null }); return true; }
-    if (built && m === FIRST_JOB) { close(); s.openPanel('board', { composer: true, composerDept: built, boardDept: built, boardQuest: null }); return true; }
+    // the boss sees their chip; the Chief of Staff gets what it needs to think of the floor's first job itself
+    const message = built && m === FIRST_JOB
+      ? `${m}. ${built.name} was just built (${built.crew}); its purpose: ${built.purpose.replace(/\.?\s*$/, '.')} Think of its first job: one concrete task it can do today with its skills and tools, a quick win that shows what it is for. Propose it for "${built.name}" now, even while it is still being built: I start it once the floor is ready.`
+      : m;
     const cos = s.chiefOfStaff;
     if (!cos?.chief) { setError('I have no desk in Hermes yet, boss: start Hermes and I can talk. The templates, hiring and market shortcuts still work.'); return false; }
     setError(null); setWaiting(true); setProgress(null);
@@ -80,7 +84,7 @@ function NewDept() {
     const next = [...lines, user];
     setLines(next);
     try {
-      const r = await api.chatStream(cos.id, 'chief', { message: m, ...(sessionId ? { sessionId } : {}) }, (p) => setProgress(progressLabel(p)));
+      const r = await api.chatStream(cos.id, 'chief', { message, ...(sessionId ? { sessionId } : {}) }, (p) => setProgress(progressLabel(p)));
       setLines([...next, { ...r.agent, draft: r.agent.floorDraft ?? null }]);
       return true;
     } catch (e) {
@@ -96,8 +100,8 @@ function NewDept() {
       inventory: { allowedSkillIds: d.skills, allowedToolsets: d.toolsets, model: d.model }, teammates: d.teammates, agents: d.agents.map(({ name, title }) => (name ? { name, title } : { title })),
     }, hermesUp);
     if (!v) return; // the toast says why; the proposal stays to try again
-    setBuilt(v.id);
     const crew = d.agents.map((a) => a.name || a.title).join(', ');
+    setBuilt({ id: v.id, name: v.name, purpose: d.purpose, crew });
     const text = hermesUp
       ? `${v.name} is under construction, boss: Hermes is setting up ${crew} right now. What do you want me to do next?`
       : `${v.name} is on the plans, boss, but Hermes is not reachable: it will be built once you sync it. What do you want me to do next?`;
@@ -120,10 +124,12 @@ function NewDept() {
       inputHint="Ask about the company, say what you need done, or describe a new floor"
       cards={() => {
         const job = last?.proposal;
+        // a floor still being built cannot take a job yet: the card waits for it
+        const ready = depts.find((d) => d.id === job?.departmentId)?.provisioning === 'ready';
         if (job?.departmentId && !started) return (
           <div className="dlg-prop">
             <div><span className="dlg-tag">Job for {job.departmentName}</span><b>{job.title}</b><span>{job.objective}</span></div>
-            <div className="dlg-prop-act"><button className="btn primary small" onClick={() => void startJob(last!.id, job)}>Start job</button></div>
+            <div className="dlg-prop-act"><button className="btn primary small" disabled={!ready} title={ready ? undefined : `${job.departmentName} is still being built`} onClick={() => void startJob(last!.id, job)}>{ready ? 'Start job' : 'Waiting for the floor…'}</button></div>
           </div>
         );
         if (job?.departmentId && started?.turn === last!.id) return <p className="dlg-note">Sending the job to {job.departmentName}…</p>;

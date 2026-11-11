@@ -247,3 +247,14 @@ test('task ids the agent writes reach the window as the task titles from the boa
   assert.deepEqual(r.json().agent.replies, ['What was in "Scan competitor pricing"?']);
   assert.match(agentChat.turns[0]!.system, new RegExp(`${id} \\[`), 'the prompt keeps the id for the file tools');
 });
+
+test('a floor still being built is briefed as one the Chief of Staff can give its first job', async () => {
+  const { app, services, agentChat, readyDept } = agentApp(() => 'A launch post to start.\n<vc>{"mood":"happy","replies":[],"proposal":{"department":"Growth","title":"Write a launch post","objective":"Draft one launch post."}}</vc>');
+  const cos = services.chiefOfStaffId;
+  await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` });
+  const d = await readyDept('Growth', {});
+  services.departments.patchRow(d.id, { provisioning_state: 'provisioning' });
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${cos}/characters/chief/chat`, payload: { message: 'Give them a first job' } });
+  assert.equal(r.json().agent.proposal?.departmentId, d.id);
+  assert.match(agentChat.turns[0]!.system, /### Growth[\s\S]*being built in Hermes right now: propose its jobs/);
+});
