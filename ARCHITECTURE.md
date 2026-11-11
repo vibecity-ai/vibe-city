@@ -5,21 +5,26 @@ Vibe City is a city UI over Hermes (the Nous Research agent runtime): each depar
 ## Layout
 
 ```
-packages/shared      zod schemas + types shared by backend and web
+packages/shared      zod schemas + types shared by backend and web; src/templates = the department templates
 apps/backend         Fastify API, SQLite (node:sqlite), Hermes adapter
   src/db             migrations + openDb
-  src/domain         company, department, provisioning, quest and chat services
+  src/domain         services: company, department, provisioning, quests, chat, hiring, schedules, the Chief of Staff
+                     (assistantService), market, wallet, IPO, and game.ts (the CEO quest log, pure)
   src/hermes         ports.ts (HermesRuntime interface), realRuntime.ts (dashboard REST + `hermes` CLI), kanbanClient.ts
   src/mcp            the Vibe City MCP server that Hermes agents call
+  src/model, near    the NEAR AI chat model and its prices; NEAR RPC reads
   src/testing        FakeHermes / FakeKanban, used by tests and the offline demo
-  src/app.ts         routes + validation + error mapping
+  src/app.ts         the older routes (departments, quests, chat, hiring, schedules, live) + validation + error mapping
+  src/routes         the newer route modules: company, templates, game, wallet, market, ipo, ai (the metering proxy)
   scripts/           demo-server.ts (offline demo with fakes)
 apps/web             React + Vite. src/town = the city (Canvas 2D, Zustand)
+contracts            the city token and its factory (Rust, NEAR); built wasm in contracts/res
+docker               what the container adds to the Hermes image: cont-init scripts, the s6 service, vendored skills
 ```
 
 ## Data ownership
 
-- **SQLite** (`VIBE_CITY_DB`, default `apps/backend/data/vibe-city.sqlite`) holds only Vibe City's own data: the company, departments and their inventory (toolsets, skills, model, limits), agents (one row per seat), chat transcripts, and event cursors. Migrations are append-only (`PRAGMA user_version`); a DB newer than the build is refused.
+- **SQLite** (`VIBE_CITY_DB`, default `apps/backend/data/vibe-city.sqlite`) holds only Vibe City's own data: the company and its settings (including the secrets the CEO pastes: NEAR AI key, OutLayer wallet key, market tokens), departments and their inventory (toolsets, skills, model, limits), agents (one row per seat), chat transcripts, model usage per department, the IPO's state, and event cursors. Migrations are append-only (`PRAGMA user_version`); a DB newer than the build is refused.
 - **Hermes** owns everything that runs: profiles, boards, tasks, runs, results and attachments. Vibe City has no quest or task table and never reads Hermes' databases. It talks to Hermes only through the `HermesRuntime` port: the dashboard REST API (session token held server-side) and the `hermes` CLI (`execFile`, no shell, validated names).
 - The browser talks only to the Vibe City backend (`/api`, `/api/live`). It never sees the Hermes URL, token or raw payloads. All request and response bodies go through the shared zod schemas; unknown fields are rejected.
 
@@ -47,9 +52,22 @@ Hermes agents call back into Vibe City through an MCP server at `POST /mcp` (Str
 - `vibecity`: `list_departments`, `request_quest`, `check_request`. These replace Hermes' delegation toolset, so cross-department work goes through Vibe City's rules: a request becomes a quest on the other department's board, or waits for the CEO's approval.
 - `vibecity-chat`: `list_task_files`, `read_task_file`, the only MCP tools the dialogue chat gets, so chat can read past work but cannot start any.
 
+## The company: money, market, IPO
+
+Everything here was added for the hackathon (`docs/briefs/`); DEPLOYMENT.md has the operational detail.
+
+- **Templates and the Chief of Staff.** A department is hired from a template (`packages/shared/src/templates`): its inventory, seats, skills, daily budget and whether it gets the wallet. The Chief of Staff is a hidden floor; the backend calls NEAR AI Cloud directly for it (it drafts floors and runs the market listings).
+- **Metering proxy** (`routes/ai.ts`, `/ai/v1`). Agents do not call NEAR AI Cloud directly: each department's profiles point at the backend with a per-department key. The backend checks the daily budget (429 once reached), forwards the call with the company key, and records tokens and an estimated cost. Burn and runway are read from that table.
+- **Wallet** (`walletService.ts`). One OutLayer custody wallet; its keys stay in OutLayer's TEE. Vibe City stores the wallet's agent key and writes it into the profiles of the floors whose template has `wallet: 'company'`. Spending limits are set in OutLayer and cannot be read back.
+- **Agent Market** (`marketService.ts`). A listed floor is its own agent on market.near.ai. One poller turns a new assignment into a quest on that floor and submits the finished quest as the deliverable.
+- **Game** (`game.ts`). The CEO quest log, unlocks and runway are derived from existing state by one pure function; nothing is stored for it.
+- **IPO** (`ipoService.ts`, `contracts/`). The company wallet creates a Sputnik DAO and the city token from our factory; the token sells its own public float and the NEAR goes to the DAO. Each step reads the chain first, so a retry never creates a second DAO or token. The backend refuses a factory or token whose code hash differs from `contracts/res/*.wasm`. Vibe City holds no NEAR key: the wallet signs, the CEO approves DAO proposals.
+
 ## Guarantees vs configuration
 
 Vibe City never says a setting is secure unless it has proven it. Each inventory capability is reported as `enforced` (applied, read back from Hermes, and tested to hold at runtime: disabling terminal, file, web, browser, code execution), `configured` (set in Hermes, behavior not tested), `unverified`, or `unsupported`. Only `enforced` counts as a guarantee. File isolation and delegation depth are labeled advisory ("instructed, not enforced"), concurrency is shown as Hermes' host-wide per-profile cap times the number of agents, and `ready` means the resources exist and match the inventory, not that everything is locked down.
+
+Secrets are scoped by configuration only. The backend and the agents run as the same OS user on the same volume, so which key a floor is handed is a setting, not a boundary: an agent with terminal or file tools could read another floor's keys or the backend's database (DEPLOYMENT.md, "Isolation").
 
 ## The city UI (apps/web/src/town)
 
@@ -61,7 +79,7 @@ The city at `/` is the whole product. `data/live.ts` is its only data source: it
 npm install
 npm test                 # backend + web unit tests, no Hermes needed
 npm run build            # builds the web app
-npm run dev              # Hermes in Docker (docker-compose.dev.yml) + backend :4100 + Vite :4200
+npm run dev              # Hermes in Docker (docker-compose.dev.yml) + backend :4100 + Vite :4200; needs .env
 ```
 
-Offline demo without Docker or API keys: `npm run build && WEB_DIST=../web/dist PORT=4199 npm run demo -w @vibe-city/backend`, then open http://127.0.0.1:4199. Full container deployment: see `DEPLOYMENT.md`. Main env: `HERMES_URL` (default `http://127.0.0.1:9119`), `HERMES_DASHBOARD_SESSION_TOKEN`, `HERMES_BIN`, `NEAR_AI_API_KEY`.
+Offline demo without Docker or API keys: `npm run demo`, then open http://127.0.0.1:4199. The whole product in one container: `docker compose up -d --build` (README.md, `DEPLOYMENT.md`). Main env: `HERMES_URL` (default `http://127.0.0.1:9119`), `HERMES_DASHBOARD_SESSION_TOKEN`, `HERMES_BIN`, `NEAR_AI_API_KEY`.

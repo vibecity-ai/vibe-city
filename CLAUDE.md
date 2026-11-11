@@ -23,7 +23,7 @@ cd apps/web && node --experimental-strip-types --test src/town/data/derive.test.
 # add --test-name-pattern="<regex>" to run a single test
 
 # offline demo with the fakes, no Docker or API keys
-npm run build && WEB_DIST=../web/dist PORT=4199 npm run demo -w @vibe-city/backend   # http://127.0.0.1:4199
+npm run demo             # builds the web app, then http://127.0.0.1:4199
 ```
 
 Node 26 (what CI uses). No transpile step for backend or tests, so TS must stay strip-types compatible (no enums,

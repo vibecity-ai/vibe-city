@@ -1,6 +1,6 @@
 # Deployment (Docker, CI/CD)
 
-Status: **the container has still not been built or run.** See "Verification record" below for exactly what was and was not executed. Treat the first local `docker compose up --build` plus `scripts/docker-smoke.sh` as the real test (see "Known risks").
+Status: the container builds and runs from a clean checkout with no `.env` (last checked 2026-11-11, see "Verification record"). It is not built in CI: after a change to the `Dockerfile`, `docker/` or the compose file, run `./scripts/docker-smoke.sh`.
 
 ## What runs
 
@@ -12,21 +12,23 @@ One container (`Dockerfile`), three processes supervised by Hermes' own s6-overl
 | Hermes dashboard | upstream s6 service, enabled by `HERMES_DASHBOARD=1` | `127.0.0.1:9119` inside the container only |
 | Vibe City (API + built web app) | s6 service added in `docker/s6-rc.d/vibe-city` | `0.0.0.0:4100` in the container, published on host loopback |
 
-Why one container: the backend drives the `hermes` CLI (profile creation and per-profile config) and reads the data the gateway uses, so it needs the Hermes binary and the same `HERMES_HOME` volume. Sharing one network/PID namespace also keeps the dashboard on loopback (it stores API keys) and lets the dashboard's gateway status see the gateway process. The base image is the upstream Hermes image, unmodified; Node is copied in from `node:26-trixie-slim`.
+Why one container: the backend drives the `hermes` CLI (profile creation and per-profile config) and reads the data the gateway uses, so it needs the Hermes binary and the same `HERMES_HOME` volume. Sharing one network/PID namespace also keeps the dashboard on loopback (it stores API keys) and lets the dashboard's gateway status see the gateway process. The base image is the upstream Hermes image plus `gh`; the backend runs on the Node 26 that Hermes bundles (`node:26-trixie-slim` only builds the web app).
 
 State lives in one volume (`/opt/data`): Hermes home (profiles, Kanban boards, config) and Vibe City's SQLite (`/opt/data/vibe-city/vibe-city.sqlite`).
 
 ## Run locally
 
 ```
-cp .env.example .env              # set HERMES_DASHBOARD_SESSION_TOKEN=$(openssl rand -hex 24)
-docker compose up -d --build
-open http://127.0.0.1:4100
+docker compose up -d --build      # then open http://127.0.0.1:4100
 ```
+
+No `.env` is needed. `HERMES_DASHBOARD_SESSION_TOKEN`, the shared secret between the Hermes dashboard and the backend, is generated at every start when it is not set (`docker/cont-init.d/00-vibe-city-token`): both of its users live in the container, so it never has to leave it. `.env.example` lists what can be set.
+
+Two composes, one `Dockerfile`: `docker-compose.yml` is the product (everything in one container, runs anywhere Docker does). `docker-compose.dev.yml` runs only the Hermes stage, for development with hot reload (below). They share the compose project name `vibe-city`, so each warns about the other's container as an orphan; never pass `--remove-orphans`.
 
 ### Develop (only Hermes in Docker)
 
-No image build: Hermes runs from the pinned upstream image, the backend and web app run on the host with Node and reload on save. Linux only (host networking). Uses the same `.env`. Stop the full container first (`docker compose down`): both want port 4100. The dev scripts pin `DOCKER_CONTEXT=default` (native engine): Docker Desktop on Linux runs containers in a VM whose "host" network can't reach the backend, and a second Hermes on the same `.dev/hermes` corrupts its SQLite files.
+Hermes runs in Docker (the `hermes` stage of the `Dockerfile`), the backend and web app run on the host with Node and reload on save. Linux only (host networking). Here the token is required, because the backend is outside the container: `cp .env.example .env` and set `HERMES_DASHBOARD_SESSION_TOKEN=$(openssl rand -hex 24)`. Stop the full container first (`docker compose down`): both want port 4100. The dev scripts pin `DOCKER_CONTEXT=default` (native engine): Docker Desktop on Linux runs containers in a VM whose "host" network can't reach the backend, and a second Hermes on the same `.dev/hermes` corrupts its SQLite files.
 
 ```
 npm run dev:hermes        # Hermes gateway + dashboard (docker-compose.dev.yml), data in ./.dev/hermes
@@ -92,27 +94,39 @@ The safe in the Executive Office holds one OutLayer custody wallet; its keys sta
 
 The runtime reuses the Node 26 that Hermes bundles (`/usr/local/bin/node` -> `/opt/hermes/tools/node-*`) instead of adding its own copy; the build fails if that Node is missing or is not Node 26.
 
-About 97% of the image (roughly 4.6 GB) is the Hermes base: bundled Chromium, ffmpeg, Python and Node, apt packages, and a `uv` cache. Vibe City adds about 35 MB.
+The image is about 3.2 GB, nearly all of it the Hermes base: bundled Chromium, ffmpeg, Python and Node, apt packages, and a `uv` cache.
 
 ## CI (`.github/workflows`)
 
 - `ci.yml`: on every push to `main` and every PR: `npm ci`, typecheck, tests (backend against FakeHermes + web), web build. Needs no Hermes.
-- There is no Docker workflow: the image is not built, smoke-tested or published in CI until there is a deployment target. Build and test it locally with `docker compose up -d --build` and `VIBE_CITY_IMAGE=<image> ./scripts/docker-smoke.sh`.
+- There is no Docker workflow: the image is not built, smoke-tested or published in CI until there is a deployment target. Build and test it locally with `./scripts/docker-smoke.sh`: it builds the image and runs it under its own compose project (`vibe-city-smoke`, port 4190), so its final `down -v` cannot delete the volume of a real run.
 - Deployment is not automated: no target (VM, Fly, Kubernetes) has been chosen.
 - The repository is on GitHub (`origin`); the workflow runs there.
 
 ## Isolation: what Docker does and does not change
 
-Agents run with Hermes' local terminal backend *inside this container*. That confines them to the container and the data volume (the host is out of reach), which is a real improvement. It does **not** scope files per department: any agent with file tools can still reach other departments' task folders in the same volume. A real per-department sandbox would need Hermes' docker terminal backend (Docker-in-Docker or a mounted socket), which is a separate decision with its own security cost.
+Agents run with Hermes' local terminal backend *inside this container*. That confines them to the container and the data volume (the host is out of reach), which is a real improvement. It does **not** scope files per department: any agent with file tools can still reach other departments' task folders in the same volume.
 
-## Known risks (verify on first run)
+The same holds for secrets. The backend, the gateway and every agent run as the `hermes` user on one volume. A process of that user can read Vibe City's SQLite file (the NEAR AI key, the OutLayer wallet key and the market tokens are stored there), every profile's `.env`, and the dashboard session token (checked 2026-11-11 with `docker exec -u hermes`). So "the company key is not in an agent's environment" and "the wallet key goes only to wallet floors" describe what Vibe City configures, not what an agent with terminal or file tools is prevented from reading. Use a NEAR AI key with a spending limit and a wallet whose OutLayer policy caps what it can spend. In development (`docker-compose.dev.yml`) the Hermes container also uses host networking, so agents can reach every service on the host's loopback. A real per-department sandbox would need Hermes' docker terminal backend (Docker-in-Docker or a mounted socket), which is a separate decision with its own security cost.
+
+## Known risks (verify after upgrading Hermes)
 
 1. The Hermes base is pinned by digest. Upgrading Hermes is a deliberate change (see Pinning Hermes); `scripts/build-hermes-image.sh` can still build a specific Hermes commit from source.
-2. Extra s6 service: it depends on the base image's s6 layout (`/etc/s6-overlay/s6-rc.d`, `user/contents.d`), copied from the version tested locally.
+2. Extra s6 service and cont-init scripts: they depend on the base image's s6 layout (`/etc/s6-overlay/s6-rc.d`, `user/contents.d`, `/run/s6/container_environment`), as in the pinned image.
 3. The gateway needs model credentials to run workers; `health.gateway` may read `stopped` in the smoke test (reported, not asserted).
 4. The smoke test provisions a department, which creates real profiles by cloning the default profile; if upstream changes that, the smoke test is where it will show.
 
 ## Verification record
+
+**2026-11-11, container from a clean checkout** (Linux x86_64, Docker 29.9, Compose v5.4; the tree exported with `git archive`, no `.env`):
+
+| Gate | Result |
+|---|---|
+| `docker compose up -d --build` | ok: image builds (43 s with the Hermes base cached, 3.2 GB), container `healthy` within a minute |
+| `/api/runtime/health` with no token given | ok: `dashboard: up`, `auth: ok`, `gateway: running`, Hermes 0.22.6. The same image without `00-vibe-city-token` and without a token answers `auth: rejected` |
+| `./scripts/docker-smoke.sh` | ok: web app served, a department provisioned to `ready` through the Hermes CLI (93 s for one agent on a fresh container), its own project removed afterwards |
+| `npm ci && npm test`, `npm run demo` on Node 24.13 | ok |
+| Not run | macOS, Windows and arm64 hosts (the pinned Hermes image has an arm64 variant); a quest with a real model key in this container |
 
 **2026-11-03, city UI merge** (development machine, Node 26.12.0, Hermes CLI 2026.9.24 `fcc26fb` installed but not running):
 
