@@ -230,7 +230,7 @@ export class City {
   private route(from: Pt, to: Pt): Pt[] {
     const leg = (p: Pt): Pt[] => {
       if (p[0] < 70 && p[1] > 88) return [OFFICE_DOOR, [OFFICE_DOOR[0], AISLE]];
-      if (p[0] > 86 && p[0] < 212 && (p[1] < 68 || p[1] > 92)) {
+      if (p[0] > 72 && p[0] < 198 && (p[1] < 68 || p[1] > 92)) {
         const g = GAPS.reduce((b, x) => (Math.abs(x - p[0]) < Math.abs(b - p[0]) ? x : b), GAPS[0]);
         return [[g, p[1]], [g, AISLE]];
       }
