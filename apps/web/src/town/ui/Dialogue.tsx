@@ -50,7 +50,7 @@ export function PortraitCanvas({ look, mood, talking, size, gag = null, classNam
   return <canvas ref={ref} width={size} height={size} className={className} aria-hidden="true" />;
 }
 
-export interface Line { id: string; from: 'user' | 'agent'; text: string; mood: Mood | null; replies: string[] }
+export interface Line { id: string; from: 'user' | 'agent'; text: string; mood: Mood | null; replies: string[]; skills?: string[] }
 export interface Who { name: string; title: string; color: string; voice: number }
 
 /** The shared window. The parent owns the conversation (lines, waiting, error); the frame owns paging, typing and input. */
@@ -153,6 +153,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
         </div>
         {done && long && !leaving && !error && <button type="button" className="dlg-copy" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy answer'}</button>}
         {below}
+        {done && !leaving && !error && !!lastAgent?.skills?.length && <p className="dlg-note dim">Skills: <span className="hire-skills">{lastAgent.skills.map((s) => <i key={s}>{s}</i>)}</span></p>}
         {done && !leaving && !error && cards?.(lastAgent)}
         <div className="dlg-replies">{replies.map((r) => <button key={r} className="dlg-chip" onClick={() => void send(r)}>{r}</button>)}</div>
         <form className="dlg-input" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
@@ -177,6 +178,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
 /** The agent's work while it answers, in the dialogue's words. */
 export function progressLabel(p: ChatProgress): string {
   if (p.kind === 'thinking') return 'thinking';
+  if (p.kind === 'skill') return `reading skill ${p.name}`;
   if (p.kind === 'approval') return `waiting for approval${p.command ? `: ${p.command.slice(0, 60)}` : ''}`;
   const name = p.name.replace(/^mcp_[a-z0-9]+_/, '').replace(/_/g, ' ');
   return /kanban/.test(p.name) ? 'checking the board' : `using ${name}`;

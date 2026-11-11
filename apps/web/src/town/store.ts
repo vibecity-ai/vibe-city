@@ -68,8 +68,8 @@ interface UI {
   /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
       'new'; omitted = their last chat). */
   talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
-  /** AR hiring: the dialogue window on the Chief of Staff's head (intake, then the candidates). */
-  call: { reqId: string } | null;
+  /** Why the Chief of Staff's window was opened to hire (an answered call, a floor's Hire button): its opening context. */
+  cosCall: string | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */
   boardQuest: string | null;
   /** New floor through the dialogue window with the executive assistant (the form stays as the accessible fallback). */
@@ -89,7 +89,7 @@ interface UI {
 }
 
 /** Every sheet on the desk (App.tsx's desk layer), put away. */
-const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, marketDraft: false, modal: null } satisfies Partial<UI>;
+const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, marketDraft: false, modal: null } satisfies Partial<UI>;
 
 export interface State {
   company: { name: string } | null;
@@ -158,7 +158,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, cosCall: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, market: null, origins: {}, schedules: [], personas: {},

@@ -60,7 +60,7 @@ import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, Schedule
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
 import { AssistantViewSchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
 import {
-  HiringBriefConfirmSchema, HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringSendSchema, HiringStartSchema,
+  HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringStartSchema,
   
 } from '@vibe-city/shared';
 
@@ -319,6 +319,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     // `services` exists by the first chat
     companyStatus: async () => companyStatus(await gameState(services)),
     floorKit: () => assistant.floorKit(), // built further down; called per chat turn
+    hiringFacts: () => hiring.facts(), // built further down too
     agentEnv: (profile) => aiEnv((db.prepare('SELECT department_id AS id FROM department_agent WHERE profile_ref = ?').get(profile) as { id: string } | undefined)?.id ?? ''),
   });
   /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */
@@ -368,21 +369,15 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
   });
   const reqId = (params: unknown) => (params as { reqId: string }).reqId;
   app.get('/api/hiring/current', async () => parse(HiringCurrentSchema, { request: await hiring.current() }));
+  // the brief comes from the Chief of Staff's chat: the request is created with its candidates
   app.post('/api/hiring/requests', async (req, reply) => {
-    const body = parse(HiringStartSchema, req.body ?? {});
-    if (body.departmentId) idOf({ id: body.departmentId });
-    return reply.code(201).send(parse(HiringRequestViewSchema, hiring.start(body.departmentId)));
+    const { brief } = parse(HiringStartSchema, req.body ?? {});
+    idOf({ id: brief.departmentId });
+    return reply.code(201).send(parse(HiringRequestViewSchema, await hiring.create(brief)));
   });
   app.get('/api/hiring/requests/:reqId', async (req) => parse(HiringRequestViewSchema, hiring.get(reqId(req.params))));
-  app.post('/api/hiring/requests/:reqId/answer', async (req) => parse(HiringRequestViewSchema, hiring.answer(reqId(req.params))));
+  // answering or declining the call closes it: the talk itself is the Chief of Staff's chat
   app.post('/api/hiring/requests/:reqId/decline', async (req) => parse(HiringRequestViewSchema, hiring.decline(reqId(req.params))));
-  app.post('/api/hiring/requests/:reqId/chat', async (req) =>
-    parse(HiringRequestViewSchema, await hiring.send(reqId(req.params), parse(HiringSendSchema, req.body).message)));
-  app.post('/api/hiring/requests/:reqId/brief', async (req) => {
-    const body = parse(HiringBriefConfirmSchema, req.body ?? {});
-    if (body.brief) idOf({ id: body.brief.departmentId });
-    return parse(HiringRequestViewSchema, await hiring.confirmBrief(reqId(req.params), body.brief));
-  });
   app.post('/api/hiring/requests/:reqId/offer', async (req) => {
     const body = parse(HiringOfferSchema, req.body);
     return parse(HiringRequestViewSchema, await hiring.offer(reqId(req.params), body.candidateId, body.acceptConcerns));
