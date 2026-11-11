@@ -16,6 +16,10 @@ export const ToolsetSchema = z.enum(TOOLSETS);
 export type Toolset = z.infer<typeof ToolsetSchema>;
 /** Never given to a department agent: sub-agents and cron jobs run outside the department board, where Vibe City cannot see them. */
 export const AGENT_EXCLUDED_TOOLSETS = ['delegation', 'cronjob'] as const;
+/** Always enabled on every agent, never a toggle: Kanban is how any agent reports; without `skills` no skill loads;
+    `terminal` runs the skills' curl calls and scripts and base64-encodes a file for kanban_attach (without it agents
+    borrowed CoinGecko's remote `execute` sandbox, sending company work to a third party). */
+export const REQUIRED_TOOLSETS = ['kanban', 'skills', 'terminal'] as const;
 
 /** Agents a department may have besides its lead. Every agent is its own Hermes profile. */
 export const MAX_TEAMMATES = 10;

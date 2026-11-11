@@ -2,7 +2,7 @@
    this service supplies what Hermes really has and filters the draft down to it. The Agent Market listing is still a
    direct model call. Both only draft: nothing is created until the user confirms, through the ordinary APIs. */
 import {
-  AGENT_EXCLUDED_TOOLSETS, MARKET_CATEGORIES, MARKET_HANDLE_RE, MOODS, TOOLSETS, isInternalOnly,
+  AGENT_EXCLUDED_TOOLSETS, MARKET_CATEGORIES, REQUIRED_TOOLSETS, MARKET_HANDLE_RE, MOODS, TOOLSETS, isInternalOnly,
   type Character, type DepartmentView, type DeptDraft, type MarketDraft, type MarketDraftReply, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type Toolset,
 } from '@vibe-city/shared';
 import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
@@ -59,7 +59,7 @@ export class AssistantService {
     const value: FloorKit = {
       prompt: [
         `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
-        `Toolsets that can be granted: ${toolsets.join(', ')}`,
+        `Toolsets that can be granted: ${toolsets.join(', ')}. Every agent always has ${REQUIRED_TOOLSETS.join(', ')} on top: never list them, never say a floor lacks them`,
         offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first, at NEAR AI\'s list price; quote these real prices to the boss, never "credits"' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick a "Private TEE" model (sealed in NEAR AI\'s own TEE, so the company\'s data stays private); an "Incognito" one only when no Private TEE model fits the work or the boss names it, and say so: near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
       ].join('\n'),
       clamp: (raw) => clampDraft(raw, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }),

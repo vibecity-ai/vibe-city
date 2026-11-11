@@ -51,6 +51,7 @@ test('priced drafts: only agent-capable models are offered, cheapest first, and 
   assert.equal(draft.creditsPerDay, 2 * 150); // ($1 + $0.50) a day, lead + one teammate
   assert.match(system, /near-ai\/model-a \(\$0\.10 in \/ \$0\.50 out per 1M tokens, Incognito\), near-ai\/model-b \(\$1\.00 in \/ \$5\.00 out per 1M tokens, Incognito\)/);
   assert.doesNotMatch(system, /\d credits/, 'the boss hears real USD prices, not credits');
+  assert.match(system, /Every agent always has kanban, skills, terminal on top/, 'the always-on toolsets are not the Chief of Staff\'s to grant or withhold');
   assert.doesNotMatch(system, /m-1|claude-x|base-model/);
   // No model chosen: the floor runs on Hermes' current default, priced when known.
   assert.equal(clampDraft({ name: 'Ops' }, { skills: [], toolsets: [], offered: [], prices, current: 'model-a' })!.creditsPerDay, 2 * 15);

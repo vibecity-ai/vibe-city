@@ -37,7 +37,7 @@ import { CeoConsole } from './CeoConsole';
 import { SkillBadges, SkillCard } from './Skills';
 import { skillMeta } from '../data/skills';
 import { SkillPicker, ToolPicker, ToolSlot } from './Picker';
-import { stationFor, toolsReport } from '../data/floor';
+import { isRequiredToolset, stationFor, toolsReport } from '../data/floor';
 import type { SkillState } from '../data/skills';
 
 
@@ -395,6 +395,8 @@ function DeptLoadout({ d, part }: { d: Dept; part: 'tools' | 'skills' }) {
           {(() => {
             // grouped by what Hermes has, like the skills above, so a toggled toolset stays put until the sync moves it
             const slot = (t: Toolset) => {
+              if (isRequiredToolset(t)) return <ToolSlot key={t} name={t} on disabled onToggle={() => undefined} title="Every agent carries it: Vibe City needs it to run tasks."
+                foot={<>{needs.has(t) && <span className="tt-need">Needed</span>}<span className="tt-def">Always on</span></>} />;
               const allowedT = !!inv?.allowedToolsets.includes(t);
               const inHermes = observedTools.get(t);
               const pending = inHermes !== undefined && allowedT !== inHermes;

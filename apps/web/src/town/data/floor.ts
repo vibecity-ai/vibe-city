@@ -1,7 +1,10 @@
 /* What a department floor holds (pure, tested): the objects every floor shares, the station each template brings,
    and which tools each kind of floor really needs. The city draws and hit-tests the objects (world/floorRoom.ts); the
    sheets that open show this data. */
-import { TEMPLATE_BASE_TOOLSETS, type Inventory, type Toolset } from '@vibe-city/shared';
+import { REQUIRED_TOOLSETS, TEMPLATE_BASE_TOOLSETS, type Inventory, type Toolset } from '@vibe-city/shared';
+
+/** On for every agent whatever the floor's allowance says: the backend adds them at every sync. */
+export const isRequiredToolset = (t: string) => (REQUIRED_TOOLSETS as readonly string[]).includes(t);
 
 /* ---------------- tools ---------------- */
 
@@ -95,7 +98,7 @@ const line = (id: string, on: boolean): ToolLine => {
 };
 
 export function toolsReport(templateId: string | undefined | null, inv: Pick<Inventory, 'allowedToolsets' | 'allowedSkillIds'>): ToolsReport {
-  const on = new Set(inv.allowedToolsets);
+  const on = new Set([...inv.allowedToolsets, ...REQUIRED_TOOLSETS]);
   const st = stationFor(templateId);
   if (!st) return { needed: [], extra: inv.allowedToolsets.filter((t) => !BASE.includes(t)).map((t) => line(t, true)), skills: [], plain: true };
   const need = new Set<string>(st.toolsets);

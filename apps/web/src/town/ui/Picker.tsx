@@ -5,7 +5,7 @@ import { useMemo, useState, type JSX, type ReactNode } from 'react';
 import type { Toolset } from '@vibe-city/shared';
 import { Icon } from './kit';
 import { SkillCard, SkillGlyph } from './Skills';
-import { BASE, TOOL_INFO } from '../data/floor';
+import { BASE, TOOL_INFO, isRequiredToolset } from '../data/floor';
 import { SCHOOLS, bySchool, skillMeta, type School } from '../data/skills';
 
 export interface ToolChoice { name: string; enabled: boolean; manageable: boolean }
@@ -53,6 +53,7 @@ export function ToolSlot({ name, on, onToggle, disabled, title, foot }: { name: 
 }
 
 function ToolTile({ t, on, onToggle }: { t: ToolChoice; on: boolean; onToggle: () => void }) {
+  if (isRequiredToolset(t.name)) return <ToolSlot name={t.name} on disabled onToggle={() => undefined} title="Every agent carries it: Vibe City needs it to run tasks." foot={<span className="tt-def">Always on</span>} />;
   return <ToolSlot name={t.name} on={on} onToggle={onToggle} disabled={!t.manageable} title={t.manageable ? undefined : 'Not a toolset Vibe City manages.'}
     foot={t.enabled ? <span className="tt-def">Hermes default</span> : undefined} />;
 }

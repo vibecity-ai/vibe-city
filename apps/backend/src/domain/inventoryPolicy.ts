@@ -1,14 +1,11 @@
 import { createHash } from 'node:crypto';
-import { AGENT_EXCLUDED_TOOLSETS, type CapabilityEntry, type Inventory, type ModelChoice } from '@vibe-city/shared';
+import { AGENT_EXCLUDED_TOOLSETS, REQUIRED_TOOLSETS, type CapabilityEntry, type Inventory, type ModelChoice } from '@vibe-city/shared';
 
 type Draft = Omit<CapabilityEntry, 'guarantee'>;
 /** A guarantee exists only where behavior was tested (status 'enforced'); everything else is explicitly not one. */
 const withGuarantee = (e: Draft): CapabilityEntry => ({ ...e, guarantee: e.status === 'enforced' });
 
-/** Always enabled, never offered as a toggle: Kanban is how any agent reports; without `skills` no skill loads; `terminal`
-    runs the skills' curl calls and scripts and base64-encodes a file for kanban_attach (without it agents borrowed
-    CoinGecko's remote `execute` sandbox, sending company work to a third party). */
-export const REQUIRED_TOOLSETS = ['kanban', 'skills', 'terminal'] as const;
+export { REQUIRED_TOOLSETS };
 /** Hermes pins these skills on ("cannot be disabled from any surface", agent/skill_utils.py ESSENTIAL_SKILLS). */
 export const ESSENTIAL_SKILLS = ['hermes-agent'] as const;
 /** Never enabled, never offered: they delegate to the Claude Code / Codex CLIs, which the container does not have (agents run on NEAR AI only). */
