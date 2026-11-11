@@ -50,7 +50,6 @@ export function CeoConsole() {
   }, []);
   const s = useStore.getState();
   const next = game ? nextQuest(game) : null;
-  const idx = game && next ? game.quests.indexOf(next) + 1 : 0;
   const r = game?.runway;
   const pct = r?.days == null ? 0 : Math.max(0, Math.min(1, r.days / 30));
   return (
@@ -66,7 +65,7 @@ export function CeoConsole() {
       {game && (
         <section className="ceo-quest" aria-label="Your quest">
           <div className="ceo-qhead">
-            <span>{next ? `Quest ${idx}/${game.quests.length}` : 'All quests done'}</span>
+            {next && <span>Next quest</span>}
             <Pips g={game} />
             <button className="ceo-log" onClick={() => s.ui$({ questLog: true })}>Log · {progressLabel(game)}</button>
           </div>
