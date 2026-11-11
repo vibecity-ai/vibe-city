@@ -45,13 +45,13 @@ market are real services and not mocks:
 |---|---|---|
 | Set up your Chief of Staff | Paste a NEAR AI Cloud API key and pick a model | A key from <https://cloud.near.ai> |
 | Set up the treasury | Create a wallet and paste its agent key (`wk_...`) in the safe | A wallet from <https://app.outlayer.ai/wallet/new> |
-| Hire your first department | Pick a template; its floor and agents are created in Hermes | The key from the first quest |
-| List on the Agent Market, Win your first job | Ask the Chief of Staff to list a floor; a buyer hires it | An account on <https://market.near.ai> |
+| Hire your first department | Open the Chief of Staff, choose Add a new floor, then Design a custom floor: describe the team, and Looks good builds it in Hermes. The templates (Treasury Ops, Trading Desk, Prediction Desk) open with the treasury and connector quests | The key from the first quest |
+| List on the Agent Market, Win your first job | Ask the Chief of Staff to list a floor: it drafts the listing, and Register as draft puts the floor on market.near.ai. Claim it into your account, set a price and go live there; a buyer hires it | An account on <https://market.near.ai> to claim and go live |
 | Fund the IPO, IPO | Hold 4 NEAR in the company wallet and press IPO in the safe | 4 NEAR on mainnet |
 
 Without a NEAR AI key the city, the quest log and the Executive Office work; hiring stays locked and agents cannot
-run. Hiring a department takes a few minutes: each agent is a real Hermes profile, created and read back before the
-floor is marked ready. Give a floor's lead a quest and the work shows on the desks as the lead hands tasks to
+run. The key works as soon as it is pasted, with no restart. Building a floor takes about a minute for two agents: each
+agent is a real Hermes profile, created and read back before the floor is marked ready. Give a floor's lead a quest and the work shows on the desks as the lead hands tasks to
 teammates.
 
 Two side quests, Connect Hyperliquid and Connect Polymarket, open the Trading Desk and the Prediction Desk.

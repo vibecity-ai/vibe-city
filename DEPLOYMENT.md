@@ -68,7 +68,7 @@ Under the gateway's profile multiplexing a profile reads credentials **only from
 
 The Chief of Staff (who drafts floors and hires) is not a Hermes agent: the backend calls NEAR AI directly with the model chosen in the first quest (changeable later in the Executive Office), else `CHAT_MODEL` / `NEAR_AI_MODEL`, else `deepseek-ai/DeepSeek-V4.1-Flash-1017`. Saving a key or a model first makes one tiny NEAR AI call with both, so a wrong key is refused instead of saved.
 
-The city's model pickers list what Hermes reports for the authenticated providers. Restart the container after changing the key.
+The city's model pickers list what Hermes reports for the authenticated providers. A key pasted in the game works at once, with no restart: checked 2026-11-11 on a container started without a key (the Chief of Staff answered, a custom floor was built and its lead answered through the metering proxy, and the pickers listed NEAR AI's models).
 
 Other providers: put their variables in `.env.hermes` (optional, read by compose, never baked into the image), using the names Hermes documents for that provider.
 
