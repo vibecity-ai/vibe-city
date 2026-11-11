@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { QuestSummary } from '@vibe-city/shared';
-import { fxBetween } from './fx.ts';
+import { BELL_S, BELL_STRIKES, bellStrike, bellSwing, fxBetween } from './fx.ts';
 import type { Dept } from './types.ts';
 
 const dept = (id: string, workers: { id: string; status: string; taskId?: string }[] = []) =>
@@ -26,4 +26,13 @@ test('a new teammate and a task finishing are city events too', () => {
   const before = [dept('a', [{ id: 'W-01', status: 'running', taskId: 't1' }])];
   const after = [dept('a', [{ id: 'W-01', status: 'completed', taskId: 't1' }, { id: 'W-02', status: 'idle' }])];
   assert.deepEqual(fxBetween(before, after, [], []), [{ k: 'taskDone', dept: 'a', worker: 'W-01' }, { k: 'workerJoined', dept: 'a', worker: 'W-02' }]);
+});
+
+test('the opening bell hangs still at both ends and is at full swing, on alternating sides, at every strike', () => {
+  assert.equal(bellSwing(0), 0);
+  assert.equal(bellSwing(BELL_S), 0);
+  for (let k = 0; k < BELL_STRIKES; k++) {
+    assert.ok(bellStrike(k) < BELL_S);
+    assert.ok(Math.abs(bellSwing(bellStrike(k)) - (k % 2 ? -0.42 : 0.42)) < 1e-9, `strike ${k}`);
+  }
 });

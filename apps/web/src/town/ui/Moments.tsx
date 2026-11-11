@@ -30,6 +30,7 @@ function momentOf(fx: Fx, key: number): { m: Moment | null; sfx: Sfx | null } {
       if (fx.phase === 'scouting') return { m: m('Scouting', 'The Chief of Staff is looking for a hire', fx.floor ? `for ${fx.floor}` : null, '#9B5CFF', 'search'), sfx: 'scout' };
       if (fx.phase === 'shortlist') return { m: m('Shortlist ready', 'Candidates are waiting to meet you', 'Pick up the Chief of Staff’s call', '#9B5CFF', 'phone'), sfx: 'shortlist' };
       return { m: null, sfx: null };
+    case 'ipo': return { m: m('Opening bell', `${fx.symbol} is listed`, 'Shares are on offer: the safe has the subscription link', 'var(--gold)', 'bell', true), sfx: 'bell' };
     case 'taskDone': return { m: null, sfx: 'tick' };
     case 'taskFail': return { m: null, sfx: 'fail' };
     case 'chiefArrived': return { m: null, sfx: 'hire' };

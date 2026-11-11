@@ -6,7 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
+import { ipoRang, ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
 
 const errText = (e: unknown) => (e instanceof ApiError ? e.message : e instanceof Error ? e.message : 'Something went wrong.');
 const NB = 'https://nearblocks.io';
@@ -44,7 +44,14 @@ function Bell() {
 
 export function IpoCard({ ceo }: { ceo: string | null }) {
   const company = useStore((s) => s.company?.name ?? '');
-  const [ipo, setIpo] = useState<IpoState | null>(null);
+  const [ipo, setIpoState] = useState<IpoState | null>(null);
+  const was = useRef<IpoState['state'] | null>(null);
+  /** Every answer from the server comes through here: the one that completes the IPO shuts the safe and rings the bell
+      on the roof (world/City.ts), where the player can see it. */
+  const setIpo = (x: IpoState) => {
+    if (ipoRang(was.current, x.state)) { const s = useStore.getState(); s.closeFloor(); s.emit({ k: 'ipo', symbol: x.symbol ?? '' }); }
+    was.current = x.state; setIpoState(x);
+  };
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [checking, setChecking] = useState(false);

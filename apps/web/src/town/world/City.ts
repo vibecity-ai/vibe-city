@@ -21,7 +21,8 @@ import { hull } from './interior';
 /** The Executive Office uses the department shell with its own (warmer, darker) floor. */
 const EXEC_THEME = { theme: { floor: '#4A2E44', accent: '#FFC75A' }, name: 'Executive office' } as unknown as Dept;
 import { cityFront } from './citybg';
-import { backdrop, lobby, floorFacade, ghostFloor, penthouse, pip, FH, PH_H, HEX, type FaceAgent } from './tower';
+import { backdrop, lobby, floorFacade, ghostFloor, penthouse, roofBell, pip, FH, PH_H, HEX, type FaceAgent } from './tower';
+import { BELL_S, BELL_STRIKES, bellStrike, bellSwing } from '../data/fx';
 
 const rnd = (a: number, b: number) => a + Math.random() * (b - a);
 const clamp = (v: number, a: number, b: number) => Math.max(a, Math.min(b, v));
@@ -85,6 +86,8 @@ export class City {
   private press: { id: number; x: number; y: number; start: number; agent: string; fired: boolean; timer: number } | null = null;
   private particles: Particle[] = []; private packets: Packet[] = []; private pops: Pop[] = []; private rings: Ring[] = [];
   private t = 0; private last = 0; private raf = 0; private intro = 0; private fxSeen = 0;
+  /** The opening bell (IPO): when the ceremony began, the ticker symbol, the strikes rung so far, the next firework. */
+  private bell = { at: -1e9, symbol: '', hits: 0, fw: 0 };
   private hover: string | null = null;
   hoverAgent: string | null = null;
   private drag: { x: number; y: number; moved: boolean } | null = null;
@@ -144,6 +147,8 @@ export class City {
       const z = kr >= 1 && kr <= k * 1.1 ? kr / this.dpr : kf >= 1 && kf >= k * 0.8 ? kf / this.dpr : zi;
       return { x: 192, y: this.execT() + 54, z, sx: W / 2, sy: H * (W < 700 ? 0.5 : 0.53) };
     }
+    // the opening bell: the roof fills the stage while it rings
+    if (!this.reduced && this.t - this.bell.at < BELL_S) return { x: 190, y: this.ph.y - 5, z: clamp(Math.min((W * 0.9) / 420, (H * 0.8) / 270), 0.5, 3), sx: W / 2, sy: H / 2 };
     const top = -FH * n - FH - PH_H - 150, bottom = 240;
     const labels = W > 760 ? 250 : 0;
     const z = clamp(Math.min((W - labels - 80) / 500, (H - (W < 900 ? 90 : 60)) / (bottom - top + 40)), 0.22, 1.6) * this.user.dz;
@@ -163,6 +168,7 @@ export class City {
     this.onTick(dtMs);
     const s = useStore.getState();
     this.consumeFx(s);
+    this.ringBell();
     this.layout(s, dt);
     this.syncActors(s, dt);
     this.render(s, dt);
@@ -341,6 +347,7 @@ export class City {
   private play(s: State, fx: Fx) {
     const fa = 'dept' in fx ? this.floors.get(fx.dept) : undefined;
     switch (fx.k) {
+      case 'ipo': this.bell = { at: this.t, symbol: fx.symbol, hits: 0, fw: 0 }; break;
       case 'delegate': {
         // In the open office the lead walks over and hands it out; seen from the tower, a packet flies desk to desk.
         if (fa && fa.open > 0.5 && this.actors.get(fx.dept)?.has('chief')) {
@@ -439,6 +446,16 @@ export class City {
       }
     }
   }
+  /** The ceremony's one-shots: a gold ripple across the roof on every strike, fireworks over the tower in between. */
+  private ringBell() {
+    const b = this.bell, T = this.t - b.at;
+    if (T >= BELL_S || this.reduced) return;
+    for (; b.hits < BELL_STRIKES && T >= bellStrike(b.hits); b.hits++) this.rings.push({ x: 100, y: this.ph.y + 19, r: 10, max: 150, col: C.gold });
+    if (T > bellStrike(0) && T < BELL_S - 1 && T > b.fw) {
+      b.fw = T + rnd(0.3, 0.6);
+      this.burst(rnd(-90, 470), this.ph.y - rnd(100, 230), 28, [C.pink, C.cyan, C.gold, C.mint, C.ink][Math.floor(rnd(0, 5))]!, 62, 1.3, 34);
+    }
+  }
   private burst(x: number, y: number, n: number, col: string, spd: number, life: number, grav: number) {
     for (let i = 0; i < n; i++) { const a = rnd(0, Math.PI * 2), v = rnd(spd * 0.3, spd); this.particles.push({ x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - spd * 0.3, life, max: life, col, size: 2, grav, glow: true }); }
   }
@@ -497,6 +514,11 @@ export class City {
     anchors.push({ id: 'ghost', kind: 'ghost', x: 382, y: ghostTop + 77, visible: this.ghostA * Math.min(1, this.intro * 1.5), z: 0 });
     const phA = (open ? 1 - 0.9 * openA : 1) * (1 - 0.97 * this.execOpen) * Math.min(1, this.intro * 1.6);
     if (phA > 0.01) penthouse(px, L, this.t, this.ph.y, phA, (s.company?.name ?? 'VIBE CITY'), s.ui.panel === 'exec' && s.ui.view === 'tower', this.bk);
+    // a listed company keeps its bell on the roof; it swings, with the ticker and the CEO on the rope, while the IPO is rung in
+    const bT = this.t - this.bell.at;
+    if (phA > 0.01 && (bT < 1e8 || s.game?.quests.some((q) => q.id === 'ipo' && q.done))) {
+      roofBell(px, L, this.t, this.ph.y, phA * Math.min(1, bT / 0.5), { swing: this.reduced ? 0 : bellSwing(bT), show: clamp(Math.min(bT / 0.6, (BELL_S - bT) / 0.8), 0, 1), symbol: this.bell.symbol });
+    }
     anchors.push({ id: 'ph', kind: 'ph', x: 382, y: this.ph.y + 72, visible: (1 - openA) * clamp(1 - Math.abs(this.ph.vy) / 160, 0, 1), z: 0 });
     towerPower(false);
     if (openA < 0.99) { px.push(1 - openA); cityFront(px, L, this.t, this.bk); px.pop(); }
