@@ -67,15 +67,14 @@ interface UI {
   questFrom: 'board' | 'dept';
   /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
       'new'; omitted = their last chat). */
-  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
-  /** AR hiring: the dialogue window on the Chief of Staff's head (intake, then the candidates). */
-  call: { reqId: string } | null;
+  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk; /** a finished quest the lead phoned about */ report?: string } | null;
+  /** Why the Chief of Staff's window was opened to hire (an answered call, a floor's Hire button): its opening context. */
+  cosCall: string | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */
   boardQuest: string | null;
   /** New floor through the dialogue window with the executive assistant (the form stays as the accessible fallback). */
   newDept: boolean;
   /** The Chief of Staff drafting the Agent Market listing with the boss. */
-  marketDraft: boolean;
   /** Inside the Executive Office (the penthouse opened up, feature spec 3.1), and which of its screens is open. */
   execRoom: boolean; execModal: 'safe' | 'calendar' | null;
   /** Calendar opened from a floor: show only that floor's schedules. */
@@ -89,7 +88,7 @@ interface UI {
 }
 
 /** Every sheet on the desk (App.tsx's desk layer), put away. */
-const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, marketDraft: false, modal: null } satisfies Partial<UI>;
+const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, modal: null } satisfies Partial<UI>;
 
 export interface State {
   company: { name: string } | null;
@@ -158,7 +157,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, cosCall: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, market: null, origins: {}, schedules: [], personas: {},

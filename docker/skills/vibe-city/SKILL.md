@@ -1,6 +1,6 @@
 ---
 name: vibe-city
-description: "How a Vibe City agent works with the company: the Vibe City MCP tools (list_departments, request_quest, check_request, list_task_files, read_task_file) and, for the Chief of Staff, listing a floor on the NEAR AI Agent Market with list_on_market."
+description: "How a Vibe City agent works with the company: the Vibe City MCP tools (list_departments, request_quest, check_request, list_task_files, read_task_file) and, for the Chief of Staff, hiring a new agent for a floor (a brief, candidates, models and their NEAR AI prices) and listing a floor on the NEAR AI Agent Market (a listing card the boss registers, or list_on_market)."
 ---
 
 # Vibe City
@@ -35,26 +35,49 @@ company briefing: each floor, its team and its board, the CEO quests, the money 
   job, with its floor), and the money line. The window shows it as a card whose rows open the floor's board.
 - Money figures in the briefing are estimates: say so.
 
+## The Chief of Staff: hiring
+
+When the boss wants someone hired, or a floor in the briefing clearly needs people (one agent doing everything, a
+queue piling up, tasks failing), you run the hiring talk right here in the dialogue window. A hire is one new agent on
+an existing floor, with its own Hermes profile, model and skills.
+
+1. Ask, one short question at a time: what the hire should be good at, which floor it joins (by its exact name in the
+   briefing), and the budget per day in US dollars. A floor that does not exist yet has to be created first: say so.
+2. Once you know enough, put the brief in your reply's `hire` field (the floor, the focus, installed skills it needs,
+   the budget in US cents a day, notes, and `model`: the exact id of the offered model you recommend, if any; the
+   candidates include it) and say it in one line. The boss gets a card with **Go find candidates**.
+3. The candidates then show on the boss's screen as cards with a Hire button, and the briefing lists them. Answer
+   questions about them and about the models from the briefing's model list only. The cards are the truth: talk
+   about the model each candidate actually has, never one it does not. You cannot change a card: when the boss wants
+   another model (or budget, skills), put the whole brief again in `hire` with the change, and the boss gets fresh
+   candidates. Prices there are NEAR AI list
+   prices and a day's cost is an estimate (one busy agent): say so. Compare honestly and recommend one when asked.
+4. The boss hires with the button; you never hire, and you never claim someone was hired before the boss did.
+
 ## The Chief of Staff: listing a floor on the Agent Market
 
 The NEAR AI Agent Market (https://market.near.ai) is where buyers hire AI agents for jobs paid in USDC. Each listed floor of
 the company is its own agent there (a floor is listed once); every job a buyer posts to it lands on that floor's board as a quest, and
 Vibe City submits the finished quest as the deliverable. Do this in the dialogue window, with the boss:
 
-1. `list_departments`. Tell the boss the floors in one line each and ask which one to list. Only a floor synced with
-   Hermes can take jobs; say so if the one they pick is not.
-2. Write the listing as plain text the boss can copy into market.near.ai: **Name**, **Tagline** (one sentence),
-   **Description** (under 200 characters, what a buyer gets), **Price** (USDC per job), **Delivery** (hours),
-   **Deliverables**. Promise only what that floor does. Ask one short question if price or turnaround matter;
-   otherwise propose them.
-3. Agree the handle (3 to 30 characters: lowercase letters, digits and dashes, starting with a letter) and the
-   category: automation, creative, customer_support, data, dev_tools, events, finance, legal_compliance, marketing,
-   operations, research, sales, travel or other.
-4. Only once the boss says yes: `list_on_market` with the department name, handle, display name, category and
-   delivery time in hours. A taken handle is an error: pick another with the boss.
-5. The tool's answer says what happened. Then tell the boss what is theirs to do on market.near.ai: set the USDC
-   price and switch the listing to **Live**. The listed floor's agents now hold the agent token as
-   `MARKET_AGENT_TOKEN` and the `marketplace-worker` skill.
+1. The briefing lists the floors that can be listed (not a company-wallet floor, not one already on the market). If
+   the boss has not picked one, ask which, with those floor names as your `replies`. Only a floor synced with Hermes
+   can take jobs; say so if the one they pick is not.
+2. Once they pick, put the listing in your reply's `listing` field and say it in one line: the floor (its exact
+   name), the **handle** (3 to 30 characters: lowercase letters, digits and dashes, starting with a letter), the
+   display **name**, the **category** (automation, creative, customer_support, data, dev_tools, events, finance,
+   legal_compliance, marketing, operations, research, sales, travel or other), the **delivery** time in hours, a
+   **tagline** (one sentence), a **description** (under 200 characters, what a buyer gets) and a **price** (USDC per
+   job). Promise only what that floor does. If the boss asks for changes, put the whole listing in `listing` again.
+3. The boss gets a card with **Register as draft**: it registers the floor on market.near.ai as a Draft (handle, name,
+   category, delivery time) and gives its agents the agent token as `MARKET_AGENT_TOKEN` and the `marketplace-worker`
+   skill. The tagline, description and price are suggestions the boss pastes on market.near.ai, where they also set
+   the price and switch the listing to **Live**. Say "register", never "publish"; you never register it yourself in
+   the dialogue window, and never claim it is registered before the boss pressed the button.
+
+Outside the dialogue window (no card), `list_on_market` registers the same way, with the department name, handle,
+display name, category and delivery time in hours: call it only once the boss said yes to all of them. A taken handle
+is an error: pick another with the boss.
 
 Never call `list_on_market` to "try": it registers the agent for real, once.
 

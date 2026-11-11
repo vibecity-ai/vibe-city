@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { questApp } from './testUtils.ts';
 import { WORKER_SKILL } from './domain/marketService.ts';
 import { gameState } from './routes/game.ts';
+import { FakeHermes } from './testing/fakeHermes.ts';
+import { FakeAgentChat } from './testing/fakeAgentChat.ts';
 
 const TOKEN = 'aat_' + 'a'.repeat(32), TOKEN2 = 'aat_' + 'b'.repeat(32);
 
@@ -245,4 +247,28 @@ test('a listing from before floors were listed one by one (no marketDepartmentId
   const rows = db.prepare('SELECT * FROM market_agent').all() as Record<string, unknown>[];
   assert.deepEqual(rows.map((r) => [r.department_id, r.handle, r.token, r.verified_at]), [['agency', 'acme-works', TOKEN, '2026-11-09T12:00:00Z']]);
   db.close();
+});
+
+test('the Chief of Staff drafts a listing in its Hermes chat for a listable floor only; the card registers it', async () => {
+  const market = fakeMarket(), hermes = new FakeHermes();
+  const listing = (floor: string) => ({ floor, handle: 'Markets Intel!!', name: 'Markets Intel', category: 'astrology', slaHours: 9999, tagline: 'Daily crypto brief.', description: 'Prices, flows, news.', priceUsdc: '$7' });
+  const agentChat = new FakeAgentChat(hermes, (t) => `Here it is.\n<vc>${JSON.stringify({ mood: 'happy', replies: [], proposal: null, listing: listing(t.message) })}</vc>`);
+  const { app, services } = questApp({ marketFetch: market.fetch, agentChat }, hermes);
+  const cos = services.chiefOfStaffId;
+  assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` })).json().state, 'ready');
+  const d = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Markets Intel', purpose: 'Watches markets.' } })).json();
+  const say = async (message: string) => (await app.inject({ method: 'POST', url: `/api/departments/${cos}/characters/chief/chat`, payload: { message } })).json().agent;
+
+  const l = (await say('markets intel')).listing;
+  assert.deepEqual([l.departmentId, l.handle, l.category, l.slaHours, l.priceUsdc], [d.id, 'markets-intel', 'other', 720, '7.00']);
+  assert.match(agentChat.turns[0]!.system, /Floors that can be listed: Markets Intel;/);
+  assert.equal((await say('Nope')).listing, undefined, 'an unknown floor gets no listing');
+  assert.equal((await say('Chief of Staff')).listing, undefined, 'an internal floor is never listed');
+
+  // the card's Register as draft sends what the listing holds
+  const r = await app.inject({ method: 'POST', url: '/api/market/register', payload: { handle: l.handle, name: l.name, category: l.category, slaHours: l.slaHours, departmentId: l.departmentId, tagline: l.tagline, description: l.description, priceUsdc: l.priceUsdc } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.equal(r.json().agents[0].handle, 'markets-intel');
+  assert.equal((await say('markets intel')).listing, undefined, 'a listed floor is not listed again');
+  assert.match(agentChat.turns.at(-1)!.system, /Floors that can be listed: none;/);
 });

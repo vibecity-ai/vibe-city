@@ -7,7 +7,8 @@ import type { FakeHermes } from './fakeHermes.ts';
 export class FakeAgentChat implements AgentChat {
   turns: AgentTurn[] = [];
   sessions = new Map<string, string[]>();
-  events: AgentChatEvent[] = [];
+  /** Progress sent before each answer; a function picks them per turn (the demo's Chief of Staff loads its skill). */
+  events: AgentChatEvent[] | ((t: AgentTurn) => AgentChatEvent[]) = [];
   private hermes: FakeHermes;
   private answer: (t: AgentTurn, history: string[]) => string;
   constructor(hermes: FakeHermes, answer: (t: AgentTurn, history: string[]) => string = () => 'On it, boss.\n<vc>{"mood":"happy","replies":["Thanks"],"proposal":null}</vc>') {
@@ -19,7 +20,7 @@ export class FakeAgentChat implements AgentChat {
     if (!this.hermes.profiles.has(t.profile)) throw new HermesRejectedError('Unknown or unconfigured profile');
     if (this.hermes.env.get(t.profile)?.API_SERVER_KEY !== t.key) throw new HermesAuthError('Hermes rejected the agent API key');
     this.turns.push(t);
-    for (const e of this.events) onEvent(e);
+    for (const e of typeof this.events === 'function' ? this.events(t) : this.events) onEvent(e);
     const k = `${t.profile}/${t.sessionId}`;
     const history = this.sessions.get(k) ?? [];
     const reply = this.answer(t, history);

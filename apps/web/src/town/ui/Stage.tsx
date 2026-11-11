@@ -114,7 +114,7 @@ export function StageOverlay({ city }: { city: City | null }) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || useStore.getState().ui.modal || useStore.getState().ui.talk || useStore.getState().ui.call || useStore.getState().ui.newDept) return;
+      if (e.key !== 'Escape' || useStore.getState().ui.modal || useStore.getState().ui.talk || useStore.getState().ui.newDept) return;
       const s = useStore.getState();
       const floorOpen = s.ui.view === 'floor' && !!s.ui.floorId;
       if (s.ui.execModal) { s.ui$({ execModal: null }); return; }

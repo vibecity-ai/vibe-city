@@ -1,24 +1,23 @@
 /* AR (Agent Resources): scouting and hiring (feature spec 7.1).
-   AR watches the boards with a few plain rules and calls the CEO when a floor needs people. The intake is a chat with
-   AR's head that ends in a brief; confirming it shows two serious candidates (loadouts built from what Hermes really has:
-   its models and installed skills) and two joke candidates (an original, curated cast whose numbers are honestly bad).
-   The candidates show right away in the same chat, where AR answers questions about them and Hermes' models (real
-   NEAR AI prices in its prompt). Nothing changes in Hermes until the offer. An offer adds one agent to the department, with the candidate's own model
-   and skills, then re-provisions the department through the normal path, which creates the agent's Hermes profile. */
+   AR watches the boards with a few plain rules and calls the CEO when a floor needs people. The talk is the Chief of
+   Staff's own Hermes chat (chatService), which ends in a brief; confirming it shows three candidates that fit it (loadouts
+   built from what Hermes really has: its models and installed skills, priced at NEAR AI's list prices). `facts()` is what the Chief of Staff knows while hiring: the offered models with NEAR
+   AI prices and the candidates on screen. Nothing changes in Hermes until the offer. An offer adds one agent to the
+   department, with the candidate's own model and skills, then re-provisions the department through the normal path,
+   which creates the agent's Hermes profile. */
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
-  CandidateSchema, HiringBriefSchema, HiringMessageSchema, MAX_TEAMMATES, MOODS, profileNameForAgent,
-  type Candidate, type Character, type HiringBrief, type HiringMessage, type HiringRequestView, type HiringState,
+  CandidateSchema, HiringBriefSchema, MAX_TEAMMATES, MOODS, profileNameForAgent,
+  type Candidate, type Character, type HiringBrief, type HiringRequestView, type HiringState,
   type HiringTrigger, type HermesModelsView, type Mood, type ModelChoice, type QuestSummary,
 } from '@vibe-city/shared';
-import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
-import { ModelUnavailableError } from '../model/chatModel.ts';
+import type { ChatModel } from '../model/chatModel.ts';
 import { dailyCredits, priceNote, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
 import { COLORS, FIRST, LAST, QUIRKS, STYLES, TRAITS, chiefOfStaff, hash, pick } from './characters.ts';
-import { ConflictError, InvalidInputError, NotFoundError } from './errors.ts';
+import { ConflictError, NotFoundError } from './errors.ts';
 
 export interface HiringDeps {
   db: DatabaseSync;
@@ -38,12 +37,10 @@ export interface HiringDeps {
 const ACTIVE = new Set(['queued', 'planning', 'running', 'awaiting_input', 'in_review']);
 /** Don't call again about the same floor and reason within this window. */
 const QUIET_MS = 6 * 3600_000;
-/** A hiring talk untouched this long is over: the next call starts fresh instead of picking up an old conversation. */
-const STALE_TALK_MS = 30 * 60_000;
 
 interface Row {
   id: string; state: HiringState; trigger_json: string; department_id: string | null; brief_json: string | null;
-  messages_json: string; scouting_until: string | null; hired_candidate_id: string | null; applied_json: string | null;
+  scouting_until: string | null; hired_candidate_id: string | null; applied_json: string | null;
   created_at: string; updated_at: string;
 }
 
@@ -55,16 +52,9 @@ export function modelTier(id: string): 1 | 2 | 3 {
   return 2;
 }
 const TIER_COST = { 1: 40, 2: 140, 3: 420 } as const;
+const TIER = ['', 'Small', 'Mid-size', 'Large'] as const;
 /** Size class from real daily cost (credits = cents): under $0.30, under $3, above. */
 export const priceTier = (credits: number): 1 | 2 | 3 => (credits <= 30 ? 1 : credits <= 300 ? 2 : 3);
-
-/* The joke cast: original personas played for laughs, never real people or groups. */
-const JOKES = [
-  { gag: 'intern', title: 'Overconfident intern', pitch: "I've used AI for three whole weeks, so I'm basically a founder. I'll need the corner office and a ring light.", style: 'hype, buzzwords, zero substance', quirk: 'films a vlog during every task', traits: ['overconfident', 'loud'], cost: 900, fit: 8, note: 'Demands equity. Has never finished a task.' },
-  { gag: 'frazzled', title: 'Burned-out veteran', pitch: 'Per my last email, I can do the job. Please do not schedule a sync about it.', style: 'tired, passive-aggressive, everything is "per my last email"', quirk: 'answers every question with a forwarded email', traits: ['exhausted', 'passive-aggressive'], cost: 70, fit: 17, note: 'Cheap, but only ever replies with "noted".' },
-  { gag: 'shades', title: 'Visionary disruptor', pitch: 'Every task is a token launch if you believe hard enough. I only work in moonshots.', style: 'grandiose, says "paradigm" a lot', quirk: 'wears sunglasses at night, indoors', traits: ['grandiose', 'unfocused'], cost: 4200, fit: 3, note: 'Costs more than the whole floor. Brought no relevant skills.' },
-  { gag: 'guru', title: 'Productivity guru', pitch: "I don't do tasks, I do frameworks. Here's a 40-slide deck about your to-do list.", style: 'motivational poster energy', quirk: 'rebrands every task as a "journey"', traits: ['preachy', 'slow'], cost: 1500, fit: 11, note: 'Will turn one task into a five-week workshop.' },
-] as const;
 
 
 export class HiringService {
@@ -87,28 +77,7 @@ export class HiringService {
     return t ? this.view(this.insert(t, 'ringing')) : null;
   }
 
-  /** The CEO calls AR (from the Exec Office or a floor). Reuses an open request, unless it is only a talk (ringing or
-      intake, no search yet) about another floor, or one left cold: that one is closed and a fresh one starts. */
-  start(departmentId?: string): HiringRequestView {
-    let open = this.openRow();
-    if (open && (open.state === 'ringing' || open.state === 'intake')
-      && ((departmentId && open.department_id !== departmentId) || this.now().getTime() - Date.parse(open.updated_at) > STALE_TALK_MS)) {
-      this.setState(open.id, 'closed');
-      open = undefined;
-    }
-    if (open) return this.view(open.state === 'ringing' ? this.setState(open.id, 'intake') : open);
-    let reason = 'You asked the Chief of Staff to hire.';
-    if (departmentId) { const dept = this.d.departments.get(departmentId); reason = `You asked the Chief of Staff to hire for ${dept.name}.`; }
-    return this.view(this.insert({ kind: 'manual', departmentId: departmentId ?? null, reason }, 'intake'));
-  }
-
   get(id: string): HiringRequestView { return this.view(this.row(id)); }
-
-  answer(id: string): HiringRequestView {
-    const r = this.row(id);
-    if (r.state !== 'ringing') return this.view(r);
-    return this.view(this.setState(id, 'intake'));
-  }
 
   decline(id: string): HiringRequestView {
     const r = this.row(id);
@@ -116,69 +85,48 @@ export class HiringService {
     return this.view(this.setState(id, 'closed'));
   }
 
-  // ---- intake chat ------------------------------------------------------------------------------------------------
-
-  async send(id: string, message: string): Promise<HiringRequestView> {
-    const r = this.row(id);
-    if (r.state !== 'intake' && r.state !== 'ringing' && r.state !== 'shortlist') throw new ConflictError(`the call is over (request is ${r.state})`);
-    if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
-    const past = this.messages(r);
-    const system = await this.intakePrompt(r);
-    const turns: ChatTurn[] = [
-      { role: 'system', content: system },
-      ...past.slice(-14).map((m): ChatTurn => (m.from === 'user' ? { role: 'user', content: m.text }
-        : { role: 'assistant', content: JSON.stringify({ say: m.text, mood: m.mood, replies: m.replies, brief: m.brief }) })),
-      { role: 'user', content: message },
-    ];
-    const raw = await this.d.model.complete(turns, { maxTokens: 700 });
-    const user = HiringMessageSchema.parse({ id: randomUUID(), from: 'user', text: message, mood: null, replies: [], brief: null, at: this.iso() });
-    const parsed = parseJsonReply(raw);
-    // Once the candidates are in, the chat is questions about them: the brief stays as confirmed.
-    const intake = r.state !== 'shortlist';
-    const brief = intake && parsed.obj ? this.resolveBrief(parsed.obj.brief, r) : null;
-    // A brief that names no existing floor is dropped; say so instead of letting the model claim it went scouting.
-    const asked = intake && parsed.obj?.brief && typeof parsed.obj.brief === 'object' ? parsed.obj.brief as Record<string, unknown> : null;
-    const floors = this.d.departments.list().map((d) => d.name);
-    const lost = asked && !brief ? String(asked.department ?? asked.departmentName ?? '').trim().slice(0, 60) : null;
-    const reply = lost === null ? { say: parsed.say, mood: parsed.mood, replies: parsed.replies } : {
-      say: `${floors.some((f) => f.toLowerCase() === lost.toLowerCase()) ? 'I could not write that brief down, boss.' : `There is no "${lost}" floor yet, boss, so I cannot scout for it. Create the floor first, then call me.`} I can scout for: ${floors.join(', ') || 'no floor yet'}.`,
-      mood: 'worried' as const, replies: floors.slice(0, 3).map((f) => `Hire for ${f}`.slice(0, 40)),
-    };
-    const agent = HiringMessageSchema.parse({
-      id: randomUUID(), from: 'agent', text: reply.say, mood: reply.mood, replies: reply.replies, brief, at: this.iso(),
-    });
-    this.d.db.prepare("UPDATE hiring_request SET messages_json = ?, state = CASE state WHEN 'shortlist' THEN state ELSE 'intake' END, brief_json = COALESCE(?, brief_json), updated_at = ? WHERE id = ?")
-      .run(JSON.stringify([...past, user, agent]), brief ? JSON.stringify(brief) : null, this.iso(), id);
-    return this.get(id);
+  /** The boss confirmed the Chief of Staff's brief: a fresh request with its candidates right away. An open request
+      (a call, or candidates for an earlier brief) is closed: the newest brief is the one on screen. */
+  async create(input: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> {
+    const open = this.openRow();
+    if (open) this.setState(open.id, 'closed');
+    const dept = this.d.departments.get(input.departmentId);
+    const brief = HiringBriefSchema.parse({ ...input, departmentName: dept.name });
+    const r = this.insert({ kind: 'manual', departmentId: dept.id, reason: `You asked the Chief of Staff to hire for ${dept.name}.` }, 'shortlist');
+    const candidates = await this.scout(r.id, brief);
+    this.d.db.prepare('UPDATE hiring_request SET brief_json = ? WHERE id = ?').run(JSON.stringify(brief), r.id);
+    const ins = this.d.db.prepare('INSERT INTO hiring_candidate (id, request_id, idx, candidate_json) VALUES (?, ?, ?, ?)');
+    candidates.forEach((c, i) => ins.run(c.id, r.id, i, JSON.stringify(c)));
+    return this.get(r.id);
   }
 
-  /** The CEO confirms the brief (optionally edited). The candidates are in right away (the shortlist). */
-  async confirmBrief(id: string, edited?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> {
-    const r = this.row(id);
-    if (r.state !== 'intake') throw new ConflictError(`cannot confirm a brief now (request is ${r.state})`);
-    let brief = r.brief_json ? HiringBriefSchema.parse(JSON.parse(r.brief_json)) : null;
-    if (edited) {
-      const dept = this.d.departments.get(edited.departmentId);
-      brief = HiringBriefSchema.parse({ ...edited, departmentName: dept.name });
-    }
-    if (!brief) throw new InvalidInputError('No brief yet: tell the Chief of Staff what you need first');
-    const candidates = await this.scout(r.id, brief);
-    const back: HiringMessage = HiringMessageSchema.parse({ id: randomUUID(), from: 'agent', mood: 'smug', replies: ['Which one is cheapest?', 'Which model is best for this?'], brief: null, at: this.iso(),
-      text: `Here are ${candidates.length} candidates for ${brief.departmentName}. Two are solid. The other two... you'll see. Ask me about any of them, or their models.` });
-    this.d.db.prepare("UPDATE hiring_request SET state = 'shortlist', brief_json = ?, department_id = ?, messages_json = ?, updated_at = ? WHERE id = ?")
-      .run(JSON.stringify(brief), brief.departmentId, JSON.stringify([...this.messages(r), back]), this.iso(), id);
-    const ins = this.d.db.prepare('INSERT INTO hiring_candidate (id, request_id, idx, candidate_json) VALUES (?, ?, ?, ?)');
-    candidates.forEach((c, i) => ins.run(c.id, id, i, JSON.stringify(c)));
-    return this.get(id);
+  /** What the Chief of Staff knows while hiring: the models Hermes offers with NEAR AI's prices (cheapest first) and,
+      once a brief was confirmed, the candidates on the boss's screen. Real facts only. */
+  async facts(): Promise<string> {
+    const { all, prices } = await this.offeredModels();
+    const usd = (credits: number) => `$${(credits / 100).toFixed(2)}`;
+    const SIZE = ['', 'small', 'mid-size', 'large'];
+    const daily = (m: ModelChoice) => { const p = prices?.get(m.id); return p ? dailyCredits(p) : Infinity; };
+    const modelFacts = [...all].sort((a, b) => daily(a) - daily(b)).slice(0, 40).map((m) => {
+      const p = prices?.get(m.id);
+      return p ? `- ${m.id} (${m.provider}): about ${usd(dailyCredits(p))} a day for one busy agent, ${SIZE[priceTier(dailyCredits(p))]} by price; ${priceNote(p)}; context ${p.context} tokens`
+        : `- ${m.id} (${m.provider}): price unknown; ${SIZE[modelTier(m.id)]} going by its name (a guess)`;
+    });
+    const open = this.openRow();
+    const brief = open?.state === 'shortlist' && open.brief_json ? HiringBriefSchema.parse(JSON.parse(open.brief_json)) : null;
+    const cands = brief ? this.candidates(open!.id).map((c) => `- ${c.character.name} (${c.note}): model ${c.loadout.model?.id ?? 'floor default'}, about ${usd(c.costPerDay)} a day, fit ${c.fitScore}/100, skills ${c.loadout.skills.join(', ') || 'none'}`) : [];
+    return [
+      modelFacts.length ? `Models Hermes offers (NEAR AI list prices; a day = 1M input + 100k output tokens, an estimate; "Private TEE"/"Incognito" is how sealed the model runs):\n${modelFacts.join('\n')}` : 'The list of models Hermes offers is unavailable right now: say so if asked, do not guess prices.',
+      brief ? `Candidates on the boss's screen for "${brief.focus}" on ${brief.departmentName} (budget ${usd(brief.budgetPerDay)} a day), each with a Hire button; the boss hires, you never do. These cards are the only candidates: describe only these models, never claim a card has a model it does not:\n${cands.join('\n')}` : 'No candidates are on screen yet.',
+    ].join('\n');
   }
 
   // ---- offer ------------------------------------------------------------------------------------------------------
 
-  async offer(id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> {
+  async offer(id: string, candidateId: string): Promise<HiringRequestView> {
     const r = this.row(id);
     if (r.state !== 'shortlist') throw new ConflictError(`no shortlist to hire from (request is ${r.state})`);
     const c = CandidateSchema.parse(JSON.parse(this.candidateRow(id, candidateId).candidate_json));
-    if (!c.serious && !acceptConcerns) throw new ConflictError('The Chief of Staff has concerns about this candidate: confirm to hire anyway');
     const brief = HiringBriefSchema.parse(JSON.parse(r.brief_json!));
     const before = this.d.departments.agents(brief.departmentId).length;
     if (before > MAX_TEAMMATES) throw new ConflictError(`${brief.departmentName} already has the maximum of ${MAX_TEAMMATES} teammates`);
@@ -225,75 +173,6 @@ export class HiringService {
     return rows.some((r) => (JSON.parse(r.trigger_json) as HiringTrigger).kind === t.kind);
   }
 
-  private async intakePrompt(r: Row): Promise<string> {
-    const ar = this.ar();
-    const trigger = JSON.parse(r.trigger_json) as HiringTrigger;
-    const depts = this.d.departments.list().map((d) => {
-      const inv = this.d.departments.getInventory(d.id);
-      return `- "${d.name}" (id ${d.id}): ${d.purpose || 'no purpose written'}; ${d.agents.length} agent(s); skills: ${inv.allowedSkillIds.join(', ') || 'none'}`;
-    });
-    let skills: string[] = [];
-    try { skills = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name).slice(0, 60); } catch { /* Hermes down */ }
-    const { all, prices } = await this.offeredModels();
-    const usd = (credits: number) => `$${(credits / 100).toFixed(2)}`;
-    const SIZE = ['', 'small', 'mid-size', 'large'];
-    // Real facts only: what Hermes offers, with NEAR AI's price, daily cost and privacy when priced; cheapest first.
-    const daily = (m: ModelChoice) => { const p = prices?.get(m.id); return p ? dailyCredits(p) : Infinity; };
-    const modelFacts = [...all].sort((a, b) => daily(a) - daily(b)).slice(0, 40).map((m) => {
-      const p = prices?.get(m.id);
-      return p ? `- ${m.id} (${m.provider}): about ${usd(dailyCredits(p))} a day for one busy agent, ${SIZE[priceTier(dailyCredits(p))]} by price; ${priceNote(p)}; context ${p.context} tokens`
-        : `- ${m.id} (${m.provider}): price unknown; ${SIZE[modelTier(m.id)]} going by its name (a guess)`;
-    });
-    const brief = r.brief_json ? HiringBriefSchema.parse(JSON.parse(r.brief_json)) : null;
-    const cands = r.state === 'shortlist'
-      ? (this.d.db.prepare('SELECT candidate_json FROM hiring_candidate WHERE request_id = ? ORDER BY idx').all(r.id) as { candidate_json: string }[])
-          .map((x) => CandidateSchema.parse(JSON.parse(x.candidate_json)))
-          .map((c) => `- ${c.character.name} (${c.serious ? 'serious' : `joke candidate, your honest concern: ${c.note}`}): model ${c.loadout.model?.id ?? 'floor default'}, about ${usd(c.costPerDay)} a day, fit ${c.fitScore}/100, skills ${c.loadout.skills.join(', ') || 'none'}`)
-      : [];
-    const job = cands.length && brief ? [
-      `The boss confirmed the brief: ${brief.focus} for ${brief.departmentName}, budget ${usd(brief.budgetPerDay)} a day. The candidates are on the boss's screen as cards, each with a Hire button:`,
-      ...cands,
-      'Your job now: answer the boss\'s questions about these candidates and the models, using only the facts above. Explain a candidate\'s model when asked (cost a day, size, privacy). Compare honestly, recommend one when asked. The boss hires with the Hire button; you never hire. "brief" is always null now.',
-    ] : [
-      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily model budget in US dollars (use the model prices above; say dollars, never "credits"), and any must-have skills. Ask one thing at a time. Answer questions about the models from the list above.',
-      'A hire joins one of the floors listed above: the brief\'s department must be one of those names exactly. If the boss wants a floor that does not exist yet, say it has to be created first and leave the brief null.',
-      'When you know enough, sum it up as a brief. Once the boss confirms it, the candidates show up right away. You do not hire anyone in this call.',
-    ];
-    return [
-      `You are ${ar.name}, ${ar.title} at ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents.`,
-      `Personality: ${ar.traits.join(', ')}. Way of speaking: ${ar.speechStyle}. Quirk: ${ar.quirk}.`,
-      `You are on a call with the CEO ("boss") about a new hire. Why you are talking: ${trigger.reason}`,
-      `Floors:\n${depts.join('\n') || '- none yet'}`,
-      skills.length ? `Skills installed in Hermes (a hire can only get these): ${skills.join(', ')}` : 'The list of installed skills is unavailable right now.',
-      modelFacts.length ? `Models Hermes offers (a day = 1M input + 100k output tokens; "Private TEE"/"Incognito" is how sealed the model runs):\n${modelFacts.join('\n')}` : 'The list of models Hermes offers is unavailable right now: say so if asked, do not guess prices.',
-      '',
-      ...job,
-      '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
-      '- Reply with JSON only, no other text:',
-      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short answers the boss might give, each under 40 characters], "brief": null or {"department": "<floor name>", "focus": "<what the hire is good at>", "skills": ["<installed skill names>"], "budgetPerDay": <the budget in US cents, an integer: $3 a day = 300>, "notes": "<anything else>"}}`,
-    ].join('\n');
-  }
-
-  private resolveBrief(raw: unknown, r: Row): HiringBrief | null {
-    if (!raw || typeof raw !== 'object') return null;
-    const b = raw as Record<string, unknown>;
-    const depts = this.d.departments.list();
-    const key = String(b.department ?? b.departmentId ?? b.departmentName ?? '').trim().toLowerCase();
-    const dept = depts.find((d) => d.id === key || d.name.toLowerCase() === key)
-      ?? depts.find((d) => key && (d.name.toLowerCase().includes(key) || key.includes(d.name.toLowerCase())))
-      ?? (r.department_id ? depts.find((d) => d.id === r.department_id) : undefined);
-    if (!dept) return null;
-    const budget = Math.round(Number(b.budgetPerDay ?? b.budget ?? 150));
-    const parsed = HiringBriefSchema.safeParse({
-      departmentId: dept.id, departmentName: dept.name,
-      focus: String(b.focus ?? '').slice(0, 200) || `Help ${dept.name} with its jobs`,
-      skills: Array.isArray(b.skills) ? b.skills.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 100)).slice(0, 10) : [],
-      budgetPerDay: Number.isFinite(budget) ? Math.min(100_000, Math.max(1, budget)) : 150,
-      notes: String(b.notes ?? '').slice(0, 500),
-    });
-    return parsed.success ? parsed.data : null;
-  }
-
   /** The models Hermes offers and NEAR AI's prices for them; either is empty when its source is down. */
   private async offeredModels(): Promise<{ all: ModelChoice[]; prices: PriceList | null }> {
     let models: HermesModelsView | null = null;
@@ -303,7 +182,7 @@ export class HiringService {
     return { all: models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [], prices };
   }
 
-  /** Builds the four candidates. Serious loadouts only use models Hermes offers and skills Hermes has installed. */
+  /** Builds three candidates that fit the brief. Loadouts only use models Hermes offers and skills Hermes has installed. */
   private async scout(requestId: string, brief: HiringBrief): Promise<Candidate[]> {
     const inv = this.d.departments.getInventory(brief.departmentId);
     const { all, prices } = await this.offeredModels();
@@ -311,92 +190,71 @@ export class HiringService {
     try { installed = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name); } catch { /* unknown */ }
     const pool = all.length ? all : inv.model ? [inv.model] : [];
     const seed = hash(`${requestId}:${brief.departmentId}`);
-    const pickOne = <T>(xs: T[], salt: string) => (xs.length ? xs[hash(`${seed}:${salt}`) % xs.length]! : null);
     // Real prices: only models Hermes offers that NEAR AI prices and that can run an agent (text + tools), cheapest first.
     const priced = prices && prices.size ? pool.filter((m) => prices!.has(m.id)) : [];
     const price = (m: ModelChoice | null) => (m && prices?.get(m.id)) || null;
-    const daily = (m: ModelChoice) => dailyCredits(price(m)!);
-    let cheapest: ModelChoice | null, balanced: ModelChoice | null, premium: ModelChoice | null;
-    if (priced.length) {
-      const ranked = [...priced].sort((a, b) => daily(a) - daily(b));
-      const within = ranked.filter((m) => daily(m) <= brief.budgetPerDay);
-      const vendor = (m: ModelChoice | null) => m?.id.split('/')[0];
-      // Seeded picks so every shortlist differs: balanced from the cheaper half of what fits, premium from above it.
-      cheapest = pickOne(ranked.slice(0, 5), 'cheap');
-      balanced = pickOne(within.slice(0, Math.ceil(within.length / 2)), 'bal') ?? ranked[0]!;
-      const up = ranked.filter((m) => daily(m) > daily(balanced!));
-      premium = pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay && vendor(m) !== vendor(balanced)), 'prem')
-        ?? pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay), 'prem') ?? pickOne(up.slice(0, 3), 'prem') ?? balanced;
-    } else {
-      const byTier = (t: number) => pool.filter((m) => modelTier(m.id) === t);
-      cheapest = byTier(1)[0] ?? byTier(2)[0] ?? pool[0] ?? null;
-      balanced = byTier(2)[0] ?? byTier(1)[0] ?? pool[0] ?? null;
-      premium = byTier(3)[0] ?? [...byTier(2)].reverse().find((m) => m.id !== balanced?.id) ?? balanced;
-    }
+    // Cost per day: the model's real NEAR AI price, else a guess from the size its name suggests (labelled as one).
+    const cost = (m: ModelChoice) => { const p = price(m); return p ? dailyCredits(p) : TIER_COST[modelTier(m.id)]; };
+    const ranked = [...(priced.length ? priced : pool)].sort((a, b) => cost(a) - cost(b));
+    const within = ranked.filter((m) => cost(m) <= brief.budgetPerDay);
+    const vendor = (m: ModelChoice) => m.id.split('/')[0];
+    // Three fits: the Chief of Staff's model when Hermes offers it, then the strongest the budget buys (a different
+    // vendor each when it can). ponytail: price stands in for strength; a benchmark score would rank better.
+    const picks: ModelChoice[] = [];
+    const add = (m: ModelChoice | undefined) => { if (m && picks.length < 3 && !picks.some((x) => x.id === m.id)) picks.push(m); };
+    add(ranked.find((m) => m.id === brief.model));
+    for (const m of [...within].reverse()) if (!picks.some((x) => vendor(x) === vendor(m))) add(m);
+    for (const m of [...within].reverse()) add(m);
+    for (const m of ranked) add(m); // the budget buys fewer than three: the cheapest above it, marked over budget
     const tierOf = (m: ModelChoice | null) => { const p = price(m); return p ? priceTier(dailyCredits(p)) : m ? modelTier(m.id) : 2; };
 
     const known = installed.length ? new Set(installed) : null;
     const wanted = brief.skills.filter((s) => !known || known.has(s));
     const words = brief.focus.toLowerCase().split(/\W+/).filter((w) => w.length > 3);
     const related = installed.filter((s) => !wanted.includes(s) && words.some((w) => s.toLowerCase().includes(w))).slice(0, 2);
-    const baseSkills = [...new Set([...wanted, ...inv.allowedSkillIds.filter((s) => !known || known.has(s))])].slice(0, 6);
-    const premiumSkills = [...new Set([...baseSkills, ...related])].slice(0, 8);
-    const offBrief = installed.filter((s) => !brief.skills.includes(s) && !inv.allowedSkillIds.includes(s));
+    const skills = [...new Set([...wanted, ...inv.allowedSkillIds.filter((s) => !known || known.has(s)), ...related])].slice(0, 8);
 
-    const fit = (skills: string[], cost: number, tier: number) => {
+    const fit = (cost: number, tier: number) => {
       const need = brief.skills.length ? brief.skills.filter((s) => skills.includes(s)).length / brief.skills.length : 0.8;
       const budget = cost <= brief.budgetPerDay ? 1 : Math.max(0, 1 - (cost - brief.budgetPerDay) / brief.budgetPerDay);
       return Math.round(Math.min(98, 30 * need + 30 * budget + 12 * tier + 20));
     };
-    const serious = [
-      { model: balanced, skills: baseSkills, label: 'balanced' },
-      { model: premium, skills: premiumSkills, label: 'premium' },
-    ].map((s, i) => {
-      const tier = tierOf(s.model);
-      const p = price(s.model);
-      // Priced: the model's real cost at DAY_TOKENS. Unpriced guess: the premium hire asks more (more skills, senior rate).
-      const cost = p ? dailyCredits(p) : Math.round(TIER_COST[tier] * (s.label === 'premium' ? 1.6 : 1)) + 10 * s.skills.length;
-      return { ...s, tier, cost, fit: fit(s.skills, cost, tier), i };
-    });
-    const personas = await this.seriousPersonas(brief, serious.map((s) => ({ model: s.model?.id ?? 'unknown', skills: s.skills, label: s.label })));
-
-    const out: Candidate[] = serious.map((s, i) => {
-      const p = personas[i];
-      const ch = this.persona(`${seed}:s${i}`, p?.name, p?.traits, p?.speechStyle, p?.quirk, `${s.label === 'premium' ? 'Senior' : 'Steady'} ${brief.departmentName} specialist`.slice(0, 80));
-      const overBudget = s.cost > brief.budgetPerDay;
+    const slots: (ModelChoice | null)[] = picks.length ? picks : [null];
+    const fits = slots.map((m) => {
+      const tier = tierOf(m), c = m ? cost(m) : TIER_COST[2];
+      return { model: m, tier, cost: c, fit: fit(c, tier), mine: !!m && m.id === brief.model };
+    }).sort((a, b) => b.fit - a.fit || a.cost - b.cost);
+    const personas = await this.seriousPersonas(brief, fits.map((f) => ({ model: f.model?.id ?? 'unknown', skills, label: `${TIER[f.tier]} model` })));
+    const usd = (credits: number) => `$${(credits / 100).toFixed(2)}`;
+    return fits.map((f, i) => {
+      const p = personas[i], pr = price(f.model);
+      const ch = this.persona(`${seed}:s${i}`, p?.name, p?.traits, p?.speechStyle, p?.quirk, `${brief.departmentName} specialist`.slice(0, 80));
       return CandidateSchema.parse({
         id: randomUUID(), serious: true, character: ch, gag: null,
-        pitch: p?.pitch ?? (s.label === 'premium' ? `Bigger model, more skills. I'll take the hard ${brief.departmentName} jobs and get them right the first time.` : `Reliable and affordable. I'll keep ${brief.departmentName}'s queue moving without burning the budget.`),
-        loadout: { model: s.model, skills: s.skills, toolsets: [] }, tier: s.tier, costPerDay: s.cost, fitScore: s.fit,
-        note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the $${(brief.budgetPerDay / 100).toFixed(2)} a day budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}${price(s.model) ? ` NEAR AI price: ${priceNote(price(s.model)!)}.` : ' Price unknown, cost guessed from the model name.'}`,
+        pitch: p?.pitch ?? `I'll keep ${brief.departmentName}'s queue moving and get the ${brief.focus.toLowerCase()} right.`,
+        loadout: { model: f.model, skills, toolsets: [] }, tier: f.tier, costPerDay: f.cost, fitScore: f.fit,
+        note: [
+          f.mine ? 'The model I recommended.' : '',
+          f.cost > brief.budgetPerDay ? `Over the ${usd(brief.budgetPerDay)} a day budget.` : 'Within budget.',
+          f.model ? '' : 'Hermes offered no model list, so the floor keeps its model.',
+          pr ? `NEAR AI price: ${priceNote(pr)}.` : f.model ? 'Price unknown, cost guessed from the model name.' : '',
+        ].filter(Boolean).join(' '),
       });
     });
-    const a = seed % JOKES.length, b = (a + 1 + (seed >>> 4) % (JOKES.length - 1)) % JOKES.length;
-    for (const [k, j] of [a, b].map((x, k) => [k, JOKES[x]!] as const)) {
-      const ch = this.persona(`${seed}:j${k}`, undefined, [...j.traits], j.style, j.quirk, j.title);
-      const skills = offBrief.length ? [offBrief[(seed >>> (k + 3)) % offBrief.length]!] : [];
-      out.push(CandidateSchema.parse({
-        id: randomUUID(), serious: false, character: ch, gag: j.gag, pitch: j.pitch,
-        loadout: { model: cheapest, skills, toolsets: [] }, tier: cheapest ? tierOf(cheapest) : 1,
-        costPerDay: j.cost, fitScore: j.fit, note: j.note,
-      }));
-    }
-    // Shuffle so the jokes are not always last.
-    return out.map((c, i) => ({ c, k: hash(`${seed}:${i}`) })).sort((x, y) => x.k - y.k).map((x) => x.c);
   }
 
-  /** Asks AR's model to write the two serious personas. Falls back to the generated pools. */
+  /** Asks AR's model to write the candidates' personas. Falls back to the generated pools. */
   private async seriousPersonas(brief: HiringBrief, slots: { model: string; skills: string[]; label: string }[]) {
     type P = { name?: string; pitch?: string; traits: string[]; speechStyle: string; quirk: string };
     if (!this.d.model.ready) return [] as P[];
     try {
       const raw = await this.d.model.complete([
         { role: 'system', content: 'You write short, fun but professional candidate personas for a game where employees are AI agents. Original invented names only, never real people. Reply with JSON only.' },
-        { role: 'user', content: `Role: ${brief.focus} for the ${brief.departmentName} floor. Two candidates:\n${slots.map((s, i) => `${i + 1}. ${s.label}: model ${s.model}, skills ${s.skills.join(', ') || 'none'}`).join('\n')}\nReturn {"candidates": [{"name": "First Last", "pitch": "<one sentence, first person, under 25 words>", "traits": ["<two adjectives>"], "speechStyle": "<few words>", "quirk": "<a visible desk habit>"}, ...]} in the same order.` },
+        { role: 'user', content: `Role: ${brief.focus} for the ${brief.departmentName} floor. ${slots.length} candidates:\n${slots.map((s, i) => `${i + 1}. ${s.label}: model ${s.model}, skills ${s.skills.join(', ') || 'none'}`).join('\n')}\nReturn {"candidates": [{"name": "First Last", "pitch": "<one sentence, first person, under 25 words>", "traits": ["<two adjectives>"], "speechStyle": "<few words>", "quirk": "<a visible desk habit>"}, ...]} in the same order.` },
       ], { maxTokens: 500, temperature: 0.9 });
       const obj = JSON.parse(extractJson(raw) ?? 'null') as { candidates?: unknown } | null;
       const list = Array.isArray(obj?.candidates) ? obj!.candidates as Record<string, unknown>[] : [];
-      return list.slice(0, 2).map((c): P => ({
+      return list.slice(0, slots.length).map((c): P => ({
         ...(typeof c.name === 'string' && c.name.trim() ? { name: c.name.trim().slice(0, 40) } : {}),
         ...(typeof c.pitch === 'string' && c.pitch.trim() ? { pitch: c.pitch.trim().slice(0, 220) } : {}),
         traits: Array.isArray(c.traits) ? c.traits.filter((t): t is string => typeof t === 'string').slice(0, 3).map((t) => t.slice(0, 20)) : [],
@@ -421,19 +279,20 @@ export class HiringService {
     // Rows from before scouting was instant: the first read after their timer moves them to the shortlist.
     if (r.state === 'scouting' && r.scouting_until && Date.parse(r.scouting_until) <= this.now().getTime()) r = this.setState(r.id, 'shortlist');
     const showCandidates = r.state === 'shortlist' || r.state === 'hired';
-    const candidates = showCandidates
-      ? (this.d.db.prepare('SELECT candidate_json FROM hiring_candidate WHERE request_id = ? ORDER BY idx').all(r.id) as { candidate_json: string }[])
-          .map((c) => CandidateSchema.parse(JSON.parse(c.candidate_json)))
-      : [];
     return {
-      id: r.id, state: r.state, trigger: JSON.parse(r.trigger_json) as HiringTrigger, ar: this.ar(), messages: this.messages(r),
+      id: r.id, state: r.state, trigger: JSON.parse(r.trigger_json) as HiringTrigger, ar: this.ar(),
       brief: r.brief_json ? HiringBriefSchema.parse(JSON.parse(r.brief_json)) : null,
-      scoutingUntil: r.scouting_until, candidates, hiredCandidateId: r.hired_candidate_id,
-      applied: r.applied_json ? JSON.parse(r.applied_json) : null, modelReady: this.d.model.ready, createdAt: r.created_at,
+      scoutingUntil: r.scouting_until, candidates: showCandidates ? this.candidates(r.id) : [], hiredCandidateId: r.hired_candidate_id,
+      applied: r.applied_json ? JSON.parse(r.applied_json) : null, createdAt: r.created_at,
     };
   }
 
-  private messages(r: Row): HiringMessage[] { return (JSON.parse(r.messages_json) as unknown[]).map((m) => HiringMessageSchema.parse(m)); }
+  private candidates(id: string): Candidate[] {
+    return (this.d.db.prepare('SELECT candidate_json FROM hiring_candidate WHERE request_id = ? ORDER BY idx').all(id) as { candidate_json: string }[])
+      .map((c) => CandidateSchema.parse(JSON.parse(c.candidate_json)));
+  }
+  /** A hiring talk is on: a call, or candidates on the boss's screen. */
+  isOpen(): boolean { return !!this.openRow(); }
   private iso() { return this.now().toISOString(); }
   private openRow(): Row | undefined {
     return this.d.db.prepare("SELECT * FROM hiring_request WHERE state NOT IN ('hired', 'closed') ORDER BY created_at DESC LIMIT 1").get() as Row | undefined;
@@ -482,4 +341,23 @@ export function parseJsonReply(raw: string): { say: string; mood: Mood; replies:
   const mood = (MOODS as readonly string[]).includes(obj.mood as string) ? (obj.mood as Mood) : 'neutral';
   const replies = Array.isArray(obj.replies) ? obj.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3) : [];
   return { say: obj.say.trim().slice(0, 1200), mood, replies, obj };
+}
+
+/** The Chief of Staff's `hire` field as a brief for a floor that exists (by exact name, else a close one); null otherwise. */
+export function briefOf(raw: unknown, floors: { id: string; name: string }[]): HiringBrief | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const b = raw as Record<string, unknown>;
+  const key = String(b.department ?? b.departmentName ?? '').trim().toLowerCase();
+  const dept = floors.find((d) => d.name.toLowerCase() === key) ?? floors.find((d) => key && (d.name.toLowerCase().includes(key) || key.includes(d.name.toLowerCase())));
+  if (!dept) return null;
+  const budget = Math.round(Number(b.budgetPerDay ?? b.budget ?? 150));
+  const parsed = HiringBriefSchema.safeParse({
+    departmentId: dept.id, departmentName: dept.name,
+    focus: String(b.focus ?? '').slice(0, 200) || `Help ${dept.name} with its jobs`,
+    skills: Array.isArray(b.skills) ? b.skills.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 100)).slice(0, 10) : [],
+    budgetPerDay: Number.isFinite(budget) ? Math.min(100_000, Math.max(1, budget)) : 150,
+    notes: String(b.notes ?? '').slice(0, 500),
+    ...(typeof b.model === 'string' && b.model.trim() ? { model: b.model.trim().slice(0, 200) } : {}),
+  });
+  return parsed.success ? parsed.data : null;
 }

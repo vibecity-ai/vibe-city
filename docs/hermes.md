@@ -60,6 +60,9 @@ them with live calls.
   server turns the list into an allowlist. `tools enable` rejects MCP names, but later saves preserve them.
 - Each department has one MCP bearer token, issued after every sync that changed something and registered in all
   of its profiles. The MCP server resolves the department from the token (`mcp/server.ts`).
+- Skill loads in chat (v0.22.6, read in `gateway/platforms/api_server.py`, not a live call): the session chat stream sends
+  `tool.started` with `tool_name`, `preview` and `args`; loading a skill is `tool_name: "skill_view"`, `args.name` = the
+  skill. `tool.completed` carries no args.
 - A chat turn Hermes did not finish (`completed: false`) is an error, never a reply. Reading Hermes' stream to the
   end even when the browser leaves matters: disconnecting would interrupt the run.
 

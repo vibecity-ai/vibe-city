@@ -711,6 +711,12 @@ export const ChatMessageSchema = z.object({
   /** The Chief of Staff's proposal for a new custom floor, already limited to what Hermes has. Nothing exists until the boss confirms. */
   floorDraft: z.lazy(() => DeptDraftSchema).optional(),
   briefing: ChatBriefingSchema.optional(),
+  /** The Chief of Staff's hiring brief for a floor that exists. Nothing happens until the boss asks for candidates. */
+  hire: z.lazy(() => HiringBriefSchema).optional(),
+  /** The Chief of Staff's Agent Market listing for a floor that may be listed. Nothing happens until the boss registers it. */
+  listing: z.lazy(() => MarketDraftSchema).optional(),
+  /** The skills Hermes reported loading (skill_view) while writing this reply, as it reported them. */
+  skills: z.array(z.string()).optional(),
   at: z.string(),
 }).strict();
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
@@ -736,6 +742,8 @@ export const ChatSendSchema = z.object({
   sessionId: ChatSessionIdSchema.optional(),
   /** The chat is about this blocked task of the agent's: it explains what it needs and can suggest resuming it. */
   blockedTask: z.object({ title: z.string().trim().max(300), reason: z.string().trim().max(2000).nullable() }).strict().optional(),
+  /** The lead called the boss about this finished quest of its floor: it reports on it. */
+  finishedQuest: z.object({ title: z.string().trim().min(1).max(300) }).strict().optional(),
 }).strict();
 export type ChatSend = z.infer<typeof ChatSendSchema>;
 
@@ -747,13 +755,16 @@ export const ChatProgressSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('thinking') }).strict(),
   z.object({ kind: z.literal('tool'), name: z.string(), preview: z.string().nullable() }).strict(),
   z.object({ kind: z.literal('approval'), command: z.string().nullable() }).strict(),
+  /** Hermes is loading one of its skills (its skill_view tool). */
+  z.object({ kind: z.literal('skill'), name: z.string() }).strict(),
 ]);
 export type ChatProgress = z.infer<typeof ChatProgressSchema>;
 
 // ---- AR: scouting and hiring (feature spec 7.1) -------------------------------------------------------------------
-// AR (Agent Resources) notices when a floor needs people and calls the CEO. The intake is a chat with AR's head, which
-// ends in a brief; AR then scouts four candidates (two serious, two joke) and the CEO hires one. Nothing changes in
-// Hermes until the offer: a hire adds an agent (its own Hermes profile, with the candidate's model and skills).
+// AR's rules notice when a floor needs people and the Chief of Staff calls the CEO. The talk happens in the Chief of
+// Staff's own Hermes chat, which ends in a brief (ChatMessage.hire); confirming it scouts the three candidates that fit
+// it best and the CEO hires one. Nothing changes in Hermes until the offer: a hire adds an agent (its own Hermes
+// profile, with the candidate's model and skills).
 
 export const HIRING_STATES = ['ringing', 'intake', 'scouting', 'shortlist', 'hired', 'closed'] as const;
 export type HiringState = (typeof HIRING_STATES)[number];
@@ -775,28 +786,19 @@ export const HiringBriefSchema = z.object({
   /** Daily budget in credits (1 credit = 1 US cent of model usage, see candidate cost). */
   budgetPerDay: z.number().int().min(1).max(100_000),
   notes: z.string().max(500),
+  /** The model the Chief of Staff recommended (an offered model id): the first serious candidate gets it. */
+  model: z.string().trim().min(1).max(200).optional(),
 }).strict();
 export type HiringBrief = z.infer<typeof HiringBriefSchema>;
-
-export const HiringMessageSchema = z.object({
-  id: z.string(),
-  from: z.enum(['user', 'agent']),
-  text: z.string(),
-  mood: z.enum(MOODS).nullable(),
-  replies: z.array(z.string()),
-  brief: HiringBriefSchema.nullable(),
-  at: z.string(),
-}).strict();
-export type HiringMessage = z.infer<typeof HiringMessageSchema>;
 
 export const GAGS = ['shades', 'frazzled', 'intern', 'guru'] as const;
 export const CandidateSchema = z.object({
   id: z.string(),
-  /** False for the two joke candidates. Their numbers are honestly bad too. */
+  /** Always true now (joke candidates are gone); kept so stored candidates still parse. */
   serious: z.boolean(),
   character: CharacterSchema,
   pitch: z.string(),
-  /** Exaggerated portrait parts for joke candidates. */
+  /** Always null now (joke candidates are gone); kept so stored candidates still parse. */
   gag: z.enum(GAGS).nullable(),
   loadout: z.object({ model: ModelChoiceSchema.nullable(), skills: z.array(z.string()), toolsets: z.array(z.string()) }).strict(),
   /** Model size class: from the NEAR AI price when known (1 under $0.30/day, 2 under $3, 3 above), else guessed from the name. */
@@ -814,7 +816,6 @@ export const HiringRequestViewSchema = z.object({
   state: z.enum(HIRING_STATES),
   trigger: HiringTriggerSchema,
   ar: CharacterSchema,
-  messages: z.array(HiringMessageSchema),
   brief: HiringBriefSchema.nullable(),
   scoutingUntil: z.string().nullable(),
   /** Visible once scouting is over. */
@@ -822,16 +823,14 @@ export const HiringRequestViewSchema = z.object({
   hiredCandidateId: z.string().nullable(),
   /** What the offer changed, once hired. */
   applied: z.object({ departmentId: z.string(), seat: z.string(), profileRef: z.string(), teamBefore: z.number().int(), teamAfter: z.number().int(), skills: z.array(z.string()), model: ModelChoiceSchema.nullable(), provisioning: z.string() }).strict().nullable(),
-  modelReady: z.boolean(),
   createdAt: z.string(),
 }).strict();
 export type HiringRequestView = z.infer<typeof HiringRequestViewSchema>;
 
 export const HiringCurrentSchema = z.object({ request: HiringRequestViewSchema.nullable() }).strict();
-export const HiringStartSchema = z.object({ departmentId: z.string().optional() }).strict();
-export const HiringSendSchema = z.object({ message: z.string().trim().min(1).max(2000) }).strict();
-export const HiringBriefConfirmSchema = z.object({ brief: HiringBriefSchema.omit({ departmentName: true }).optional() }).strict();
-export const HiringOfferSchema = z.object({ candidateId: z.string(), acceptConcerns: z.boolean().optional() }).strict();
+/** The brief the boss confirmed in the Chief of Staff's chat: a request with its candidates right away. */
+export const HiringStartSchema = z.object({ brief: HiringBriefSchema.omit({ departmentName: true }) }).strict();
+export const HiringOfferSchema = z.object({ candidateId: z.string() }).strict();
 
 // ---- executive assistant: new departments through the dialogue window (feature spec 4.3) ---------------------------
 // The assistant drafts a floor (name, purpose, starter inventory) from a short chat. The backend keeps only what Hermes
@@ -854,10 +853,7 @@ export const DeptDraftSchema = z.object({
 }).strict();
 export type DeptDraft = z.infer<typeof DeptDraftSchema>;
 
-export const AssistantTurnSchema = z.object({ from: z.enum(['user', 'agent']), text: z.string().max(4000) }).strict();
-export const DeptDraftRequestSchema = z.object({ messages: z.array(AssistantTurnSchema).min(1).max(40) }).strict();
-
-/** The Chief of Staff's Agent Market listing, drafted in the dialogue window. Registration sends only the handle,
+/** The Chief of Staff's Agent Market listing, drafted in its Hermes chat (ChatMessage.listing). Registration sends only the handle,
     name, category and delivery time; the tagline, description and price are for the boss to paste on market.near.ai. */
 export const MarketDraftSchema = z.object({
   departmentId: z.string(),
@@ -873,10 +869,6 @@ export const MarketDraftSchema = z.object({
   notSynced: z.boolean(),
 }).strict();
 export type MarketDraft = z.infer<typeof MarketDraftSchema>;
-export const MarketDraftReplySchema = z.object({
-  say: z.string(), mood: z.enum(MOODS), replies: z.array(z.string()), draft: MarketDraftSchema.nullable(),
-}).strict();
-export type MarketDraftReply = z.infer<typeof MarketDraftReplySchema>;
 export const AssistantViewSchema = z.object({ character: CharacterSchema, modelReady: z.boolean() }).strict();
 export type AssistantView = z.infer<typeof AssistantViewSchema>;
 

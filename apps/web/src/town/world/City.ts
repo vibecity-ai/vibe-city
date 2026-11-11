@@ -709,7 +709,7 @@ export class City {
     // board now and then, and has something on their mind while a decision waits on you. Same look as the portrait.
     const g = P(ASSISTANT_SPOT[0], ASSISTANT_SPOT[1]);
     px.shadeEllipse(g[0] + 2, g[1], 8, 3.5, 0.45);
-    const talking = s.ui.newDept || s.ui.marketDraft;
+    const talking = s.ui.newDept;
     if (s.ui.execRoom !== this.cosIn) { this.cosIn = s.ui.execRoom; if (this.cosIn) this.cosGreetAt = t + 0.5; }
     if (this.hoverObj === 'assistant' && t - this.cosGreetAt > 2.5) this.cosGreetAt = t;
     const glance = !talking && t - this.cosGreetAt > 2.5 && t % 9 > 7.4;

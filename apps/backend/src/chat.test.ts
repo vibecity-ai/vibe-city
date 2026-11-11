@@ -172,6 +172,8 @@ test('the Hermes agent client creates the session, follows the stream and maps a
     'event: run.started\ndata: {"run_id":"r1"}\n\n', ': keepalive\n\n',
     'event: tool.progress\ndata: {"tool_name":"_thinking","delta":"hm"}\n\n',
     'event: tool.started\ndata: {"tool_name":"terminal","preview":"ls"}\n\n',
+    // a skill load, as Hermes 0.22.6's session chat stream sends it (api_server: tool_name, preview, args)
+    'event: tool.started\ndata: {"message_id":"m1","tool_name":"skill_view","preview":"vibe-city","args":{"name":"vibe-city"}}\n\n',
     'event: assistant.completed\ndata: {"content":"Found it, boss."}\n\n', 'event: done\ndata: {}\n\n',
   ];
   const fetch_ = (async (url: string, init: RequestInit) => {
@@ -185,7 +187,7 @@ test('the Hermes agent client creates the session, follows the stream and maps a
   const events: unknown[] = [];
   const turn = { profile: 'vc-abc-chief', key: 'k'.repeat(48), sessionId: 'vibecity-ceo-1', title: 'what did you find?', message: 'what did you find?', system: 'persona' };
   assert.equal(await client.turn(turn, (e) => events.push(e)), 'Found it, boss.');
-  assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }]);
+  assert.deepEqual(events, [{ kind: 'thinking' }, { kind: 'tool', name: 'terminal', preview: 'ls' }, { kind: 'skill', name: 'vibe-city' }]);
   assert.equal(seen[1]!.url, 'http://hermes.test:8642/p/vc-abc-chief/api/sessions/vibecity-ceo-1/chat/stream');
   assert.equal(seen[1]!.auth, `Bearer ${'k'.repeat(48)}`);
   assert.deepEqual(seen[1]!.body, { message: 'what did you find?', system_message: 'persona' });
@@ -209,6 +211,16 @@ test('a chat about a blocked task tells the agent why it is blocked, and its res
   assert.equal(r.json().agent.resume, 'Skip the install; document the 5 commands.');
   assert.match(agentChat.turns[0]!.system, /"Install skills", which is blocked .*No shell access/);
   assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
+});
+
+test('a lead that phoned about a finished quest is told to report on it, reading the task files first', async () => {
+  const { app, agentChat, readyDept } = agentApp(() => 'Done: three competitors summarised.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>');
+  const d = await readyDept('Desk', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  assert.equal((await app.inject({ method: 'POST', url, payload: { message: 'Report?', finishedQuest: { title: 'Competitor brief' } } })).statusCode, 200);
+  assert.match(agentChat.turns[0]!.system, /the quest "Competitor brief" on your board is finished.*read the task files first/);
+  await app.inject({ method: 'POST', url, payload: { message: 'Thanks' } });
+  assert.doesNotMatch(agentChat.turns[1]!.system, /is finished, and they picked up/, 'only the call carries the report context');
 });
 
 test('the Chief of Staff answers from a briefing of every floor and proposes a job for the floor it names', async () => {

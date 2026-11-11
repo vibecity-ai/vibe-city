@@ -664,7 +664,6 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .hire-head h2 { margin: 0; font: 600 22px/1.2 var(--f-ui); color: var(--ink); letter-spacing: -.01em; }
 .hire-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
 .cand { display: flex; flex-direction: column; gap: 8px; padding: 10px; background: #130E1B; border: 1px solid color-mix(in srgb, var(--who) 55%, #46385E); }
-.cand.joke { background: repeating-linear-gradient(-45deg, #130E1B 0 10px, #161021 10px 20px); }
 .cand-top { display: flex; gap: 10px; align-items: center; }
 .cand-face { flex: none; width: 48px; height: 48px; background: linear-gradient(160deg, var(--who), #271F35); overflow: hidden; }
 .cand-portrait { width: 48px; height: 48px; image-rendering: pixelated; display: block; }

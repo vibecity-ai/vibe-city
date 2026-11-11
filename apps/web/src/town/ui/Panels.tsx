@@ -27,7 +27,6 @@ import { Mark } from './Device';
 import { Wordmark } from './Wordmark';
 import { Directory, InTray, StatusBoard } from './ExecDesk';
 import { ChiefOfStaffCard } from './ChiefOfStaff';
-import { callAr } from './Hiring';
 import { PendingRequests } from './Requests';
 import { AgentName, AgentPortrait, AgentRecord, ChatTranscript, NeedsInput, PersonaLine, TaskSteps } from './AgentView';
 import { SchedulesView } from './Schedules';
@@ -160,7 +159,7 @@ export function DeptPanel() {
           <Purpose text={d.purpose} />
           <div className="actions">
             <button className="btn primary" disabled={!canWork} title={canWork ? '' : 'Needs the floor in sync with Hermes, and Hermes reachable'} onClick={() => s.openPanel('board', { composer: true, composerDept: d.id, boardDept: d.id, boardFilter: 'all' })}><Icon n="plus" sw={3} />New job</button>
-            <Btn kind="secondary" onClick={() => void callAr(d.id)}><Icon n="phone" size={14} />Hire</Btn>
+            <Btn kind="secondary" onClick={() => s.ui$({ newDept: true, cosCall: `${d.name} could use another pair of hands.` })}><Icon n="phone" size={14} />Hire</Btn>
           </div>
           {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New jobs need the floor to be in sync with Hermes.' : 'New jobs need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new jobs wait in Queued until it starts.</p>}

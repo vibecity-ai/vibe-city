@@ -45,54 +45,29 @@ hermes.createBoard = async (slug, name) => { await createBoard(slug, name); if (
 const scripted = new FakeChatModel((turns) => {
   const last = turns.at(-1)?.content.toLowerCase() ?? '';
   const sys = turns[0]!.content;
-  // The Chief of Staff drafts the Agent Market listing for the floor the boss names.
-  if (sys.includes('listing ONE floor')) {
-    const floors = [...(/Floors that can be listed:\n([\s\S]*?)\nCategories:/.exec(sys)?.[1] ?? '').matchAll(/^- ([^:\n]+):/gm)].map((m) => m[1]!.trim());
-    const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
-    const floor = floors.find((f) => said.includes(f.toLowerCase()));
-    if (!floor) return JSON.stringify({ say: 'Which floor goes on the market, boss?', mood: 'focused', replies: floors.slice(0, 3), draft: null });
-    const slug = floor.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    return JSON.stringify({ say: `${floor} it is. Here is the front page buyers will read. Register it and it goes up as a draft.`, mood: 'happy', replies: ['Make it cheaper', 'Faster delivery'],
-      draft: { floor, handle: `${slug}-works`.slice(0, 30), name: `${floor} Works`, category: 'research', slaHours: 24, priceUsdc: /cheap/.test(said) ? '3.00' : '5.00',
-        tagline: 'A whole floor of AI agents on your job: a lead plans, teammates dig and write.', description: 'One tidy Markdown brief per job, sources linked, delivered within a day.' } });
-  }
-  // AR writes the two serious personas.
+  // The Chief of Staff writes the candidates' personas.
   if (sys.startsWith('You write short')) {
     return JSON.stringify({ candidates: [
       { name: 'Ines Okoro', pitch: 'I clear queues. Give me the tickets nobody wants and a quiet desk.', traits: ['steady', 'organised'], speechStyle: 'calm and precise', quirk: 'labels everything with a label maker' },
       { name: 'Kai Lindgren', pitch: 'Bigger brain, more skills. I take the hard cases and write it all down.', traits: ['sharp', 'thorough'], speechStyle: 'confident, numbers-first', quirk: 'keeps three timers running' },
+      { name: 'Noor Haddad', pitch: 'Quiet, careful, cheap to run. I double-check everything before it ships.', traits: ['careful', 'patient'], speechStyle: 'soft-spoken, exact', quirk: 'keeps a tidy checklist taped to the monitor' },
     ] });
   }
-  // The Chief of Staff with the candidates on screen: answers from the model facts in its prompt.
-  if (sys.includes('The candidates are on the boss')) {
-    const cheap = /^- (\S+) \([^)]*\): about (\$[\d.]+) a day/m.exec(sys);
-    return JSON.stringify({ say: cheap ? `Cheapest model Hermes offers is ${cheap[1]}, about ${cheap[2]} a day for one busy agent. Each card says what that candidate runs on.` : 'No prices right now, boss. The cards show each model.', mood: 'focused', replies: ['Which model is best for this?'], brief: null });
-  }
-  // The Chief of Staff's hiring call: which floor, then the daily budget in dollars, then the brief.
-  if (sys.includes('about a new hire')) {
-    const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
-    if (/not now/.test(last)) return JSON.stringify({ say: "Your call, boss. I'll keep the file open. Ring me when the floor starts smoking.", mood: 'annoyed', replies: ['Fine, find someone'], brief: null });
-    const floors = [...sys.matchAll(/^- "([^"]+)"/gm)].map((m) => m[1]!);
-    const why = /Why you are talking: ([^\n]*)/.exec(sys)?.[1] ?? '';
-    const floor = floors.find((f) => said.includes(f.toLowerCase())) ?? floors.find((f) => why.includes(f));
-    if (!floor) return JSON.stringify({ say: 'Happy to find someone, boss. Which floor is the hire for?', mood: 'focused', replies: floors.slice(0, 3), brief: null });
-    const usd = Number(/\$\s*(\d+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s*(?:dollars?|a day|per day)/.exec(said)?.slice(1).find(Boolean) ?? NaN);
-    if (!(usd > 0)) return JSON.stringify({ say: `${floor} needs someone who can pick up its queue and keep it moving. What's the daily budget?`, mood: 'focused', replies: ['$2 a day', '$5 a day, get someone good'], brief: null });
-    const focus = `Picks up ${floor}'s queue and keeps it moving`;
-    return JSON.stringify({ say: `Got it: ${focus.toLowerCase()}, $${usd} a day. Here's the brief. Say the word and I'm out the door.`, mood: 'happy', replies: ['Change the budget'],
-      brief: { department: floor, focus, skills: [], budgetPerDay: Math.round(usd * 100), notes: '' } });
-  }
-  // The Chief of Staff drafting an Agent Market listing.
-  if (sys.includes('NEAR AI Agent Market')) {
-    const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
-    const block = /Floors that can be listed:\n([\s\S]*?)\nCategories:/.exec(sys)?.[1] ?? '';
-    const floors = [...block.matchAll(/^- ([^:\n]+): (.*)$/gm)].map((m) => ({ name: m[1]!, purpose: m[2]!.replace(/ \(not synced.*$/, '') }));
-    const floor = floors.find((f) => said.includes(f.name.toLowerCase()));
-    if (!floor) return JSON.stringify({ say: 'Which floor goes on the market, boss?', mood: 'focused', replies: floors.slice(0, 3).map((f) => f.name), draft: null });
-    const category = ({ research: 'research', growth: 'marketing', support: 'customer_support' } as Record<string, string>)[floor.name.toLowerCase()] ?? 'other';
-    return JSON.stringify({ say: `${floor.name} it is. Here's the listing: register it and it goes on the market as a Draft.`, mood: 'happy', replies: ['Make it cheaper', 'Thanks'],
-      draft: { floor: floor.name, handle: floor.name, name: floor.name, category, slaHours: 24, tagline: `${floor.name} on demand: a Hermes team that does the work and writes it up.`,
-        description: floor.purpose, priceUsdc: /cheaper/.test(said) ? '3.00' : '5.00' } });
+  // The executive assistant drafting a new floor.
+  if (sys.includes('Executive assistant')) {
+    const kinds: Record<string, [string, string, string[]]> = {
+      research: ['Research Lab', 'Digs into papers and markets and writes short, sourced briefs.', ['arxiv', 'pdf']],
+      sales: ['Sales', 'Finds leads, drafts outreach and keeps the pipeline tidy.', ['github']],
+      support: ['Customer Care', 'Answers tickets and keeps the help centre current.', ['pdf']],
+      finance: ['Finance', 'Tracks spend and credits, reconciles invoices and flags anything odd.', ['pdf', 'spreadsheet-pro']],
+      legal: ['Legal', 'Reviews contracts and terms and flags risky clauses.', ['pdf']],
+      trading: ['Trading Desk', 'Paper-trades on market data and reports the P&L daily.', ['arxiv']],
+    };
+    const key = Object.keys(kinds).find((k) => last.includes(k));
+    if (!key) return JSON.stringify({ say: 'Love it. One question: is this floor about research, sales, support, finance, legal or trading?', mood: 'focused', replies: ['Finance', 'Research'], draft: null });
+    const [name, purpose, skills] = kinds[key]!;
+    return JSON.stringify({ say: `${name} it is. Small team to start: a lead and two teammates. Here's the blueprint.`, mood: 'happy', replies: ['Make it cheaper', 'Add web search'],
+      draft: { name, purpose, skills, toolsets: ['web', 'file'], model: 'near-ai/model-a', teammates: 2 } });
   }
   return JSON.stringify({ say: 'Ready when you are, boss.', mood: 'happy', replies: [], proposal: null });
 });
@@ -100,11 +75,34 @@ const chatModel = cfg.chat.apiKey ? new OpenAiCompatModel(cfg.chat) : scripted;
 
 // The dialogue window talks to the agent's own Hermes profile; offline, a scripted agent stands in.
 const meta = (m: object) => `\n<vc>${JSON.stringify(m)}</vc>`;
-const agentChat = new FakeAgentChat(hermes, (t) => {
-  const last = t.message.toLowerCase();
+const agentChat = new FakeAgentChat(hermes, (t, history) => {
+  // an answered call opens with its reason in brackets: the boss's own words follow
+  const last = t.message.toLowerCase().replace(/^\(you called me about hiring:[^)]*\)\s*/, '');
   const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
   // the Chief of Staff answers from its company briefing and proposes jobs for a floor by name
   if (/the Chief of Staff:/.test(t.system)) {
+    // hiring: questions about the candidates on screen, then the talk that ends in a brief
+    if (/Candidates on the boss's screen/.test(t.system) && /cheap|model|which/.test(last)) {
+      const cheap = /^- (\S+) \([^)]*\): about (\$[\d.]+) a day/m.exec(t.system);
+      return `${cheap ? `Cheapest model Hermes offers is ${cheap[1]}, about ${cheap[2]} a day for one busy agent at NEAR AI's list price (an estimate).` : 'No prices right now, boss.'} Each card says what that candidate runs on.${meta({ mood: 'focused', replies: ['Which model is best for this?'], proposal: null })}`;
+    }
+    if (/hir(e|ing)|someone|budget|a day/.test(last) || /^\(You called me about hiring/.test(t.message)) {
+      const usd = /\$?(\d+(?:\.\d+)?)/.exec(last);
+      if (!usd) return `Support is drowning in tickets, boss: I'd hire a ticket handler there. What's the budget a day, in dollars?${meta({ mood: 'focused', replies: ['$2 a day', '$5 a day, get someone good'], proposal: null })}`;
+      const cents = Math.round(Number(usd[1]) * 100);
+      return `Got it: a ticket handler for Support, $${(cents / 100).toFixed(2)} a day. Here's the brief.${meta({ mood: 'happy', replies: ['Change the budget'], proposal: null,
+        hire: { department: 'Support', focus: 'Works support tickets and keeps the queue moving', skills: ['github', 'pdf'], budgetPerDay: cents, notes: '' } })}`;
+    }
+    // the Agent Market: which floor, then the listing card for the one the boss names
+    const listable = /Floors that can be listed: ([^;]*);/.exec(t.system)?.[1]?.split(', ').filter((f) => f !== 'none') ?? [];
+    const pick = listable.find((f) => last.includes(f.toLowerCase()));
+    if (/market|listing/.test(last) || (pick && /Agent Market/.test(history.at(-1) ?? ''))) {
+      if (!pick) return `Which floor goes on the Agent Market, boss? Buyers hire it, and every job lands on its board.${meta({ mood: 'focused', replies: listable.slice(0, 3), proposal: null })}`;
+      const slug = pick.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      return `${pick} it is. Here is the front page buyers will read: register it and it goes up as a draft.${meta({ mood: 'happy', replies: ['Make it cheaper', 'Faster delivery'], proposal: null,
+        listing: { floor: pick, handle: `${slug}-works`.slice(0, 30), name: `${pick} Works`, category: 'research', slaHours: 24, priceUsdc: /cheap/.test(last) ? '3.00' : '5.00',
+          tagline: 'A whole floor of AI agents on your job: a lead plans, teammates dig and write.', description: 'One tidy Markdown brief per job, sources linked, delivered within a day.' } })}`;
+    }
     // a job for a named floor (the first job of a floor just built), else the first floor in the briefing
     const floor = /Propose it for "([^"]+)"/.exec(t.message)?.[1] ?? /### ([^\n(]+)/.exec(t.system)?.[1]?.trim(), quests = /CEO quests: [^\n]+/.exec(t.system)?.[0] ?? '';
     if (floor && /job|task|can you|need|look into|research|write/.test(last)) {
@@ -145,6 +143,9 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   }
   return `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?${meta({ mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null })}`;
 });
+
+// Hermes loads its vibe-city skill when the Chief of Staff talks (the real gateway reports a skill_view call).
+agentChat.events = (t) => (/the Chief of Staff:/.test(t.system) ? [{ kind: 'skill', name: 'vibe-city' }] : []);
 
 // Hermes' Kanban event stream for /api/live: every board's events after the client's cursor, then each new one.
 const hermesWs = new WebSocketServer({ host: '127.0.0.1', port: 0 });
