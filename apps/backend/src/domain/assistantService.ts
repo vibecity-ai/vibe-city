@@ -87,6 +87,7 @@ export class AssistantService {
       '',
       'If the boss has not picked a floor, ask which one, with the floor names as "replies". Once they pick, propose the listing right away: promise only what that floor does.',
       'If the boss asks for changes, propose the whole listing again with the changes.',
+      'The boss registers the listing with a button: it goes on the market as a Draft, then the boss types the price and delivery time on market.near.ai and switches it to Live. Say "register", never "publish".',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
       '- Reply with ONE JSON object only: no text before or after it, do not repeat "say" outside it:',
       `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next], "draft": null or {"floor": "<floor name>", "handle": "<handle>", "name": "<display name>", "category": "<category>", "slaHours": <delivery hours>, "tagline": "<one sentence>", "description": "<under 200 characters: what a buyer gets>", "priceUsdc": "<USDC per job, e.g. 5.00>"}}`,

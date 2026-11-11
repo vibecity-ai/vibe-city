@@ -564,6 +564,9 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .dlg-prop span { color: var(--ink-dim); font-size: 13px; }
 .dlg-tag { font: 600 11px var(--f-mono) !important; color: var(--who, #FFC75A) !important; text-transform: uppercase; letter-spacing: .12em; }
 .dlg-prop-act { display: flex; gap: 8px; }
+/* a market listing: the card hugs the front page and its buttons sit under it, on the right */
+.dlg-prop.listing { flex-direction: column; align-items: stretch; width: fit-content; max-width: 100%; }
+.dlg-prop.listing .dlg-prop-act { justify-content: flex-end; } .dlg-prop.listing .paper { flex: none; }
 .dlg-note { margin: 0; color: var(--mint); font: 500 13px var(--f-ui); }
 @media (max-width: 760px) {
   .dlg { grid-template-rows: 4vh minmax(0, 1fr) auto; }

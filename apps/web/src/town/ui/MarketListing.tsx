@@ -1,6 +1,6 @@
 /* The Chief of Staff lists one floor on the NEAR AI Agent Market with the boss: which floor, then the listing as a
-   newspaper front page. "Publish" takes the boss to that floor and registers through POST /api/market/register (handle, name, category, delivery time); the tagline,
-   description and price are what the boss pastes on market.near.ai, where they also switch the listing to Live. */
+   newspaper front page. "Register as draft" takes the boss to that floor and registers through POST /api/market/register (handle, name, category, delivery time); the tagline,
+   description, price and delivery time are what the boss enters on market.near.ai, where they also switch the listing to Live. */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { isInternalOnly, type AssistantView, type MarketDraft, type MarketRegister, type Mood } from '@vibe-city/shared';
 import { useStore } from '../store';
@@ -80,12 +80,12 @@ function MarketListing() {
     } finally { setWaiting(false); }
   };
 
-  /** Publishing leaves the office: the boss stands on the floor while the market answers, sees its Marketplace board
+  /** Registering leaves the office: the boss stands on the floor while the market answers, sees its Marketplace board
       go up, and the board opens on the claim step. A refusal (a taken handle…) comes back here to try again. */
   const list = (d: MarketDraft) => {
     const s = useStore.getState();
     s.ui$({ marketDraft: false }); s.openFloor(d.departmentId);
-    s.toast(`Sending ${d.floorName}'s listing to market.near.ai…`);
+    s.toast(`Registering ${d.floorName} on market.near.ai as a draft…`);
     const onFloor = () => { const u = useStore.getState().ui; return u.view === 'floor' && u.floorId === d.departmentId; };
     void (async () => {
       try {
@@ -94,10 +94,10 @@ function MarketListing() {
           ...(d.tagline ? { tagline: d.tagline.slice(0, 160) } : {}), ...(d.description ? { description: d.description.slice(0, 200) } : {}), priceUsdc: d.priceUsdc }), new Promise((r) => setTimeout(r, 1200))]);
         useStore.setState({ market: v }); // the listed floor gets its Marketplace board now: the city builds it
         void api.game().then((game) => useStore.setState({ game })).catch(() => undefined);
-        s.toast(`${d.floorName} is on the Agent Market as @${v.agents.find((a) => a.departmentId === d.departmentId)?.handle ?? d.handle}. Claim it from its Marketplace board.`);
+        s.toast(`${d.floorName} is registered on the Agent Market as a draft, @${v.agents.find((a) => a.departmentId === d.departmentId)?.handle ?? d.handle}. Claim it from its Marketplace board.`);
         setTimeout(() => { if (onFloor()) useStore.getState().ui$({ floorSheet: 'station' }); }, STATION_BUILD_MS + 300);
       } catch (e) {
-        s.toast(`The listing did not go through: ${e instanceof ApiError ? e.message : 'could not reach the market'}`, 'bad');
+        s.toast(`The registration did not go through: ${e instanceof ApiError ? e.message : 'could not reach the market'}`, 'bad');
         if (onFloor()) { s.openExec(); s.ui$({ marketDraft: true }); }
       }
     })();
@@ -118,14 +118,14 @@ function MarketListing() {
         const d = last?.draft;
         if (!d) return null;
         return (
-          <div className="dlg-prop">
+          <div className="dlg-prop listing">
             <ListingPaper name={d.name} handle={d.handle} tagline={d.tagline} description={d.description} priceUsdc={d.priceUsdc} category={d.category} slaHours={d.slaHours} floorName={d.floorName}>
-              <p className="paper-fine">Publishing gives {d.floorName}'s agents the agent token and the marketplace-worker skill: they read each job's thread and message the buyer; Vibe City starts and submits the jobs. You set the price and go Live on market.near.ai. A floor is listed once, for real.</p>
+              <p className="paper-fine">Registering puts {d.floorName} on market.near.ai as a Draft and gives its agents the agent token and the marketplace-worker skill: they read each job's thread and message the buyer; Vibe City starts and submits the jobs. The price and delivery time here are suggestions: you enter them on market.near.ai, then switch the listing to Live. A floor is registered once, for real.</p>
               {d.notSynced && <p className="paper-fine">{d.floorName} is not synced with Hermes yet: it is listed now, but takes jobs only once it is.</p>}
             </ListingPaper>
             <div className="dlg-prop-act">
-              <button className="btn primary small" onClick={() => list(d)}>Publish</button>
               <button className="btn small" onClick={() => copy(d)}>Copy text</button>
+              <button className="btn primary small" onClick={() => list(d)}>Register as draft</button>
             </div>
           </div>
         );
