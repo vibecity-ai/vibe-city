@@ -17,11 +17,13 @@ export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
   const [key, setKey] = useState('');
   const [replacing, setReplacing] = useState(false);
   const [model, setModel] = useState('');
+  const [credits, setCredits] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   const load = () => Promise.all([api.companySettings(), api.assistantModels()]).then(([s, m]) => {
     setSettings(s); setModels(m);
+    setCredits(s.nearAiCreditsLoadedCents === null ? '' : String(s.nearAiCreditsLoadedCents / 100));
     // until one is chosen, preselect the server default when NEAR AI offers it, else the cheapest
     setModel(m.chosen || m.models.some((x) => x.id === m.current) || !m.models.length ? m.current : m.models[0]!.id);
   }).catch((e) => setErr(e instanceof ApiError ? e.message : 'Could not read the settings.'));
@@ -30,16 +32,20 @@ export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
   if (!settings || !models) return <p className="muted small" role="status">{err ?? 'Reading the settings…'}</p>;
   const keySet = settings.nearAiApiKeySet && !replacing;
   const ready = settings.nearAiApiKeySet && settings.chiefOfStaffModel !== null;
-  const changed = !!key.trim() || model !== settings.chiefOfStaffModel;
+  // dollars typed -> cents; empty = not told (the runway shows a dash)
+  const creditsCents = credits.trim() === '' || !(Number(credits) >= 0) ? null : Math.round(Number(credits) * 100);
+  const modelChanged = model !== settings.chiefOfStaffModel;
+  const creditsChanged = creditsCents !== settings.nearAiCreditsLoadedCents;
+  const changed = !!key.trim() || modelChanged || creditsChanged;
   const pick = models.models.find((m) => m.id === model);
 
   const save = async () => {
     setBusy(true); setErr(null);
     try {
-      await api.setCompanySettings({ ...(key.trim() ? { nearAiApiKey: key.trim() } : {}), chiefOfStaffModel: model });
+      await api.setCompanySettings({ ...(key.trim() ? { nearAiApiKey: key.trim() } : {}), ...(modelChanged ? { chiefOfStaffModel: model } : {}), ...(creditsChanged ? { nearAiCreditsLoadedCents: creditsCents } : {}) });
       const game = await api.game();
       useStore.setState({ game });
-      useStore.getState().toast(ready ? `Your Chief of Staff now thinks with ${model}.` : 'Your Chief of Staff is ready. You can hire your first floor.');
+      useStore.getState().toast(ready && !modelChanged ? 'Saved.' : ready ? `Your Chief of Staff now thinks with ${model}.` : 'Your Chief of Staff is ready. You can hire your first floor.');
       setKey(''); setReplacing(false);
       await load();
       onDone?.();
@@ -77,6 +83,12 @@ export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
           {pick ? `${per1M(pick.inPerM)} per 1M tokens in, ${per1M(pick.outPerM)} out. A conversation uses a few thousand tokens.` : 'NEAR AI’s price list is not available right now; any model id NEAR AI offers works.'}
           {' '}Cheaper models answer fast; bigger ones plan floors better. Your agents keep their own models.
         </span>
+      </div>
+      <div className="cos-field">
+        <span className="cos-label">Credits on the NEAR AI account (USD)</span>
+        <input className="input mono" type="number" min="0" step="0.01" inputMode="decimal" placeholder="e.g. 25"
+          aria-label="Credits on the NEAR AI account, in US dollars" value={credits} onChange={(e) => setCredits(e.target.value)} />
+        <span className="cos-help">Optional. The balance cloud.near.ai shows now. Runway is an estimate: this, minus what your agents have used, over the 7-day average burn.</span>
       </div>
       {err && <p className="cos-err" role="alert">{err}</p>}
       <div className="cos-act">

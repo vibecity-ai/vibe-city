@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { GameState, MarketView } from '@vibe-city/shared';
+import type { StepVia, GameState, MarketView } from '@vibe-city/shared';
 import type {
   HiringRequestView, QuestOrigin, QuestRequestView, Schedule, Character,
   ActivityEvent, AgentView, CancellationStatus, EffectiveInventory, Inventory, ProfilesView, ProvisioningStatus, QuestDetail, QuestResults, QuestSummary,
@@ -27,6 +27,8 @@ export type Fx =
   | { k: 'workerJoined'; dept: string; worker: string }
   /** A chief handed work to another department: a packet flies from floor to floor. */
   | { k: 'questRequest'; dept: string; from: string }
+  /** An agent just used a tool: a light carries its symbol from where that tool lives on the floor to the agent. */
+  | { k: 'toolUse'; dept: string; agent: string; via: StepVia }
   /** A schedule fired: the floor holds a short stand-up at its Kanban wall. */
   | { k: 'standup'; dept: string };
 

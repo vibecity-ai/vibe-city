@@ -77,6 +77,24 @@ export function ClaimStep({ deptId, claimed }: { deptId: string; claimed: boolea
   );
 }
 
+/** Step 2: the listing as the market reports it (read with the agent's token, so a Draft is visible too). Re-read on
+    each backend poll until it is live. */
+function LiveStep({ deptId, handle, poll }: { deptId: string; handle: string; poll: string | null }) {
+  const [status, setStatus] = useState<string | null>(null);
+  const live = status === 'live';
+  useEffect(() => { if (!live) api.marketProfile(deptId).then((p) => setStatus(p.listingStatus)).catch(() => undefined); }, [deptId, poll, live]);
+  return (
+    <li className={live ? 'done' : ''}>
+      <span className="mk-n">{live ? <Icon n="sparkle" size={11} /> : 2}</span>
+      {live
+        ? <span className="mk-t">Live on market.near.ai: buyers can find it.</span>
+        : <span className="mk-t">Under <b>Building → Agents</b> it is a <b>{status ? status[0].toUpperCase() + status.slice(1) : 'Draft'}</b>: set a USDC price and switch it to <b>Live</b> so buyers can find it.</span>}
+      {live ? <a className="chip sm mk-claimed" href={`${MARKET}/a/${handle}`} target="_blank" rel="noreferrer"><Icon n="check" size={11} /> Live</a>
+        : <a className="btn secondary small" href={MARKET_AGENTS} target="_blank" rel="noreferrer">Open market</a>}
+    </li>
+  );
+}
+
 /** The company's floors on the NEAR AI Agent Market, each its own agent. The Chief of Staff lists one at a time from
     the dialogue window; the quest is done once a listed floor's agents hold its token. The backend then polls the agent's jobs and hands each one to the floor. */
 function MarketQuest() {
@@ -117,11 +135,7 @@ function MarketQuest() {
           </div>
           <ol className="mk-steps">
             <ClaimStep deptId={a.departmentId} claimed={!!a.adoptedAt} />
-            <li>
-              <span className="mk-n">2</span>
-              <span className="mk-t">Under <b>Building → Agents</b> it is a <b>Draft</b>: set a USDC price and switch it to <b>Live</b> so buyers can find it.</span>
-              <a className="btn secondary small" href={MARKET_AGENTS} target="_blank" rel="noreferrer">Open market</a>
-            </li>
+            <LiveStep deptId={a.departmentId} handle={a.handle} poll={m.lastPollAt} />
             <li className={a.ready ? 'done' : ''}>
               <span className="mk-n">{a.ready ? <Icon n="sparkle" size={11} /> : 3}</span>
               <span className="mk-t">{a.ready ? `${name(a.departmentId)} is open for work.` : `${name(a.departmentId)} is not synced with Hermes yet.`}</span>

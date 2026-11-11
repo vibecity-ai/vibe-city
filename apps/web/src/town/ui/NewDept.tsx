@@ -1,15 +1,16 @@
-/* The Chief of Staff (the executive assistant and AR merged into one person, brief 02). Every visit is a fresh chat
-   that opens on what they can do: add a department (a template, or a custom floor designed in conversation), hire one
-   specialist (AR's call), or list a floor on the Agent Market while one is not listed yet. A custom floor the last answers with a proposal card built only from what Hermes has. "Looks good"
+/* The Chief of Staff (the executive assistant and AR merged into one person, brief 02): the CEO's first stop. Anything
+   typed here goes to their Hermes agent, which answers from a briefing of the whole company and proposes jobs for the
+   floors (one click starts one). Every visit is a fresh chat that also opens on the guided flows: add a department (a template, or a custom floor designed in conversation), hire one
+   specialist (AR's call), or list a floor on the Agent Market while one is not listed yet. A custom floor is drafted by the same agent and arrives as a proposal card built only from what Hermes has. "Looks good"
    creates the floor through the normal department API (and syncs it when Hermes is up). The form stays one click away
    for keyboard and screen-reader users, so nothing depends on the animation or the model. */
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { isInternalOnly, type AssistantView, type DeptDraft, type Mood } from '@vibe-city/shared';
+import { useCallback, useEffect, useState } from 'react';
+import { isInternalOnly, type AssistantView, type ChatBriefing, type ChatProposal, type DeptDraft } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { createDepartment } from '../data/live';
-import { lookFor } from '../world/sprites';
-import { DialogueFrame, type Line } from './Dialogue';
+import { createDepartment, createQuest } from '../data/live';
+import { COS_LOOK } from '../world/sprites';
+import { DialogueFrame, progressLabel, type Line } from './Dialogue';
 import { callAr } from './Hiring';
 
 /** The menu every visit opens on (handled here, no model). */
@@ -18,6 +19,8 @@ const ADD = 'Add a new floor', HIRE = 'Hire a new agent', LIST = 'List a floor o
 const USE_TEMPLATE = 'Show me the templates', CUSTOM = 'Design a custom floor';
 /** After a floor is built: what the boss can do next (handled here, no model). */
 const FIRST_JOB = 'Give them a first job', SEE_FLOOR = 'Show me the floor';
+/** Free talk with the Hermes agent: the opener, and after a job it proposed was started. */
+const BRIEF = 'Brief me', SEE_BOARD = 'Show me the board';
 
 export function NewDeptWindow() {
   const open = useStore((s) => s.ui.newDept);
@@ -32,7 +35,7 @@ export function NewDeptWindow() {
   return open && !locked ? <NewDept /> : null;
 }
 
-interface Turn extends Line { draft: DeptDraft | null }
+interface Turn extends Line { draft: DeptDraft | null; proposal?: ChatProposal | null; briefing?: ChatBriefing }
 
 function NewDept() {
   const close = useCallback(() => useStore.getState().ui$({ newDept: false }), []);
@@ -43,14 +46,22 @@ function NewDept() {
   const [waiting, setWaiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [built, setBuilt] = useState<string | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const [started, setStarted] = useState<{ turn: string; dept: string } | null>(null);
+  // ponytail: a fresh Hermes session per visit keeps turns short and fast; pass the last session id to make it remember
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const newSession = useCallback(() => {
+    const cos = useStore.getState().chiefOfStaff;
+    if (cos) api.chatHistory(cos.id, 'chief', 'new').then((h) => setSessionId(h.sessionId)).catch(() => undefined);
+  }, []);
+  useEffect(newSession, [newSession]);
   // listing is offered while some floor can still go on the market (not a company-wallet floor, not listed yet)
   const canList = useStore((s) => s.depts.some((d) => !isInternalOnly(d.view.templateId) && !s.market?.agents.some((a) => a.departmentId === d.id)));
-  const menu = [ADD, HIRE, ...(canList ? [LIST] : [])];
+  const menu = [BRIEF, ADD, HIRE, ...(canList ? [LIST] : [])];
   const say = (user: string, text: string, replies: string[]) => setLines((xs) => [...xs,
     { id: crypto.randomUUID(), from: 'user', text: user, mood: null, replies: [], draft: null },
     { id: crypto.randomUUID(), from: 'agent', text, mood: 'happy', replies, draft: null }]);
   useEffect(() => { api.assistant().then(setMe).catch((e: ApiError) => setError(e.message)); }, []);
-  const look = useMemo(() => lookFor(`assistant:${me?.character.name ?? ''}`, '#9B5CFF', true), [me?.character.name]);
 
   const onSend = async (m: string) => {
     const s = useStore.getState();
@@ -59,20 +70,23 @@ function NewDept() {
     if (m === LIST) { s.ui$({ newDept: false, marketDraft: true }); return true; }
     if (m === USE_TEMPLATE) { s.ui$({ newDept: false, modal: 'create' }); return true; }
     if (built && m === SEE_FLOOR) { close(); return true; }
+    if (started && m === SEE_BOARD) { close(); s.openPanel('board', { composer: false, boardDept: started.dept, boardFilter: 'all', boardQuest: null }); return true; }
     if (built && m === FIRST_JOB) { close(); s.openPanel('board', { composer: true, composerDept: built, boardDept: built, boardQuest: null }); return true; }
-    setError(null); setWaiting(true);
+    const cos = s.chiefOfStaff;
+    if (!cos?.chief) { setError('I have no desk in Hermes yet, boss: start Hermes and I can talk. The templates, hiring and market shortcuts still work.'); return false; }
+    setError(null); setWaiting(true); setProgress(null);
     const user: Turn = { id: crypto.randomUUID(), from: 'user', text: m, mood: null, replies: [], draft: null };
     const next = [...lines, user];
     setLines(next);
     try {
-      const r = await api.departmentDraft(next.map((t) => ({ from: t.from, text: t.draft ? `${t.text}\n(Proposed: ${JSON.stringify(t.draft)})` : t.text })));
-      setLines([...next, { id: crypto.randomUUID(), from: 'agent', text: r.say, mood: r.mood as Mood, replies: r.replies, draft: r.draft }]);
+      const r = await api.chatStream(cos.id, 'chief', { message: m, ...(sessionId ? { sessionId } : {}) }, (p) => setProgress(progressLabel(p)));
+      setLines([...next, { ...r.agent, draft: r.agent.floorDraft ?? null }]);
       return true;
     } catch (e) {
       setLines(lines);
       setError(e instanceof ApiError ? e.message : 'Something went wrong.');
       return false;
-    } finally { setWaiting(false); }
+    } finally { setWaiting(false); setProgress(null); }
   };
 
   const build = async (d: DeptDraft) => {
@@ -88,16 +102,52 @@ function NewDept() {
       : `${v.name} is on the plans, boss, but Hermes is not reachable: it will be built once you sync it. What do you want me to do next?`;
     setLines([...lines, { id: crypto.randomUUID(), from: 'agent', text, mood: 'happy', replies: [FIRST_JOB, LIST, SEE_FLOOR], draft: null }]);
   };
+  const startJob = async (turn: string, p: ChatProposal) => {
+    setStarted({ turn, dept: p.departmentId! });
+    const id = await createQuest(p.departmentId!, { clientRequestId: crypto.randomUUID(), title: p.title, objective: p.objective });
+    if (!id) { setStarted(null); return; } // the toast says why; the card stays to try again
+    setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done, boss: "${p.title}" is on ${p.departmentName}'s board. Ask me how it is going any time.`, mood: 'happy', replies: [SEE_BOARD, BRIEF], draft: null }]);
+  };
   const last = [...lines].reverse().find((t) => t.from === 'agent') ?? null;
 
   return (
     <DialogueFrame
-      who={me?.character ?? null} look={look} lines={lines} ready={me?.modelReady ?? true} waiting={waiting} error={error}
-      greeting="What do you need, boss? I can add a floor, hire a specialist for a floor, or put a floor on the Agent Market."
+      who={me?.character ?? null} look={COS_LOOK} lines={lines} ready={me?.modelReady ?? true} waiting={waiting} status={progress} error={error}
+      greeting="What do you need, boss? Ask me anything about the company, or hand me a job for a floor. I can also add a floor, hire a specialist, or put a floor on the Agent Market."
       notReady="I can't think yet: finish the first quest (your NEAR AI key and my model). The templates still work."
       baseMood="happy" defaultReplies={menu} onSend={onSend} onClose={close}
-      inputHint="Or describe a floor, e.g. “handles invoices and chases late payments”"
+      inputHint="Ask about the company, say what you need done, or describe a new floor"
       cards={() => {
+        const job = last?.proposal;
+        if (job?.departmentId && !started) return (
+          <div className="dlg-prop">
+            <div><span className="dlg-tag">Job for {job.departmentName}</span><b>{job.title}</b><span>{job.objective}</span></div>
+            <div className="dlg-prop-act"><button className="btn primary small" onClick={() => void startJob(last!.id, job)}>Start job</button></div>
+          </div>
+        );
+        if (job?.departmentId && started?.turn === last!.id) return <p className="dlg-note">Sending the job to {job.departmentName}…</p>;
+        const b = last?.briefing;
+        if (b) {
+          const s = useStore.getState();
+          const toFloor = (dept: string) => { close(); s.openFloor(dept); s.openPanel('board', { composer: false, boardDept: dept, boardFilter: 'all', boardQuest: null }); };
+          const rows = (list: ChatBriefing['needsYou']) => list.map((r, i) => (
+            <li key={i}>{r.departmentId
+              ? <button type="button" onClick={() => toFloor(r.departmentId!)} aria-label={`${r.text} Open ${r.departmentName}'s board`}><i>{r.departmentName}</i><span>{r.text}</span><b aria-hidden="true">▸</b></button>
+              : <span>{r.text}</span>}</li>
+          ));
+          return (
+            <section className="brief" aria-label="Company briefing">
+              <div className={`brief-col needs${b.needsYou.length ? '' : ' none'}`}><h4>Needs you <em>{b.needsYou.length}</em></h4>
+                {b.needsYou.length ? <ul>{rows(b.needsYou)}</ul> : <p>Nothing waits on you.</p>}
+                <button type="button" className="brief-more" onClick={() => { close(); s.ui$({ questLog: true }); }}>Quest log ▸</button>
+              </div>
+              <div className="brief-col"><h4>In flight <em>{b.inFlight.length}</em></h4>
+                {b.inFlight.length ? <ul>{rows(b.inFlight)}</ul> : <p>No job is running.</p>}
+              </div>
+              {b.money && <p className="brief-money"><i>Money</i>{b.money}</p>}
+            </section>
+          );
+        }
         const d = last?.draft;
         if (!d) return null;
         return (
@@ -120,7 +170,7 @@ function NewDept() {
             </div>
             <div className="dlg-prop-act">
               <button className="btn primary small" disabled={creating} onClick={() => void build(d)}>{creating ? 'Building…' : 'Looks good'}</button>
-              <button className="btn small" disabled={creating} onClick={() => setLines([])}>Start over</button>
+              <button className="btn small" disabled={creating} onClick={() => { setLines([]); newSession(); }}>Start over</button>
             </div>
           </div>
         );

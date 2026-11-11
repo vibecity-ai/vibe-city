@@ -7,7 +7,7 @@ import { createPortal } from 'react-dom';
 import type { Candidate, ChatMessage, HiringRequestView, InterviewReply } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { lookFor } from '../world/sprites';
+import { COS_LOOK, lookFor } from '../world/sprites';
 import type { Gag } from '../world/portrait';
 import { DialogueFrame, PortraitCanvas, blip, readMuted, type Line } from './Dialogue';
 import { Icon } from './kit';
@@ -20,7 +20,7 @@ const TIER = ['', 'Small model', 'Balanced model', 'Large model'];
 const set = (h: HiringRequestView | null) => useStore.getState().hiring$(h);
 const call = (c: ReturnType<typeof useStore.getState>['ui']['call']) => useStore.getState().ui$({ call: c });
 /** The Chief of Staff's face: the same look as in the floor-drafting dialogue (the assistant and AR are one person). */
-const arLook = (h: HiringRequestView) => lookFor(`assistant:${h.ar.name}`, '#9B5CFF', true);
+
 const candLook = (c: Candidate) => lookFor(c.character.agentKey, c.character.color, false);
 const fmtLeft = (ms: number) => { const s = Math.max(0, Math.ceil(ms / 1000)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
@@ -89,7 +89,7 @@ export async function callAr(departmentId?: string) {
 /** The Chief of Staff calling: a small phone in the top bar that rings three times and then waits quietly. It never
     takes the keyboard and never covers the game; the reason shows on hover or focus. */
 function IncomingCall({ h }: { h: HiringRequestView }) {
-  const look = useMemo(() => arLook(h), [h]);
+  const look = COS_LOOK;
   useEffect(() => {
     if (readMuted()) return;
     let n = 0;
@@ -137,7 +137,7 @@ function ArDialogue({ reqId }: { reqId: string }) {
   const close = useCallback(() => call(null), []);
   useEffect(() => { api.hiring(reqId).then(set).catch((e: ApiError) => setError(e.message)); }, [reqId]);
   const now = useNow(h?.state === 'scouting');
-  const look = useMemo(() => (h ? arLook(h) : lookFor('assistant:', '#9B5CFF', true)), [h?.ar.name]);
+  const look = COS_LOOK;
   if (!h) return null;
 
   const intake = h.state === 'intake' || h.state === 'ringing';

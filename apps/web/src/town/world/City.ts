@@ -1,10 +1,11 @@
 /* Vibe City renderer. Reads the store every frame, animates the tower and the open office, and
    plays one-shot Fx. It never decides game state: animation may lag truth, never lead it.
    Rendering is HD-2D: pixel-art buffer + emissive mask + light buffer, composited in Post. */
+import type { StepVia } from '@vibe-city/shared';
 import { useStore, type Fx, type State } from '../store';
 import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
-import { getSprite, ghostSprite, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
+import { getSprite, ghostSprite, COS_LOOK, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
 import { greetingLine, handoffLines } from '../data/views';
 import {
   mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
@@ -13,7 +14,7 @@ import {
 import { ASSISTANT_SPOT, EXEC_OBJECTS, boxCorners, execFurniture, execProps, kanbanWall, templateKiosk, type ExecObjectId } from './execRoom';
 import { columnOf } from '../data/company';
 import { execAction, floorAction } from '../execActions';
-import { listedFloors, stationFor, stationKeyOf, type FloorObjectId } from '../data/floor';
+import { STATION_BUILD_MS, listedFloors, stationFor, stationKeyOf, type FloorObjectId } from '../data/floor';
 import { STATION_BOX, archiveStatic, clockLive, floorObjects, keySafe, skillShelf, stationLive, stationStatic, toolsRackLive, toolsRackStatic } from './floorRoom';
 import { hull } from './interior';
 
@@ -42,7 +43,19 @@ interface Actor {
   errand?: { to: string; title: string | null; spot: Pt; stage: 'go' | 'talk'; at: number; reply: string | null };
 }
 interface Particle { x: number; y: number; vx: number; vy: number; life: number; max: number; col: string; size: number; grav: number; glow: boolean }
-interface Packet { from: Pt; to: Pt; t: number; d: number; dept: string; done?: boolean; big?: boolean }
+interface Packet { from: Pt; to: Pt; t: number; d: number; dept: string; done?: boolean; big?: boolean; /** A tool's symbol instead of a task ticket. */ via?: StepVia }
+/** Where each kind of tool lives on a floor, and the colour of its light. */
+export const VIA: Record<StepVia, { obj: FloorObjectId; col: string }> = {
+  web: { obj: 'rack', col: C.cyan }, terminal: { obj: 'rack', col: C.mint }, file: { obj: 'archive', col: C.gold }, board: { obj: 'board', col: C.pink }, skill: { obj: 'library', col: C.violet },
+};
+/** 7 x 7 symbols, one per kind: a globe, a prompt, a page, board columns, a book. */
+export const GLYPH: Record<StepVia, string[]> = {
+  web: ['..###..', '.#.#.#.', '#######', '#..#..#', '#######', '.#.#.#.', '..###..'],
+  terminal: ['#######', '#.....#', '#.#...#', '#..#..#', '#.#.##.', '#.....#', '#######'],
+  file: ['.####..', '.#..##.', '.#...#.', '.#.#.#.', '.#...#.', '.#.#.#.', '.#####.'],
+  board: ['#######', '#.#.#.#', '#.#.#.#', '#.#...#', '#.#...#', '#.....#', '#######'],
+  skill: ['.######', '##....#', '#.#.#.#', '#.#...#', '#.#.#.#', '##....#', '.######'],
+};
 interface Pop { x: number; y: number; t: number; st: AgentStatus }
 interface Ring { x: number; y: number; r: number; max: number; col: string }
 interface Shell { key: string; a: HTMLCanvasElement; m: HTMLCanvasElement }
@@ -65,6 +78,8 @@ export class City {
   private elev = new Map<string, number>();
   private shells = new Map<string, Shell>();
   /** 0..1: how far the Executive Office is opened up (feature spec 3.1). */
+  private stationOf = new Map<string, string | null>(); private stationBorn = new Map<string, number>();
+  private cosIn = false; private cosGreetAt = -10;
   private execOpen = 0; hoverObj: ExecObjectId | FloorObjectId | null = null;
   /** A long press in progress on an agent (opens the chat when it completes). */
   private press: { id: number; x: number; y: number; start: number; agent: string; fired: boolean; timer: number } | null = null;
@@ -383,6 +398,15 @@ export class City {
         }, 900);
         break;
       }
+      case 'toolUse': {
+        // only on the open floor, where the tool's place and the agent are both on screen
+        if (!fa || fa.open < 0.5 || !this.actors.get(fx.dept)?.has(fx.agent)) break;
+        const b = floorObjects(null).find((o) => o.id === VIA[fx.via].obj)!.b, col = VIA[fx.via].col;
+        const from = this.interiorPt(fx.dept, b[0] + b[3] / 2, b[1] + b[4] / 2, b[2] + b[5] * 0.7), to = this.agentPt(s, fx.dept, fx.agent);
+        this.rings.push({ x: from[0], y: from[1], r: 2, max: 16, col });
+        this.packets.push({ from, to, t: 0, d: 0.9, dept: fx.dept, via: fx.via });
+        break;
+      }
       case 'needsYou': {
         if (fa) { fa.flash = 1.2; fa.flashCol = C.amber; }
         const p = this.agentPt(s, fx.dept, 'chief'); this.rings.push({ x: p[0], y: p[1] + 30, r: 2, max: 36, col: C.amber });
@@ -527,6 +551,10 @@ export class City {
     clockLive(c, lit, new Date());
     keySafe(c, lit);
     const station = stationKeyOf(d, listedFloors(s.market));
+    // a station that appears while you stand on the floor (the floor was just listed) is built in front of you
+    if (this.stationOf.get(d.id) === null && station) this.stationBorn.set(d.id, t);
+    this.stationOf.set(d.id, station);
+    const build = Math.min(1, (t - (this.stationBorn.get(d.id) ?? -99)) / (STATION_BUILD_MS / 1000));
 
     // cast shadows first, so everything stands in them
     const nD = Math.min(DESKS.length, d.workers.length);
@@ -559,7 +587,17 @@ export class City {
     // a template's station replaces the lounge: the tools that kind of team works with, live
     if (station) {
       cast(c, STATION_BOX[0] + 2, STATION_BOX[1] + 2, STATION_BOX[3] - 4, STATION_BOX[4] - 4, 16, 0.24);
-      items.push({ y: P(204, 26)[1], draw: () => { prop('station|' + station, (q) => stationStatic(q, station)); stationLive(c, station, lit); } });
+      items.push({ y: P(204, 26)[1], draw: () => {
+        if (build < 1) {
+          // sparks fly while it fades in, and a gold ring marks the moment it is up
+          const [bx, by] = P(STATION_BOX[0] + STATION_BOX[3] / 2, STATION_BOX[1] + STATION_BOX[4] / 2);
+          for (let i = 0; i < 2; i++) this.particles.push({ x: bx + rnd(-22, 22), y: by - rnd(0, 30), vx: rnd(-10, 10), vy: rnd(-26, -8), life: 0.6, max: 0.6, col: i ? C.gold : '#7CF5B4', size: 1, grav: 40, glow: true });
+          L.add(bx, by - 12, 46, C.gold, 0.9 * (1 - build));
+          px.push(build);
+        } else if (this.stationBorn.delete(d.id)) { const [bx, by] = P(STATION_BOX[0] + STATION_BOX[3] / 2, STATION_BOX[1] + STATION_BOX[4] / 2); this.rings.push({ x: bx, y: by - 12, r: 2, max: 44, col: C.gold }); }
+        prop('station|' + station, (q) => stationStatic(q, station)); stationLive(c, station, lit);
+        if (build < 1) px.pop();
+      } });
     } else {
       for (const lp of LOUNGE_PROPS) items.push({ y: P(lp.y[0], lp.y[1])[1], draw: () => { prop(lp.key, lp.draw); loungeLive(c, lit, lp.key); } });
       cast(c, 204, 12, 14, 16, 6, 0.22); cast(c, 224, 6, 14, 34, 12, 0.25);
@@ -641,11 +679,17 @@ export class City {
     chiefDeskLive(c, 'running', lit);
     templateKiosk(c, lit);
     if (lit) { L.add(...P(28, 121, 18), 26, '#FF5C8A', 0.5); L.add(...P(4, 128, 46), 30, C.gold, 0.6); L.add(...P(0, 64, 46), 28, '#7CF5B4', 0.5); }
-    // the assistant stands by the desk, waiting for you
+    // The Chief of Staff stands by the desk: hops hello when you walk in or point at them, glances back at the wall
+    // board now and then, and has something on their mind while a decision waits on you. Same look as the portrait.
     const g = P(ASSISTANT_SPOT[0], ASSISTANT_SPOT[1]);
     px.shadeEllipse(g[0] + 2, g[1], 8, 3.5, 0.45);
-    const sp = getSprite(lookFor('exec-assistant', '#9B5CFF', true), { dir: 'f', frame: 0, seated: false, type: 0 });
-    px.sprite(sp.img, sp.sil, g[0] - AX, g[1] - AY + (Math.floor(t * 1.5) % 2 ? 0 : -1), false);
+    const talking = s.ui.newDept || s.ui.marketDraft;
+    if (s.ui.execRoom !== this.cosIn) { this.cosIn = s.ui.execRoom; if (this.cosIn) this.cosGreetAt = t + 0.5; }
+    if (this.hoverObj === 'assistant' && t - this.cosGreetAt > 2.5) this.cosGreetAt = t;
+    const glance = !talking && t - this.cosGreetAt > 2.5 && t % 9 > 7.4;
+    const sp = getSprite(COS_LOOK, { dir: glance ? 'b' : 'f', frame: 0, seated: false, type: 0 });
+    px.sprite(sp.img, sp.sil, g[0] - AX, g[1] - AY - hopOf(t - this.cosGreetAt, false) + (Math.floor(t * 1.5) % 2 ? 0 : -1), false);
+    if (!talking && s.game?.decisions.length) this.thinking(g[0] + 12, g[1] - 46, 1);
     // hover outline on the object under the pointer (or focused label)
     const hov = EXEC_OBJECTS.find((o) => o.id === this.hoverObj);
     if (hov && a > 0.9) {
@@ -682,6 +726,16 @@ export class City {
     for (const k of this.packets) {
       k.t += dt; if (k.t < 0) continue;
       const e = easeIO(Math.min(1, k.t / k.d)), arc = k.big ? 70 : 34, x = k.from[0] + (k.to[0] - k.from[0]) * e + (k.big ? Math.sin(e * Math.PI) * 60 : 0), y = k.from[1] + (k.to[1] - k.from[1]) * e - Math.sin(e * Math.PI) * arc;
+      if (k.via) {
+        // the tool's symbol rides a small light to the agent, and lands as a ring in its colour
+        const col = VIA[k.via].col, gx = Math.round(x) - 3, gy = Math.round(y) - 3;
+        px.rect(gx - 2, gy - 2, 11, 11, '#140D26', 1);
+        GLYPH[k.via].forEach((row, j) => { for (let i = 0; i < 7; i++) if (row[i] === '#') px.rect(gx + i, gy + j, 1, 1, col, 1); });
+        L.add(x, y, 30, col, 0.9, 1);
+        if (Math.random() < 0.6) this.particles.push({ x, y, vx: rnd(-5, 5), vy: rnd(-5, 5), life: 0.4, max: 0.4, col, size: 1, grav: 0, glow: true });
+        if (k.t >= k.d && !k.done) { k.done = true; this.rings.push({ x: k.to[0], y: k.to[1], r: 2, max: 20, col }); }
+        continue;
+      }
       const m = k.big ? 2 : 1;
       px.rect(x - 4 * m, y - 3 * m, 8 * m, 6 * m, '#B8862E', 1); px.rect(x - 3 * m, y - 2 * m, 6 * m, 4 * m, C.gold, 1); px.line([x - 3 * m, y - 2 * m], [x, y + m], '#FFF3D0', 1, 1); px.line([x, y + m], [x + 3 * m, y - 2 * m], '#FFF3D0', 1, 1);
       L.add(x, y, 34 * m, C.gold, 0.9, 1);

@@ -13,29 +13,9 @@ import { lookFor, quirkProp, type Look } from '../world/sprites';
 import { portrait, type Gag } from '../world/portrait';
 import { Icon } from './kit';
 
-const PAGE = 92;
-/** Replies longer than this many pages show their opening in the box and the whole text in a panel. */
-const LONG_PAGES = 4;
+/** Answers longer than this are a report, not a line of dialogue: smaller type, typed faster, with a copy button. */
+const LONG = 280;
 const CPS = 42;
-
-/** Split text into pages that fit the text bar: whole sentences where they fit, whole words otherwise. */
-export function paginate(text: string): string[] {
-  const sentences = text.replace(/\s+/g, ' ').trim().match(/[^.!?]+[.!?]+["')\]]*\s*|[^.!?]+$/g) ?? [];
-  const pages: string[] = []; let cur = '';
-  const push = () => { if (cur.trim()) pages.push(cur.trim()); cur = ''; };
-  for (const raw of sentences) {
-    const sen = raw.trim(); if (!sen) continue;
-    if ((cur + ' ' + sen).trim().length <= PAGE) { cur = (cur + ' ' + sen).trim(); continue; }
-    push();
-    if (sen.length <= PAGE) { cur = sen; continue; }
-    for (const w of sen.split(' ')) {
-      if ((cur + ' ' + w).trim().length > PAGE && cur) push();
-      cur = (cur + ' ' + w).trim();
-    }
-  }
-  push();
-  return pages.length ? pages : [''];
-}
 
 let audio: AudioContext | null = null;
 export function blip(freq: number, vol = 0.035, len = 0.05) {
@@ -103,11 +83,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   const inputRef = useRef<HTMLInputElement>(null);
 
   const lastAgent = [...lines].reverse().find((m) => m.from === 'agent') ?? null;
-  // Long answers (Hermes agents report results in full) would be many pages of clicking: the box types the opening and
-  // the whole answer goes in a scrollable panel underneath.
-  const full = !leaving && !error && ready && lastAgent && paginate(lastAgent.text).length > LONG_PAGES ? lastAgent : null;
   const speech = leaving ? farewell! : error ?? (!ready ? (notReady ?? 'No chat model is set up yet. Finish the first quest (your NEAR AI key and the Chief of Staff model), then we can talk.')
-    : full ? `${paginate(full.text).slice(0, LONG_PAGES).join(' ')} …` : lastAgent?.text ?? greeting);
+    : lastAgent?.text ?? greeting);
+  // A long answer (Hermes agents report results in full) stays in this one box: it grows, then scrolls.
+  const long = speech.length > LONG, cps = long ? CPS * 4 : CPS;
+  const [copied, setCopied] = useState(false);
+  const copy = async () => { try { await navigator.clipboard.writeText(speech); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
   // The whole reply types into one box that follows the text as it goes (no clicking through pages).
   const text = speech;
   const typing = !waiting && shown < text.length;
@@ -124,12 +105,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   useEffect(() => {
     if (!typing) return;
     const id = window.setTimeout(() => {
-      const n = Math.min(text.length, Math.max(shown + 1, Math.floor(((performance.now() - typeStart.current) / 1000) * CPS)));
+      const n = Math.min(text.length, Math.max(shown + 1, Math.floor(((performance.now() - typeStart.current) / 1000) * cps)));
       setShown(n);
       if (!muted && who && /\S/.test(text.slice(shown, n))) blip(who.voice);
     }, 1000 / CPS * 2);
     return () => window.clearTimeout(id);
-  }, [typing, shown, text, muted, who]);
+  }, [typing, shown, text, muted, who, cps]);
 
   const advance = () => { if (typing) setShown(text.length); else if (leaving) onClose(); };
   useEffect(() => {
@@ -166,12 +147,12 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
       </div>
       <div className="dlg-bar dlg-bottom">
         <div className="dlg-plate"><b>{who?.name ?? '…'}</b><span>{who?.title ?? ''}</span></div>
-        <div className="dlg-text" ref={textBox} onClick={advance} aria-live="polite">
+        <div className={`dlg-text${long ? ' long' : ''}`} ref={textBox} onClick={advance} aria-live="polite">
           <span className="sr">{waiting ? status ?? 'Thinking' : speech}</span>
           <p aria-hidden="true">{shownText}{waiting && status && <span className="dlg-status">{status}</span>}{waiting && <span className="dlg-dots"><i>.</i><i>.</i><i>.</i></span>}{!waiting && !typing && <span className="dlg-caret">■</span>}</p>
         </div>
+        {done && long && !leaving && !error && <button type="button" className="dlg-copy" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy answer'}</button>}
         {below}
-        {done && full && <FullAnswer key={full.id} text={full.text} />}
         {done && !leaving && !error && cards?.(lastAgent)}
         <div className="dlg-replies">{replies.map((r) => <button key={r} className="dlg-chip" onClick={() => void send(r)}>{r}</button>)}</div>
         <form className="dlg-input" onSubmit={(e) => { e.preventDefault(); void send(input); }}>
@@ -192,19 +173,6 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
 }
 
 /* ---------- talking to a department agent (chief or worker desk) ---------- */
-
-/** The whole of a long answer: scrollable, line breaks kept, copyable. */
-function FullAnswer({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const words = text.trim().split(/\s+/).length;
-  const copy = async () => { try { await navigator.clipboard.writeText(text); setCopied(true); window.setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ } };
-  return (
-    <section className="dlg-full" aria-label="Full answer">
-      <header><span className="dlg-tag">Full answer · {words} words</span><button type="button" className="btn small" onClick={() => void copy()}>{copied ? 'Copied' : 'Copy'}</button></header>
-      <div className="dlg-full-text" tabIndex={0}>{text}</div>
-    </section>
-  );
-}
 
 /** The agent's work while it answers, in the dialogue's words. */
 export function progressLabel(p: ChatProgress): string {

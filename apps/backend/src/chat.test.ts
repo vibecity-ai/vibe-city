@@ -211,17 +211,28 @@ test('a chat about a blocked task tells the agent why it is blocked, and its res
   assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
 });
 
-test('the Chief of Staff never proposes a job: its board is not a floor, so the job would vanish', async () => {
-  const { app, services, agentChat, readyDept } = agentApp(() =>
-    'Ask Research.\n<vc>{"mood":"happy","replies":["OK"],"proposal":{"title":"Competitor brief","objective":"Summarise three competitors."}}</vc>');
+test('the Chief of Staff answers from a briefing of every floor and proposes a job for the floor it names', async () => {
+  const { app, services, agentChat, kanban, readyDept } = agentApp((t) => /nobody/.test(t.message)
+    ? 'Sales should.\n<vc>{"mood":"happy","replies":["OK"],"proposal":{"department":"Sales","title":"Call leads","objective":"Call ten leads."}}</vc>'
+    : 'Research can.\n<vc>{"mood":"happy","replies":["Add a new floor"],"proposal":{"department":"research","title":"Competitor brief","objective":"Summarise three competitors."},"report":{"needs_you":["Win your first job"],"in_flight":[{"text":"Scan competitor pricing is ready","floor":"Research"},{"text":"","floor":"Research"}],"money":"$0 earned (estimate)"}}</vc>');
   const cos = services.chiefOfStaffId;
   assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` })).json().state, 'ready');
-  const r = await app.inject({ method: 'POST', url: `/api/departments/${cos}/characters/chief/chat`, payload: { message: 'Look at our competitors' } });
-  assert.equal(r.statusCode, 200);
-  assert.deepEqual([r.json().agent.text, r.json().agent.proposal], ['Ask Research.', null]);
-  assert.match(agentChat.turns[0]!.system, /never propose a job/);
-  // a floor's lead still proposes
   const d = await readyDept('Research', {});
+  await kanban.createTask(d.board, { title: 'Scan competitor pricing' });
+  const url = `/api/departments/${cos}/characters/chief/chat`;
+  const r = await app.inject({ method: 'POST', url, payload: { message: 'Look at our competitors' } });
+  assert.equal(r.statusCode, 200, r.body);
+  assert.deepEqual(r.json().agent.proposal, { kind: 'quest', title: 'Competitor brief', objective: 'Summarise three competitors.', departmentId: d.id, departmentName: 'Research' });
+  // a status report arrives as rows, and a row about a floor that exists carries where to go
+  assert.deepEqual(r.json().agent.briefing, { needsYou: [{ text: 'Win your first job' }], inFlight: [{ text: 'Scan competitor pricing is ready', departmentId: d.id, departmentName: 'Research' }], money: '$0 earned (estimate)' });
+  const system = agentChat.turns[0]!.system;
+  assert.match(system, /### Research[\s\S]*\[ready\] Scan competitor pricing/, 'every floor and its board are in the prompt: no tool call to know them');
+  assert.match(system, /CEO quests: \d of 7 done/);
+  assert.doesNotMatch(system, /### Chief of Staff/, 'its own empty board is not a floor');
+  // a floor that does not exist has no board to put the job on
+  assert.equal((await app.inject({ method: 'POST', url, payload: { message: 'nobody' } })).json().agent.proposal, null);
+  // a floor's lead still proposes for its own floor
   const f = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'Look at our competitors' } });
-  assert.equal(f.json().agent.proposal.title, 'Competitor brief');
+  assert.deepEqual(f.json().agent.proposal, { kind: 'quest', title: 'Competitor brief', objective: 'Summarise three competitors.' });
+  assert.equal(f.json().agent.briefing, undefined, 'only the Chief of Staff reports on the company');
 });

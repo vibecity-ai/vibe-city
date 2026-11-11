@@ -7,13 +7,14 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { randomBytes, randomUUID } from 'node:crypto';
 import {
-  CHIEF_OF_STAFF, ChatMessageSchema, ChatProposalSchema, MOODS,
+  CHIEF_OF_STAFF, isInternalOnly, type ChatBriefing, ChatMessageSchema, ChatProposalSchema, MOODS,
   type Character, type ChatHistory, type ChatMessage, type ChatReply, type ChatSend, type Mood,
 } from '@vibe-city/shared';
 import { ModelUnavailableError } from '../model/chatModel.ts';
 import { HermesAuthError, HermesRejectedError, HermesUnavailableError, type HermesRuntime } from '../hermes/ports.ts';
 import type { AgentChat, AgentChatEvent } from '../hermes/agentChat.ts';
 import type { KanbanApi, RawTask } from '../hermes/kanbanApi.ts';
+import type { FloorKit } from './assistantService.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { CharacterService } from './characters.ts';
 import { ConflictError } from './errors.ts';
@@ -26,11 +27,15 @@ export interface ChatDeps {
   agentChat?: AgentChat;
   /** Extra variables every agent profile needs in its .env to answer through the gateway (its model provider's key). */
   /** Read on each first chat: the NEAR AI key can be pasted in the game after the backend started. */
-  agentEnv?: () => Record<string, string>;
+  agentEnv?: (profile: string) => Record<string, string>;
   hermes: HermesRuntime;
   /** Reads the department's board for the chat's snapshot. Omit: the agent is told the board cannot be read. */
   kanban?: KanbanApi;
   companyName: () => string;
+  /** The company's state in a few lines (CEO quests, money, decisions waiting), for the Chief of Staff's briefing. */
+  companyStatus?: () => Promise<string>;
+  /** What a custom floor may be built from, and the filter for the Chief of Staff's floor draft (assistantService). */
+  floorKit?: () => Promise<FloorKit>;
 }
 
 interface ChatCreds { profile: string; api_key: string; session_id: string }
@@ -97,7 +102,9 @@ export class ChatService {
     this.busy.add(profile);
     try {
       const ch = this.character(departmentId, agentKey);
-      const system = await this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask);
+      const cos = this.d.departments.get(departmentId).templateId === CHIEF_OF_STAFF;
+      const kit = cos ? await this.d.floorKit?.().catch(() => null) ?? null : null;
+      const system = cos ? await this.chiefOfStaffMessage(ch, kit) : await this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask);
       let creds = await this.creds(profile, input.sessionId);
       // Hermes titles are unique per profile: the session suffix lets two chats open with the same line.
       const turn = (c: ChatCreds) => this.d.agentChat!.turn({ profile, key: c.api_key, sessionId: c.session_id, title: `${input.message.slice(0, 50)} · ${c.session_id.slice(-8)}`, message: input.message, system }, onEvent);
@@ -112,9 +119,8 @@ export class ChatService {
       }
       const at = new Date().toISOString();
       const user = ChatMessageSchema.parse({ id: randomUUID(), from: 'user', text: input.message, mood: null, replies: [], proposal: null, at });
-      // the Chief of Staff's board is not shown anywhere: a job proposed there would vanish, so it never offers one
-      const said = parseAgentReply(raw);
-      if (this.d.departments.get(departmentId).templateId === CHIEF_OF_STAFF) said.proposal = null;
+      // the Chief of Staff's own board is not shown anywhere: its proposals name the floor that takes the job
+      const said = parseAgentReply(raw, cos ? { floors: this.d.departments.list(), ...(kit ? { clampFloor: kit.clamp } : {}) } : undefined);
       const agent = ChatMessageSchema.parse({ id: randomUUID(), from: 'agent', ...said, at: new Date().toISOString() });
       this.store(departmentId, agentKey, creds.session_id, user);
       this.store(departmentId, agentKey, creds.session_id, agent);
@@ -133,7 +139,7 @@ export class ChatService {
     let key = row?.api_key;
     if (!key || rotate || !this.synced.has(profile)) {
       key = key && !rotate ? key : newKey();
-      await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv?.(), API_SERVER_KEY: key });
+      await this.d.hermes.setProfileEnv!(profile, { ...this.d.agentEnv?.(profile), API_SERVER_KEY: key });
       this.synced.add(profile);
     }
     this.d.db.prepare(`INSERT INTO agent_chat (profile, api_key, session_id, created_at) VALUES (?, ?, ?, ?)
@@ -157,22 +163,53 @@ export class ChatService {
       `Your department's Kanban board right now (open tasks first, then the latest finished):\n${board}`,
       '',
       'How to answer:',
-      dept.templateId === CHIEF_OF_STAFF ? [
-        '- You run the Executive Office. The one thing you do from this window is list a floor of the company on the NEAR AI Agent Market (market.near.ai), where buyers hire agents for jobs paid in USDC: call list_departments, ask the boss which floor to list, write the listing (name, tagline, description, price in USDC per job, delivery time, deliverables; promise only what that floor does) as plain text the boss can copy, agree the handle, then call list_on_market once the boss confirms. Never call list_on_market before that.',
-        '- Price and going live are set by the boss on market.near.ai afterwards: say so.',
-      ].join('\n') : '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
+      '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
       '- To see what a task produced, use list_task_files with its task id from the board, then read_task_file to read a file. Read the files before describing or summarising the work.',
-      dept.templateId === CHIEF_OF_STAFF
-        ? '- The Executive Office has no team: never propose a job (always "proposal": null). When the boss wants work done, name the floor that should do it and tell them to give it the job there.'
-        : '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
+      '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',
       '- End every reply with one final line, exactly in this form (JSON inside the tag):',
       `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}${blocked ? ', "resume": "<only once the boss has answered>"' : ''}}</vc>`,
     ].filter(Boolean).join('\n');
   }
 
+  /** The Chief of Staff is the CEO's first stop: it answers from a briefing of the whole company (no tool call needed
+      to know a floor) and hands work to floors as job proposals the CEO confirms with one click. */
+  private async chiefOfStaffMessage(ch: Character, kit: FloorKit | null): Promise<string> {
+    const floors = this.d.departments.list();
+    const [status, ...boards] = await Promise.all([
+      this.d.companyStatus?.().catch(() => '') ?? '',
+      ...floors.map((f) => (f.state === 'ready' ? this.boardSnapshot(f.hermesBoardSlug, 8) : Promise.resolve('(not synced with Hermes yet: it cannot take jobs)'))),
+    ]);
+    const briefing = floors.map((f, i) => [
+      `### ${f.name}${isInternalOnly(f.templateId) ? ' (internal: never listed on the market)' : ''}`,
+      `Does: ${f.purpose || 'no purpose written'}`,
+      `Team: ${f.agents.map((a) => { const c = this.d.characters.get(f.id, f.name, a.key); return `${c.name} (${c.title})`; }).join(', ')}`,
+      `Board:\n${boards[i]}`,
+    ].join('\n')).join('\n\n');
+    return [
+      `The CEO of ${this.d.companyName()} is talking to you through Vibe City's dialogue window. Vibe City is the game-like office tower where the company's departments (floors) of Hermes agents work.`,
+      `You are ${ch.name}, the Chief of Staff: the CEO's right hand and their first stop for anything about the company. Personality: ${ch.traits.join(', ')}. Way of speaking: ${ch.speechStyle}. You call the CEO "boss". Keep the character light; being right matters more.`,
+      '',
+      '## Company briefing (live, rebuilt for every message)',
+      status,
+      briefing || 'There are no floors yet.',
+      '',
+      'How to answer:',
+      '- Be fast: answer from the briefing above. It already holds every floor, its team and its board, so do NOT call a tool to learn about floors or tasks. If the answer is not there, say so plainly; never guess or invent results.',
+      '- Tools are only for two things: reading what a task produced (list_task_files then read_task_file, with the task id and the floor name as "department"), and list_on_market after the boss confirmed a listing. One or two calls at most per answer.',
+      '- When the boss wants work done, pick the floor whose purpose fits and propose the job with that floor\'s exact name as "department": the boss starts it with one click and it lands on that floor\'s board. Only a floor synced with Hermes can take a job. Do not say you will do it yourself.',
+      '- When the boss asks how things are going (a briefing, a status, "what needs me"): say ONE headline sentence, and put the rest in "report" so it shows as a card: "needs_you" = what waits on the boss (decisions waiting, blocked or failed tasks, the next CEO quest; [] when nothing does), "in_flight" = one row per job that is moving, "money" = one line, marked as an estimate. Each row is short (under 20 words) and names its floor in "floor" when it is about one. Do not repeat the report in your sentence. For any other question, "report" is null.',
+      '- A new floor: first ask "a ready template or a custom floor?" with the replies "Show me the templates" and "Design a custom floor" (templates are picked in their own panel). For a custom floor, if the boss has not said what it should do, ask that one question and make your "replies" 2 or 3 concrete floor ideas built from the installed skills below. Once the purpose is clear, propose the floor right away in "floor": small, granting only what the purpose needs, never duplicating a floor in the briefing. If the boss asks for changes, propose the whole floor again.',
+      kit ? kit.prompt : 'What Hermes has installed cannot be read right now: do not propose a floor ("floor": null), say so.',
+      '- Hiring one specialist and listing on the Agent Market have their own guided flows here: when the boss wants one, say so in a sentence and put its exact label among your "replies": "Hire a new agent", "List a floor on the Agent Market".',
+      '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-3 sentences; a status report may run to ~120 words.',
+      '- End every reply with one final line, exactly in this form (JSON inside the tag):',
+      `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"department": "<exact floor name>", "title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}, "report": null or {"needs_you": [{"text": "<row>", "floor": "<exact floor name, or omit>"}], "in_flight": [{"text": "<row>", "floor": "<exact floor name>"}], "money": "<one line>"}, "floor": null or {"name": "<2-3 words>", "purpose": "<1-2 sentences>", "skills": ["<installed skill>"], "toolsets": ["<toolset>"], "model": "<provider/model or null>", "agents": [lead first, 1 to 5 of {"name": "<a first name>", "title": "<job title, 2-4 words>", "does": "<what they do here, under 15 words>"}]}}</vc>`,
+    ].join('\n');
+  }
+
   /** One line per task: the open ones, then the most recently finished. */
-  private async boardSnapshot(slug: string): Promise<string> {
+  private async boardSnapshot(slug: string, cap = 15): Promise<string> {
     if (!this.d.kanban) return '(the board cannot be read right now)';
     let tasks: RawTask[];
     try {
@@ -184,7 +221,7 @@ export class ChatService {
     const open = tasks.filter((t) => t.status !== 'done').sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
     const done = tasks.filter((t) => t.status === 'done').sort((a, b) => (b.completed_at ?? 0) - (a.completed_at ?? 0));
     // shortcut: a fixed cap keeps the prompt small; older work is out of chat's sight until it can look tasks up on demand.
-    const shown = [...open, ...done].slice(0, 15);
+    const shown = [...open, ...done].slice(0, cap);
     if (!shown.length) return '(the board is empty)';
     return shown.map((t) => {
       const note = (t.result ?? t.latest_summary ?? t.last_failure_error ?? '').replace(/\s+/g, ' ').trim().slice(0, 300);
@@ -208,7 +245,8 @@ export class ChatService {
 
 /** Splits the agent's reply into what it says and the trailing <vc>{…}</vc> metadata. A missing or broken tag just
     means plain speech: the agent's words are never lost to a formatting slip. */
-export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' | 'replies' | 'proposal' | 'resume'> {
+export function parseAgentReply(raw: string, cos?: { floors: { id: string; name: string }[]; clampFloor?: FloorKit['clamp'] }): Pick<ChatMessage, 'text' | 'mood' | 'replies' | 'proposal' | 'resume' | 'floorDraft' | 'briefing'> {
+  const floors = cos?.floors;
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
   const tag = /<vc>([\s\S]*?)(?:<\/vc>|$)/i.exec(clean);
   let meta: Record<string, unknown> = {};
@@ -221,7 +259,26 @@ export function parseAgentReply(raw: string): Pick<ChatMessage, 'text' | 'mood' 
   const replies = Array.isArray(meta.replies)
     ? meta.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3)
     : [];
-  const p = ChatProposalSchema.safeParse({ kind: 'quest', ...(meta.proposal && typeof meta.proposal === 'object' ? meta.proposal : {}) });
+  // `floors` (the Chief of Staff): the proposal must name one of them, else there is nowhere to put the job
+  const mp = (meta.proposal && typeof meta.proposal === 'object' ? meta.proposal : {}) as Record<string, unknown>;
+  const floor = floors?.find((f) => f.name.toLowerCase() === String(mp.department ?? '').trim().toLowerCase());
+  const p = ChatProposalSchema.safeParse(floors && !floor ? null : { kind: 'quest', title: mp.title, objective: mp.objective, ...(floor ? { departmentId: floor.id, departmentName: floor.name } : {}) });
   const resume = typeof meta.resume === 'string' && meta.resume.trim() ? { resume: meta.resume.trim().slice(0, 4000) } : {};
-  return { text, mood, replies, proposal: meta.proposal && p.success ? p.data : null, ...resume };
+  const floorDraft = cos?.clampFloor?.(meta.floor) ?? null;
+  const briefing = floors && meta.report && typeof meta.report === 'object' ? briefingOf(meta.report as Record<string, unknown>, floors) : null;
+  return { text, mood, replies, proposal: meta.proposal && p.success ? p.data : null, ...resume, ...(floorDraft ? { floorDraft } : {}), ...(briefing ? { briefing } : {}) };
+}
+
+/** The Chief of Staff's report as rows: strings or {text, floor}; a floor it names that exists becomes a link target.
+    An empty report is no report. */
+function briefingOf(r: Record<string, unknown>, floors: { id: string; name: string }[]): ChatBriefing | null {
+  const rows = (v: unknown, max: number) => (Array.isArray(v) ? v : []).flatMap((x) => {
+    const o = (typeof x === 'string' ? { text: x } : x ?? {}) as Record<string, unknown>;
+    const text = typeof o.text === 'string' ? o.text.replace(/\s+/g, ' ').trim().slice(0, 240) : '';
+    const floor = floors.find((f) => f.name.toLowerCase() === String(o.floor ?? '').trim().toLowerCase());
+    return text ? [{ text, ...(floor ? { departmentId: floor.id, departmentName: floor.name } : {}) }] : [];
+  }).slice(0, max);
+  const needsYou = rows(r.needs_you, 6), inFlight = rows(r.in_flight, 8);
+  const money = typeof r.money === 'string' && r.money.trim() ? r.money.trim().slice(0, 240) : null;
+  return needsYou.length || inFlight.length || money ? { needsYou, inFlight, money } : null;
 }

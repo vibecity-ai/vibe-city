@@ -10,7 +10,7 @@ import {
 import {
   InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
   type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
-  AssistantViewSchema, DeptDraftReplySchema, type AssistantView, type DeptDraftReply, MarketDraftReplySchema, type MarketDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
+  AssistantViewSchema, type AssistantView, MarketDraftReplySchema, type MarketDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
@@ -180,7 +180,6 @@ export const api = {
   assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
   assistantModels: (): Promise<ChiefOfStaffModels> => request('GET', '/api/assistant/models', ChiefOfStaffModelsSchema),
   marketDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> => request('POST', '/api/assistant/market-draft', MarketDraftReplySchema, { messages }),
-  departmentDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<DeptDraftReply> => request('POST', '/api/assistant/department-draft', DeptDraftReplySchema, { messages }),
   hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
   hiringStart: (departmentId?: string): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, departmentId ? { departmentId } : {}),
   hiring: (id: string): Promise<HiringRequestView> => request('GET', h(id), HiringRequestViewSchema),

@@ -69,6 +69,22 @@ const meta = (m: object) => `\n<vc>${JSON.stringify(m)}</vc>`;
 const agentChat = new FakeAgentChat(hermes, (t) => {
   const last = t.message.toLowerCase();
   const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
+  // the Chief of Staff answers from its company briefing and proposes jobs for a floor by name
+  if (/the Chief of Staff:/.test(t.system)) {
+    const floor = /### ([^\n(]+)/.exec(t.system)?.[1]?.trim(), quests = /CEO quests: [^\n]+/.exec(t.system)?.[0] ?? '';
+    if (/floor|department/.test(last)) {
+      return `A small research floor would earn its keep, boss. Here is my pitch.${meta({ mood: 'happy', replies: ['Looks good', 'Make it one agent'], proposal: null,
+        floor: { name: 'Market Watch', purpose: 'Tracks competitor moves and price changes and reports them weekly.', skills: [], toolsets: ['web'], model: null,
+          agents: [{ name: 'Iris', title: 'Research Lead', does: 'Plans the watchlist and writes the digest.' }, { name: 'Tomas', title: 'Web Scout', does: 'Checks pricing pages and launches.' }] } })}`;
+    }
+    if (floor && /job|task|can you|need|look into|research|write/.test(last)) {
+      return `${floor} is the floor for that, boss. Say the word and it is on their board.${meta({ mood: 'focused', replies: ['Brief me', 'Never mind'],
+        proposal: { department: floor, title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' } })}`;
+    }
+    const next = /Next: "([^"]+)"/.exec(quests)?.[1];
+    return `Here is where we stand, boss.${meta({ mood: 'happy', replies: ['I have a job for a floor', 'Add a new floor'], proposal: null,
+      report: { needs_you: next ? [`Your next quest: ${next}`] : [], in_flight: floor ? [{ text: 'Ready for work, nothing running', floor }] : [], money: /Money[^\n]+/.exec(t.system)?.[0] ?? null } })}`;
+  }
   if (/job|task|can you|need you|look into|research|write/.test(last)) {
     return `Say no more, boss. I'll put a proper quest on the board so the team can run with it. Here's what I'd do.${meta({
       mood: 'focused', replies: ['Ship it', 'Make it smaller', 'Never mind'],
@@ -94,7 +110,10 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   return `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?${meta({ mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null })}`;
 });
 
-const { app, schedules } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
+const { app, schedules, chiefOfStaffId } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
+
+// the real server syncs the Chief of Staff's Hermes profile at start; the demo does the same with the fake
+await app.inject({ method: 'POST', url: `/api/departments/${chiefOfStaffId}/provision` });
 
 /** Each floor's board and agent profiles (lead first). */
 const refs: Record<string, { board: string; agents: string[] }> = {};

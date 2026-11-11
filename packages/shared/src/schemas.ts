@@ -390,11 +390,17 @@ export const KANBAN_EVENT_LABELS: Record<string, string> = {
 };
 
 /** One thing an agent did while working on a task, read from its Hermes session: a tool it used or a note it wrote. */
+/** What kind of thing a tool call reached for: the city shows it coming from that object on the floor (the tools rack
+    for web and terminal, the file archive, the Ops board, the skill shelf). */
+export const STEP_VIAS = ['web', 'terminal', 'file', 'board', 'skill'] as const;
+export type StepVia = (typeof STEP_VIAS)[number];
 export const TaskStepSchema = z.object({
   at: z.string().nullable(),
   kind: z.enum(['tool', 'note', 'failed']),
   text: z.string(),
   detail: z.string().nullable(),
+  /** Null for notes and for tools with no place on the floor (memory, the plan). */
+  via: z.enum(STEP_VIAS).nullable(),
 }).strict();
 export type TaskStep = z.infer<typeof TaskStepSchema>;
 
@@ -670,8 +676,20 @@ export const ChatProposalSchema = z.object({
   kind: z.literal('quest'),
   title: z.string().trim().min(1).max(200),
   objective: z.string().trim().min(1).max(8000),
+  /** The floor the job is for, when the speaker is not that floor's agent (the Chief of Staff proposes for any floor). */
+  departmentId: z.string().optional(),
+  departmentName: z.string().optional(),
 }).strict();
 export type ChatProposal = z.infer<typeof ChatProposalSchema>;
+
+/** One row of the Chief of Staff's briefing; a row about a floor names it, so the card can take the boss there. */
+const BriefingRowSchema = z.object({ text: z.string().min(1).max(240), departmentId: z.string().optional(), departmentName: z.string().optional() }).strict();
+/** The Chief of Staff's status report as rows to scan instead of a paragraph: what waits on the boss, what is moving,
+    and the money line (an estimate). */
+export const ChatBriefingSchema = z.object({
+  needsYou: z.array(BriefingRowSchema).max(6), inFlight: z.array(BriefingRowSchema).max(8), money: z.string().max(240).nullable(),
+}).strict();
+export type ChatBriefing = z.infer<typeof ChatBriefingSchema>;
 
 export const ChatMessageSchema = z.object({
   id: z.string(),
@@ -683,6 +701,9 @@ export const ChatMessageSchema = z.object({
   proposal: ChatProposalSchema.nullable(),
   /** In a chat about a blocked task: the boss's answer, worded for the task, that the agent suggests resuming it with. */
   resume: z.string().optional(),
+  /** The Chief of Staff's proposal for a new custom floor, already limited to what Hermes has. Nothing exists until the boss confirms. */
+  floorDraft: z.lazy(() => DeptDraftSchema).optional(),
+  briefing: ChatBriefingSchema.optional(),
   at: z.string(),
 }).strict();
 export type ChatMessage = z.infer<typeof ChatMessageSchema>;
@@ -835,10 +856,6 @@ export type DeptDraft = z.infer<typeof DeptDraftSchema>;
 
 export const AssistantTurnSchema = z.object({ from: z.enum(['user', 'agent']), text: z.string().max(4000) }).strict();
 export const DeptDraftRequestSchema = z.object({ messages: z.array(AssistantTurnSchema).min(1).max(40) }).strict();
-export const DeptDraftReplySchema = z.object({
-  say: z.string(), mood: z.enum(MOODS), replies: z.array(z.string()), draft: DeptDraftSchema.nullable(),
-}).strict();
-export type DeptDraftReply = z.infer<typeof DeptDraftReplySchema>;
 
 /** The Chief of Staff's Agent Market listing, drafted in the dialogue window. Registration sends only the handle,
     name, category and delivery time; the tagline, description and price are for the boss to paste on market.near.ai. */
@@ -1095,10 +1112,11 @@ export const MarketAdoptionSchema = z.object({
   url: z.string().nullable(), code: z.string().nullable(), expiresAt: z.string().nullable(),
 }).strict();
 export type MarketAdoption = z.infer<typeof MarketAdoptionSchema>;
-/** The listed agent as market.near.ai shows it (GET /v1/agents/{handle}). `found: false`: not public yet (a Draft). */
+/** The listed agent as market.near.ai shows it (GET /v1/agents/{handle}). `found: false`: not public yet (a Draft).
+    `bio` is its long text (bio_markdown); `priceUsdc` the default pricing plan's price per job. */
 export const MarketProfileSchema = z.object({
   handle: z.string(), url: z.string(), found: z.boolean(),
-  name: z.string().nullable(), description: z.string().nullable(), category: z.string().nullable(),
+  name: z.string().nullable(), description: z.string().nullable(), bio: z.string().nullable(), priceUsdc: z.string().nullable(), category: z.string().nullable(),
   listingStatus: z.string().nullable(), deliveredJobs: z.number().nullable(), successRate: z.number().nullable(),
   responseTimeSeconds: z.number().nullable(), slaSeconds: z.number().nullable(),
 }).strict();

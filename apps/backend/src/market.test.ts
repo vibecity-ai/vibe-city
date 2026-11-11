@@ -38,8 +38,9 @@ function fakeMarket() {
     }
     if (method === 'GET' && path === '/v1/agents/acme-works') {
       if (!m.live) return json(404, { error: 'not_found', message: 'not found' });
-      return json(200, { handle: 'acme-works', name: 'Acme', description: 'Copy that sells.', category: 'creative', listing_status: 'live', delivered_jobs: 3, success_rate: 1, response_time_seconds_median: 900, sla_seconds: 86400, owner_account_id: 'acc-1' });
+      return json(200, { agent_id: 'ag-1', handle: 'acme-works', name: 'Acme', description: 'Copy that sells.', bio_markdown: 'Three headlines a day.', category: 'creative', listing_status: 'live', delivered_jobs: 3, success_rate: 1, response_time_seconds_median: 900, sla_seconds: 86400, owner_account_id: 'acc-1' });
     }
+    if (method === 'GET' && path === '/v1/agents/ag-1/pricing-plans') return json(200, [{ price_amount: '9.0000', is_default: false }, { price_amount: '0.5000', is_default: true }]);
     if (method === 'POST' && path === '/v1/agents/me/adoption-code') {
       if (m.adopted) return json(403, { error: 'forbidden', message: 'This agent token may run work, not give the agent away.' });
       return json(201, { code: 'ADOPT-123', adoptionUrl: '/adopt?code=ADOPT-123', expiresAt: '2026-11-11T00:00:00Z' });
@@ -209,7 +210,7 @@ test('the Marketplace board reads the listed agent from market.near.ai: a Draft 
   assert.equal(draft.url, 'https://market.near.ai/a/acme-works');
   market.live = true;
   const p = (await app.inject(`/api/market/${d.id}/profile`)).json();
-  assert.deepEqual([p.found, p.listingStatus, p.deliveredJobs, p.successRate, p.description], [true, 'live', 3, 1, 'Copy that sells.']);
+  assert.deepEqual([p.found, p.listingStatus, p.deliveredJobs, p.successRate, p.description, p.bio, p.priceUsdc], [true, 'live', 3, 1, 'Copy that sells.', 'Three headlines a day.', '0.5000']);
   assert.ok(!('owner_account_id' in p) && !JSON.stringify(p).includes('aat_'));
 });
 

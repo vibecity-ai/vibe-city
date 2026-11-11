@@ -65,6 +65,8 @@ export const STATIONS: Record<string, Station> = {
   market: { name: 'Marketplace board', blurb: 'Jobs buyers hired this floor for on the NEAR AI Agent Market: in progress, delivered, paid.', toolsets: [], skills: ['marketplace-worker'], marker: null, wallet: false },
 };
 
+/** How long the city takes to put up a station that appears while you watch (a floor just listed on the market). */
+export const STATION_BUILD_MS = 2400;
 export const stationFor = (templateId: string | undefined | null): Station | null => (templateId ? STATIONS[templateId] ?? null : null);
 /** Which station a floor has: the marketplace board on the floor listed on the Agent Market (never a template floor: those all
     spend from the company wallet and can't be listed), else its template's own, else none (the lounge stays). */

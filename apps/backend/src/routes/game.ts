@@ -39,7 +39,7 @@ async function input(deps: AppServices): Promise<GameInput> {
     }
   }));
   const usage = usageSummary(db, depts.map((d) => ({ id: d.id, budgetCents: departments.getInventory(d.id).limits.dailyBudgetCredits })));
-  const total = Math.round((db.prepare('SELECT COALESCE(SUM(cost_nano_usd), 0) AS n FROM ai_usage').get() as { n: number }).n / 1e7);
+  const total = (db.prepare('SELECT COALESCE(SUM(cost_nano_usd), 0) AS n FROM ai_usage').get() as { n: number }).n / 1e7;
   return {
     settings: readSettings(db), wallet: await deps.wallet.state(), departments: depts, templateOf, templates: TEMPLATES,
     usage, totalMeteredCents: total, questsByDept, results, marketEarnedCents: deps.market.earnedCents(), marketJobsPaid: deps.market.paidJobs(), marketListed: deps.market.anyTokenApplied(), pendingApprovals: [], ipoDone: deps.ipo.isDone(),

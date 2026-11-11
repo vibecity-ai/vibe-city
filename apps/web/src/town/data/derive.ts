@@ -91,7 +91,7 @@ export function deriveDept(i: DeriveInput): Dept {
     if (disconnected) chief = { ...base, status: 'disconnected', activity: 'Hermes is not reachable', since: hhmm(v.updatedAt) };
     else if (runningChief) {
       const q = runningChief.q;
-      chief = { ...base, status: 'running', activity: `${q.status === 'planning' ? 'Planning' : 'Working on'} “${q.title}”`, since: hhmm(runningChief.t.startedAt) };
+      chief = { ...base, taskId: runningChief.t.id, status: 'running', activity: `${q.status === 'planning' ? 'Planning' : 'Working on'} “${q.title}”`, since: hhmm(runningChief.t.startedAt) };
     } else if (failedChief) chief = { ...base, status: 'failed', activity: `Failed on “${failedChief.q.title}”`, since: hhmm(failedChief.t.startedAt) };
     else if (quests.some((q) => q.flags.planningComplete && q.status !== 'cancelling')) {
       const q = quests.find((x) => x.flags.planningComplete)!;

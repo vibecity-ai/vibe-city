@@ -20,7 +20,7 @@ const hermes = new RealHermesRuntime({
   baseUrl: cfg.hermesUrl, sessionToken: cfg.hermesToken ?? '', hermesBin: cfg.hermesBin, log: (m) => console.warn(m),
 });
 const kanban = new KanbanClient({ baseUrl: cfg.hermesUrl, sessionToken: cfg.hermesToken ?? '' });
-const { app, provisioning, schedules, market, departments, chiefOfStaffId } = buildServices(db, hermes, {
+const { app, provisioning, schedules, market, departments, chiefOfStaffId, pushDepartmentEnv } = buildServices(db, hermes, {
   kanban, ...(process.env.MARKET_BASE_URL ? { marketBaseUrl: process.env.MARKET_BASE_URL } : {}),
   // Live events: the Hermes WebSocket (and token) stay on the server; browsers only talk to /api/live.
   live: { wsBaseUrl: cfg.hermesUrl.replace(/^http/, 'ws'), sessionToken: cfg.hermesToken ?? '' },
@@ -29,6 +29,8 @@ const { app, provisioning, schedules, market, departments, chiefOfStaffId } = bu
   // The Chief of Staff reads the key and model live: both can be set in the first quest without a restart.
   chatModel: new OpenAiCompatModel({ ...cfg.chat, apiKey: () => nearAiKey(db, cfg.chat.apiKey), model: () => readSettings(db).chiefOfStaffModel ?? cfg.chat.model }),
   chatModelDefault: cfg.chat.model, modelPrices: new NearModelPrices({ baseUrl: cfg.chat.baseUrl }), agentChat: new HermesAgentChat({ baseUrl: cfg.hermesApiUrl }),
+  // Agents reach NEAR AI Cloud through this backend (/ai/v1), which meters each floor and enforces its daily budget.
+  aiProxy: { publicUrl: (process.env.VIBE_CITY_PUBLIC_URL ?? `http://127.0.0.1:${cfg.port}`).replace(/\/+$/, ''), upstreamUrl: process.env.NEAR_AI_BASE_URL ?? 'https://cloud-api.near.ai/v1' },
   // Profiles served by the multiplexed gateway read credentials only from their own .env, not this container's env.
   ...(process.env.NEAR_AI_API_KEY ? { agentEnv: { NEAR_AI_API_KEY: process.env.NEAR_AI_API_KEY } } : {}), ...(cfg.mcpUrl ? { mcpUrl: cfg.mcpUrl } : {}),
 });
@@ -41,6 +43,9 @@ setInterval(() => { void market.tick(); }, 45_000).unref();
 
 await app.listen({ host: cfg.host, port: cfg.port }); // loopback by default
 console.log(`Vibe City backend listening on http://${cfg.host}:${cfg.port}`);
+
+// Floors synced before the metering proxy existed still hold the company key and NEAR AI's own URL: move them over.
+void pushDepartmentEnv();
 
 // The Chief of Staff's profile: nobody presses Sync for a floor the tower does not show, so the backend does, now and
 // whenever Hermes was away (reconcile only follows floors that were synced once).

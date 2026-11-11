@@ -104,6 +104,8 @@ test('task steps: the run sessions of that task, in plain words, failures marked
     ['note', 'Found three sources, writing it up.', null],
     ['tool', 'Finished the task', 'done'],
   ]);
+  // where on the floor each tool lives: the city draws the step coming from there
+  assert.deepEqual(res.json().steps.map((s: any) => s.via), ['web', 'terminal', null, 'board']);
   assert.equal(res.json().active, true);
   assert.doesNotMatch(res.body, /secret prompt|\/opt\/data/);
   assert.equal((await t.app.inject(`/api/departments/${d.id}/agents/chief/tasks/nope/steps`)).statusCode, 404);

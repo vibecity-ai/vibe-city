@@ -102,7 +102,7 @@ test('a pasted wallet key is checked with OutLayer, never returned, and reaches 
   for (const p of agency) assert.equal(hermes.env.get(p)?.OUTLAYER_API_KEY, undefined, 'a floor without the company wallet never gets it');
 });
 
-test('binding registers a wallet, returns the connect page once, and the treasury quest is done when it is active', async () => {
+test('binding registers a wallet, returns the connect page once, and the treasury quest is done once the wallet is registered', async () => {
   const { app, outlayer, treasuryDone } = setup();
   assert.equal(await treasuryDone(), false);
   const r = await app.inject({ method: 'POST', url: '/api/wallet/bind', payload: { accountId: 'ceo.near' } });
@@ -113,7 +113,7 @@ test('binding registers a wallet, returns the connect page once, and the treasur
   const pending = (await app.inject('/api/wallet')).json();
   assert.deepEqual(pending.binding, { accountId: 'ceo.near', status: 'pending' });
   assert.ok(!JSON.stringify(pending).includes(NEW_KEY));
-  assert.equal(await treasuryDone(), false, 'pending with an empty wallet is not a treasury yet');
+  assert.equal(await treasuryDone(), true, 'a registered wallet is a treasury: funding is optional');
 
   outlayer.binding!.binding_status = 'active'; // the CEO signed on OutLayer's page
   const active = (await app.inject('/api/wallet')).json();

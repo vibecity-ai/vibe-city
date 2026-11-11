@@ -229,15 +229,37 @@ async function refreshHealth() {
   try { raw.health = await api.health(); commit(); } catch (e) { fail(e); }
 }
 
+/* Tool use on the open floor: each working agent's steps are read every few seconds, and a new tool step plays on the
+   floor (City: a light from the tool's place to the agent). Only the newest step plays, and nothing replays history.
+   ponytail: one request per working agent of the one open floor; push steps over /api/live if floors get crowded. */
+const TOOL_POLL_MS = 4000;
+const seenSteps = new Map<string, number>();
+let toolPoll: ReturnType<typeof setInterval> | undefined;
+async function toolTick() {
+  const s = useStore.getState(), d = s.ui.view === 'floor' ? s.depts.find((x) => x.id === s.ui.floorId) : undefined;
+  if (!d || document.hidden || !s.conn.hermes) return;
+  const working = [...(d.chief?.taskId ? [{ id: 'chief', taskId: d.chief.taskId }] : []), ...d.workers.filter((w) => w.status === 'running' && w.taskId).map((w) => ({ id: w.id, taskId: w.taskId! }))];
+  await Promise.all(working.map(async (a) => {
+    let steps;
+    try { steps = (await api.taskSteps(d.id, a.id, a.taskId)).steps; } catch { return; }
+    const key = `${d.id}:${a.id}:${a.taskId}`, before = seenSteps.get(key);
+    seenSteps.set(key, steps.length);
+    // first sight of a task: the agent is shown reaching for whatever it used last
+    const last = steps.slice(before ?? Math.max(0, steps.length - 1)).filter((x) => x.via).at(-1);
+    if (last?.via) useStore.getState().emit({ k: 'toolUse', dept: d.id, agent: a.id, via: last.via });
+  }));
+}
+
 export function startLive() {
   void refreshAll();
+  toolPoll = setInterval(() => void toolTick(), TOOL_POLL_MS);
   poll = setInterval(() => void refreshAll(), 30_000);
   healthPoll = setInterval(() => void refreshHealth(), 10_000);
   return stopLive;
 }
 
 export function stopLive() {
-  clearInterval(poll); clearInterval(healthPoll);
+  clearInterval(poll); clearInterval(healthPoll); clearInterval(toolPoll);
   for (const c of sockets.values()) c();
   sockets.clear(); link.clear();
   hints.cancelAll();

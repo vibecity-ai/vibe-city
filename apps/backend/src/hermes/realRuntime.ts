@@ -235,6 +235,11 @@ export class RealHermesRuntime implements HermesRuntime {
     }
   }
 
+  async setProviderBaseUrl(profile: string, provider: string, url: string): Promise<void> {
+    if (!PROFILE_RE.test(provider) || !/^https?:\/\/[\w.:/-]+$/.test(url)) throw new HermesRejectedError('invalid provider base URL');
+    await this.cli(['config', 'set', `providers.${provider}.api`, url], profile);
+  }
+
   async unsetProfileEnv(profile: string, names: string[]): Promise<void> {
     for (const name of names) {
       if (!/^[A-Z][A-Z0-9_]{1,63}$/.test(name)) throw new HermesRejectedError(`invalid env variable ${name}`);

@@ -81,7 +81,7 @@ export function CeoConsole() {
         <dl className="ceo-stats" aria-label="Money and runway, an estimate">
           <div className="ceo-run">
             <dt>Runway</dt>
-            <dd>{r.days === null ? '—' : `${r.days} d`}</dd>
+            <dd>{r.days === null ? '—' : r.days > 999 ? '999+ d' : `${r.days} d`}</dd>
             <span className="ceo-bar" aria-hidden="true"><i style={{ width: `${pct * 100}%` }} /></span>
           </div>
           <div><dt>Earned</dt><Rolling cents={r.earnedCents} className="up" coin /></div>

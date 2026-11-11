@@ -7,7 +7,7 @@ const seats = [
 ];
 
 /** The first money floor: everything the OutLayer custody wallet does on its own (balances, transfers, swaps and
-    cross-chain moves through NEAR Intents), so it opens as soon as the treasury is funded. Perps and prediction markets
+    cross-chain moves through NEAR Intents), so it opens as soon as the treasury is set up. Perps and prediction markets
     need a connector policy first (Trading Desk, Prediction Desk). */
 export const treasuryOps = template({
   id: 'treasury-ops', name: 'Treasury Ops', unlock: 'treasury', loop: false, wallet: 'company', dailyBudgetCredits: 300, single: true,

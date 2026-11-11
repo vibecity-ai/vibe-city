@@ -89,7 +89,7 @@ test('quests the CEO creates are recorded with origin user', async () => {
 });
 
 test('chat gets a read-only server entry with only the file tools; it reads its own board\'s task files, never another\'s', async () => {
-  const { hermes, kanban, research, growth, tool } = await setup();
+  const { app, services, hermes, kanban, research, growth, tool } = await setup();
   const chat = hermes.mcpServers.get(growth.lead)!['vibecity-chat']!;
   assert.deepEqual(chat.tools.include, ['list_task_files', 'read_task_file']);
   assert.equal(chat.headers.Authorization, hermes.mcpServers.get(growth.lead)!.vibecity!.headers.Authorization);
@@ -110,6 +110,14 @@ test('chat gets a read-only server entry with only the file tools; it reads its 
     assert.ok(r.isError, 'another department\'s task is not found');
     assert.doesNotMatch(r.content[0].text, /not yours/);
   }
+  // naming a floor opens its board to the Chief of Staff only
+  assert.ok((await tool('read_task_file', { task_id: theirs.id, filename: 'secret.md', department: 'Research' })).isError);
+  const cos = services.chiefOfStaffId;
+  assert.equal((await app.inject({ method: 'POST', url: `/api/departments/${cos}/provision` })).json().state, 'ready');
+  const cosToken = hermes.mcpServers.get(services.departments.get(cos).agents[0]!.profileRef!)!.vibecity!.headers.Authorization!.slice(7);
+  assert.equal((await tool('read_task_file', { task_id: theirs.id, filename: 'secret.md', department: 'research' }, cosToken)).content[0].text, 'not yours');
+  assert.match((await tool('list_task_files', { task_id: mine.id, department: 'Growth' }, cosToken)).content[0].text, /scan\.md/);
+  assert.ok((await tool('list_task_files', { task_id: mine.id, department: 'Nowhere' }, cosToken)).isError);
 });
 
 test('the listed (external) floor cannot request work from a wallet floor; other floors still can', async () => {

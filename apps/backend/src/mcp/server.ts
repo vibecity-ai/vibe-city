@@ -9,7 +9,8 @@
      list_on_market     Chief of Staff only: list a floor of the company on the NEAR AI Agent Market (each its own agent)
    The dialogue-window chat gets only the two file tools, through a second server entry (MCP_CHAT_SERVER_NAME) that its
    platform list names, so chat can read past work but still cannot act. The Chief of Staff's chat also gets
-   list_departments and list_on_market (MCP_COS_TOOLS): listing a floor is the one thing it does for the CEO in chat.
+   list_departments and list_on_market (MCP_COS_TOOLS), and its file tools read any floor's board (`department`): it
+   reports on the whole company. It hands out work as job proposals the CEO confirms, not through request_quest.
    JSON-RPC methods: initialize, notifications/*, ping, tools/list, tools/call. */
 import type { FastifyInstance } from 'fastify';
 import { MARKET_CATEGORIES, MarketRegisterSchema, type MarketRegister, type QuestDetail } from '@vibe-city/shared';
@@ -24,6 +25,8 @@ export const MCP_FILE_TOOLS = ['list_task_files', 'read_task_file'] as const;
 export const MCP_COS_TOOLS = ['list_departments', 'list_on_market'] as const;
 const READ_MAX_CHARS = 40_000;
 const PROTOCOL = '2025-06-18';
+
+const FLOOR_ARG = 'Chief of Staff only: the name of the floor whose board the task is on. Everyone else reads their own board.';
 
 const TOOLS = [
   {
@@ -54,12 +57,12 @@ const TOOLS = [
   {
     name: 'list_task_files',
     description: 'List the files attached to a task on your department\'s Kanban board (reports, data, notes the agents produced). Use a task id from the board, like t_1a2b3c4d.',
-    inputSchema: { type: 'object', properties: { task_id: { type: 'string' } }, required: ['task_id'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, department: { type: 'string', description: FLOOR_ARG } }, required: ['task_id'], additionalProperties: false },
   },
   {
     name: 'read_task_file',
     description: `Read a text file attached to a task on your department's board (see list_task_files). Long files are cut at ${READ_MAX_CHARS} characters; binary files cannot be read.`,
-    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, filename: { type: 'string' } }, required: ['task_id', 'filename'], additionalProperties: false },
+    inputSchema: { type: 'object', properties: { task_id: { type: 'string' }, filename: { type: 'string' }, department: { type: 'string', description: FLOOR_ARG } }, required: ['task_id', 'filename'], additionalProperties: false },
   },
   {
     name: 'list_on_market',
@@ -112,8 +115,14 @@ export function registerMcp(app: FastifyInstance, deps: {
       const results = q.tasks.filter((t) => t.status === 'done' && t.summary).map((t) => `- ${t.title}: ${t.summary}`).join('\n').slice(0, 3000);
       return text(`Request ${r.id}: quest "${q.title}" on ${r.toName}'s board is ${q.status.replace('_', ' ')} (${q.counts.done}/${q.counts.tasks} tasks done).${results ? `\nResults so far:\n${results}` : ''}`);
     }
+    // whose board a file tool reads: the caller's own, or for the Chief of Staff the floor it names
+    const board = () => {
+      if (dept !== deps.chiefOfStaffId || !str('department')) return dept;
+      return deps.departments.list().find((d) => d.name.toLowerCase() === str('department').toLowerCase())?.id ?? null;
+    };
+    if ((name === 'list_task_files' || name === 'read_task_file') && !board()) return text(`No department is called "${str('department')}".`, true);
     if (name === 'list_task_files') {
-      const t = await deps.files.taskFiles(dept, str('task_id'));
+      const t = await deps.files.taskFiles(board()!, str('task_id'));
       if (!t.files.length) return text(`Task ${str('task_id')} ("${t.title}") has no files attached.`);
       return text(`Files on task ${str('task_id')} ("${t.title}"):\n${t.files.map((f) => `- ${f.filename} (${f.size} bytes${f.content_type ? `, ${f.content_type}` : ''})`).join('\n')}`);
     }
@@ -128,7 +137,7 @@ export function registerMcp(app: FastifyInstance, deps: {
     }
     if (name === 'read_task_file') {
       if (!str('task_id') || !str('filename')) return text('task_id and filename are required.', true);
-      const f = await deps.files.readTaskFile(dept, str('task_id'), str('filename'), READ_MAX_CHARS);
+      const f = await deps.files.readTaskFile(board()!, str('task_id'), str('filename'), READ_MAX_CHARS);
       return text(f.truncated ? `${f.text}\n\n[cut at ${READ_MAX_CHARS} characters of ${f.size} bytes]` : f.text);
     }
     return null;

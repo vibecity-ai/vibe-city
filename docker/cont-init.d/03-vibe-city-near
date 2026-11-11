@@ -35,9 +35,13 @@ h() {
 get() { h "$1" config get "$2" 2>/dev/null | tail -n 1 | tr -d '[:space:]'; }
 
 configure_provider() {
-    if [ "$(get "$1" providers.near-ai.api)" = "$base_url" ] && [ "$(get "$1" providers.near-ai.key_env)" = NEAR_AI_API_KEY ]; then
+    api="$(get "$1" providers.near-ai.api)"
+    if [ "$api" = "$base_url" ] && [ "$(get "$1" providers.near-ai.key_env)" = NEAR_AI_API_KEY ]; then
         return 0
     fi
+    # A department profile the backend pointed at its metering proxy (/ai/v1) holds a proxy key, not a NEAR AI key:
+    # putting the NEAR AI URL back would break it.
+    case "$api" in */ai/v1) return 0 ;; esac
     h "$1" config set providers.near-ai.name "NEAR AI Cloud" >/dev/null &&
     h "$1" config set providers.near-ai.api "$base_url" >/dev/null &&
     h "$1" config set providers.near-ai.key_env NEAR_AI_API_KEY >/dev/null &&

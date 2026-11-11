@@ -188,6 +188,12 @@ export class FakeHermes implements HermesRuntime {
     this.profile(profile);
     this.env.set(profile, { ...(this.env.get(profile) ?? {}), ...vars });
   }
+  /** `<profile>/<provider>` -> base URL. */
+  providerUrls = new Map<string, string>();
+  async setProviderBaseUrl(profile: string, provider: string, url: string): Promise<void> {
+    this.profile(profile);
+    this.providerUrls.set(`${profile}/${provider}`, url);
+  }
   async unsetProfileEnv(profile: string, names: string[]): Promise<void> {
     this.enter('unsetProfileEnv', [profile]);
     this.profile(profile);

@@ -64,13 +64,13 @@ export function StageOverlay({ city }: { city: City | null }) {
         el.style.pointerEvents = show > 0.5 ? 'auto' : 'none';
         el.tabIndex = show > 0.5 ? 0 : -1;
       }
-      // speech bubbles: an agent's own line shows when it changes, when you point at the agent, and in turn with the
-      // others (one at a time), so the office feels alive without a wall of text
+      // speech bubbles: an agent's note on its work shows for a few seconds when it changes, and while you point at the
+      // agent; otherwise the floor stays clear of text
       const ids = [...refs.current.keys()].filter((k) => k.startsWith('say:')).map((k) => k.slice(4));
       const talkers = ids.filter((id) => refs.current.get('say:' + id)?.dataset.text);
-      const tnow = performance.now(), turn = talkers.length ? talkers[Math.floor(tnow / 6000) % talkers.length] : null, inTurn = tnow % 6000 < 5200;
+      const tnow = performance.now();
       const ui = useStore.getState().ui, bubbles: { el: HTMLElement; x: number; y: number; show: boolean }[] = [];
-      // one bubble at a time besides the ones you point at: the newest line for 8 s, else whoever's turn it is; and
+      // one bubble at a time besides the one you point at: the newest line, for 8 s; and
       // while people talk out loud (a hello, a task handed over), only they speak
       for (const id of ids) { const text = refs.current.get('say:' + id)!.dataset.text ?? '', st = says.current.get(id); if (!st || st.text !== text) says.current.set(id, { text, since: tnow }); }
       const fresh = talkers.map((id) => ({ id, since: says.current.get(id)!.since })).filter((x) => tnow - x.since < 8000).sort((p, q) => q.since - p.since)[0]?.id ?? null;
@@ -83,7 +83,7 @@ export function StageOverlay({ city }: { city: City | null }) {
         const line = ui.floorId ? city.lineOf(ui.floorId, id) : null, spoken = el.lastElementChild as HTMLElement;
         if (line && spoken.textContent !== line) spoken.textContent = line;
         el.classList.toggle('spoke', !!line);
-        const show = !!at && at.visible > 0.5 && !ui.talk && (!!line || (!!text && (named || (!talking && (fresh ? id === fresh : id === turn && inTurn)))));
+        const show = !!at && at.visible > 0.5 && !ui.talk && (!!line || (!!text && (city.hoverAgent === id || (!talking && id === fresh))));
         el.classList.toggle('on', show);
         if (at) bubbles.push({ el, x: Math.round(at.x), y: Math.round(at.y - (named ? 30 : 8)), show });
       }

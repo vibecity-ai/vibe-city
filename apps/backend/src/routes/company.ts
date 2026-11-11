@@ -57,7 +57,7 @@ export function register(app: FastifyInstance, deps: AppServices) {
   // both are tried with one tiny NEAR AI call before anything is saved, so a typo never locks the company out.
   app.patch('/api/company/settings', async (req) => {
     const patch = CompanySettingsPatchSchema.parse(req.body);
-    const other = Object.keys(patch).filter((k) => !['nearAiApiKey', 'chiefOfStaffModel'].includes(k));
+    const other = Object.keys(patch).filter((k) => !['nearAiApiKey', 'chiefOfStaffModel', 'nearAiCreditsLoadedCents'].includes(k));
     if (other.length) throw new InvalidInputError(`not settable yet: ${other.join(', ')}`);
     if (patch.nearAiApiKey !== undefined || patch.chiefOfStaffModel !== undefined) {
       if (patch.nearAiApiKey && /\s/.test(patch.nearAiApiKey)) throw new InvalidInputError('That does not look like a NEAR AI API key.');
@@ -73,8 +73,15 @@ export function register(app: FastifyInstance, deps: AppServices) {
         throw e;
       }
       if (patch.nearAiApiKey) setSecrets(deps.db, { nearAiApiKey: patch.nearAiApiKey });
-      if (patch.chiefOfStaffModel) writeSettings(deps.db, { chiefOfStaffModel: patch.chiefOfStaffModel });
+      if (patch.chiefOfStaffModel) {
+        writeSettings(deps.db, { chiefOfStaffModel: patch.chiefOfStaffModel });
+        // the same person answers in chat from a Hermes profile: it thinks with this model too, from the next sync
+        deps.departments.setAgentModel(deps.chiefOfStaffId, 'chief', { provider: 'near-ai', id: patch.chiefOfStaffModel });
+        void deps.provisioning.provision(deps.chiefOfStaffId).catch(() => undefined);
+      }
     }
+    // what the CEO says is on the NEAR AI account: the runway counts down from it (null = stop estimating)
+    if (patch.nearAiCreditsLoadedCents !== undefined) writeSettings(deps.db, { nearAiCreditsLoadedCents: patch.nearAiCreditsLoadedCents });
     // agents get the new key in their profile .env; the quests read settings through the 5 s game cache
     if (patch.nearAiApiKey) await deps.pushDepartmentEnv();
     await gameState(deps, true);

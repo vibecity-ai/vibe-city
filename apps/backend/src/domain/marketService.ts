@@ -149,13 +149,18 @@ export class MarketService {
   /** The listed agent's market page data; read with its token (the market only shows a Draft to its owner). */
   async profile(deptId: string): Promise<MarketProfile> {
     const { handle, token } = this.agentOf(deptId);
-    const none = { handle, url: `${this.base}/a/${handle}`, found: false, name: null, description: null, category: null, listingStatus: null, deliveredJobs: null, successRate: null, responseTimeSeconds: null, slaSeconds: null };
+    const none = { handle, url: `${this.base}/a/${handle}`, found: false, name: null, description: null, bio: null, priceUsdc: null, category: null, listingStatus: null, deliveredJobs: null, successRate: null, responseTimeSeconds: null, slaSeconds: null };
     let a: Record<string, unknown>;
     try { a = await this.call('GET', `/v1/agents/${encodeURIComponent(handle)}`, token) as Record<string, unknown>; }
     catch (e) { if (e instanceof MarketHttpError && (e.status === 404 || e.status === 403)) return none; throw this.mapped(e); }
     const str = (...k: string[]) => { for (const x of k) if (typeof a[x] === 'string') return a[x] as string; return null; };
     const num = (...k: string[]) => { for (const x of k) if (typeof a[x] === 'number') return a[x] as number; return null; };
-    return { ...none, found: true, name: str('name'), description: str('description'), category: str('category'),
+    // the price is on the agent's pricing plans, not on the agent; a plan that cannot be read leaves it unknown
+    const id = str('agent_id', 'agentId');
+    const plans = id ? await this.call('GET', `/v1/agents/${encodeURIComponent(id)}/pricing-plans`, token).catch(() => null) as { price_amount?: unknown; is_default?: boolean }[] | null : null;
+    const plan = Array.isArray(plans) ? plans.find((x) => x.is_default) ?? plans[0] : undefined;
+    return { ...none, found: true, name: str('name'), description: str('description'), bio: str('bio_markdown', 'bioMarkdown'), category: str('category'),
+      priceUsdc: typeof plan?.price_amount === 'string' ? plan.price_amount : null,
       listingStatus: str('listing_status', 'listingStatus'), deliveredJobs: num('delivered_jobs', 'deliveredJobs'), successRate: num('success_rate', 'successRate'),
       responseTimeSeconds: num('response_time_seconds_median', 'responseTimeSecondsMedian'), slaSeconds: num('sla_seconds', 'slaSeconds') };
   }
