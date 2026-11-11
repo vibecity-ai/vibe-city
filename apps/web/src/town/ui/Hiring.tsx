@@ -62,6 +62,9 @@ function useHudSlot() {
   return el;
 }
 
+/** Cents (budgets and estimates are kept in cents) as dollars. */
+const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+
 export function HiringLayer() {
   useHiringPoll();
   const h = useStore((s) => s.hiring);
@@ -180,7 +183,7 @@ function ArDialogue({ reqId }: { reqId: string }) {
             <div>
               <span className="dlg-tag">Hire brief</span>
               <b>{brief.focus}</b>
-              <span>{brief.departmentName} · budget {brief.budgetPerDay} credits a day{brief.notes ? ` · ${brief.notes}` : ''}</span>
+              <span>{brief.departmentName} · budget {dollars(brief.budgetPerDay)} a day{brief.notes ? ` · ${brief.notes}` : ''}</span>
               {brief.skills.length > 0 && <span className="hire-skills">{brief.skills.map((s) => <i key={s}>{s}</i>)}</span>}
             </div>
             <div className="dlg-prop-act">
@@ -267,7 +270,7 @@ function Shortlist({ reqId }: { reqId: string }) {
           <div>
             <span className="dlg-tag">Shortlist · {brief.departmentName}</span>
             <h2>{brief.focus}</h2>
-            <span className="muted">Budget {brief.budgetPerDay} credits a day{brief.skills.length ? ` · wants ${brief.skills.join(', ')}` : ''}</span>
+            <span className="muted">Budget {dollars(brief.budgetPerDay)} a day{brief.skills.length ? ` · wants ${brief.skills.join(', ')}` : ''}</span>
           </div>
         </header>
         <div className="hire-grid">
@@ -283,7 +286,7 @@ function Shortlist({ reqId }: { reqId: string }) {
                 <dl className="cand-stats">
                   <dt>Model</dt><dd>{c.loadout.model ? <ModelName id={c.loadout.model.id} /> : <span className="mono">floor default</span>} <small>{TIER[c.tier]}</small></dd>
                   <dt>Skills</dt><dd>{c.loadout.skills.length ? <span className="hire-skills">{c.loadout.skills.map((s) => <i key={s}>{s}</i>)}</span> : <small className="muted">none</small>}</dd>
-                  <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{c.costPerDay} credits/day <small title="1 credit = 1 US cent, at 1M input + 100k output tokens a day">estimate{over ? ', over budget' : ''}</small></dd>
+                  <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{dollars(c.costPerDay)} a day <small title="One busy agent: 1M input + 100k output tokens a day at the model's NEAR AI price">estimate{over ? ', over budget' : ''}</small></dd>
                   <dt>Fit</dt><dd><span className="fit" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.fitScore} aria-label="Fit score"><i style={{ width: `${c.fitScore}%` }} /></span> <b>{c.fitScore}</b></dd>
                 </dl>
                 <p className="cand-note"><span>Chief of Staff:</span> {c.note}</p>

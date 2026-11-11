@@ -49,7 +49,8 @@ test('priced drafts: only agent-capable models are offered, cheapest first, and 
   const { draft, system } = await draftWith({ name: 'Ops', purpose: 'x', model: 'near-ai/model-b', teammates: 1 }, { modelPrices: { list: async () => prices } });
   assert.deepEqual(draft.model, { provider: 'near-ai', id: 'model-b' });
   assert.equal(draft.creditsPerDay, 2 * 150); // ($1 + $0.50) a day, lead + one teammate
-  assert.match(system, /near-ai\/model-a \(15 credits\/day, Incognito\), near-ai\/model-b \(150 credits\/day, Incognito\)/);
+  assert.match(system, /near-ai\/model-a \(\$0\.10 in \/ \$0\.50 out per 1M tokens, Incognito\), near-ai\/model-b \(\$1\.00 in \/ \$5\.00 out per 1M tokens, Incognito\)/);
+  assert.doesNotMatch(system, /\d credits/, 'the boss hears real USD prices, not credits');
   assert.doesNotMatch(system, /m-1|claude-x|base-model/);
   // No model chosen: the floor runs on Hermes' current default, priced when known.
   assert.equal(clampDraft({ name: 'Ops' }, { skills: [], toolsets: [], offered: [], prices, current: 'model-a' })!.creditsPerDay, 2 * 15);

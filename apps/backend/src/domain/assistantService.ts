@@ -11,7 +11,7 @@ import type { DepartmentService } from './departmentService.ts';
 import type { ProvisioningService } from './provisioningService.ts';
 import { chiefOfStaff } from './characters.ts';
 import { modelTier, parseJsonReply } from './hiringService.ts';
-import { dailyCredits, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
+import { dailyCredits, perMillion, type ModelPrices, type PriceList } from '../model/nearPrices.ts';
 
 export interface AssistantDeps {
   departments: DepartmentService;
@@ -55,12 +55,12 @@ export class AssistantService {
     const all = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
     // Priced: only models NEAR AI prices that can run an agent (text + tools), cheapest first, so the list is not alphabetical brands.
     const offered = prices?.size ? all.filter((m) => prices!.has(m.id)).sort((a, b) => dailyCredits(prices!.get(a.id)!) - dailyCredits(prices!.get(b.id)!)) : all;
-    const label = (m: ModelChoice) => { const p = prices?.get(m.id); return `${m.provider}/${m.id}${p ? ` (${dailyCredits(p)} credits/day${p.privacy === 'private' ? ', Private TEE' : p.privacy === 'confidential' ? ', Incognito (partner TEE)' : ', Incognito'})` : ''}`; };
+    const label = (m: ModelChoice) => { const p = prices?.get(m.id); return `${m.provider}/${m.id}${p ? ` (${perMillion(p)}${p.privacy === 'private' ? ', Private TEE' : p.privacy === 'confidential' ? ', Incognito (partner TEE)' : ', Incognito'})` : ''}`; };
     const value: FloorKit = {
       prompt: [
         `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
         `Toolsets that can be granted: ${toolsets.join(', ')}`,
-        offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick a "Private TEE" model (sealed in NEAR AI\'s own TEE, so the company\'s data stays private); an "Incognito" one only when no Private TEE model fits the work or the boss names it, and say so: near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
+        offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first, at NEAR AI\'s list price; quote these real prices to the boss, never "credits"' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick a "Private TEE" model (sealed in NEAR AI\'s own TEE, so the company\'s data stays private); an "Incognito" one only when no Private TEE model fits the work or the boss names it, and say so: near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
       ].join('\n'),
       clamp: (raw) => clampDraft(raw, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }),
     };

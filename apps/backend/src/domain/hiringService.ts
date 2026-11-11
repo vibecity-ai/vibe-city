@@ -281,12 +281,12 @@ export class HiringService {
       `Floors:\n${depts.join('\n') || '- none yet'}`,
       skills.length ? `Skills installed in Hermes (a hire can only get these): ${skills.join(', ')}` : 'The list of installed skills is unavailable right now.',
       '',
-      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily budget in credits (1 credit = 1 US cent of model usage; a small model costs ~10-50 a day, a top model 500-1500), and any must-have skills. Ask one thing at a time.',
+      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily model budget in US dollars (one busy agent on a small model costs about $0.10-0.50 a day, on a top model $5-15; say dollars, never "credits"), and any must-have skills. Ask one thing at a time.',
       'A hire joins one of the floors listed above: the brief\'s department must be one of those names exactly. If the boss wants a floor that does not exist yet, say it has to be created first and leave the brief null.',
       'When you know enough, sum it up as a brief. The boss confirms it, then you go scouting. Never say you are scouting before the boss confirmed a brief. You do not hire anyone in this call.',
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
       '- Reply with JSON only, no other text:',
-      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short answers the boss might give, each under 40 characters], "brief": null or {"department": "<floor name>", "focus": "<what the hire is good at>", "skills": ["<installed skill names>"], "budgetPerDay": <integer credits>, "notes": "<anything else>"}}`,
+      `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short answers the boss might give, each under 40 characters], "brief": null or {"department": "<floor name>", "focus": "<what the hire is good at>", "skills": ["<installed skill names>"], "budgetPerDay": <the budget in US cents, an integer: $3 a day = 300>, "notes": "<anything else>"}}`,
     ].join('\n');
   }
 
@@ -379,7 +379,7 @@ export class HiringService {
         id: randomUUID(), serious: true, character: ch, gag: null,
         pitch: p?.pitch ?? (s.label === 'premium' ? `Bigger model, more skills. I'll take the hard ${brief.departmentName} jobs and get them right the first time.` : `Reliable and affordable. I'll keep ${brief.departmentName}'s queue moving without burning the budget.`),
         loadout: { model: s.model, skills: s.skills, toolsets: [] }, tier: s.tier, costPerDay: s.cost, fitScore: s.fit,
-        note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the ${brief.budgetPerDay} credit budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}${price(s.model) ? ` NEAR AI price: ${priceNote(price(s.model)!)}.` : ' Price unknown, cost guessed from the model name.'}`,
+        note: `${s.label === 'premium' ? 'Premium' : 'Balanced'} pick.${overBudget ? ` Over the $${(brief.budgetPerDay / 100).toFixed(2)} a day budget.` : ' Within budget.'}${s.model ? '' : ' Hermes offered no model list, so the floor keeps its model.'}${price(s.model) ? ` NEAR AI price: ${priceNote(price(s.model)!)}.` : ' Price unknown, cost guessed from the model name.'}`,
       });
     });
     const a = seed % JOKES.length, b = (a + 1 + (seed >>> 4) % (JOKES.length - 1)) % JOKES.length;

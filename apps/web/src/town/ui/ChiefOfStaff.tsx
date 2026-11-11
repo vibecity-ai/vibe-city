@@ -7,10 +7,9 @@ import type { ChiefOfStaffModels, CompanySettings } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Icon, PixelSelect } from './kit';
-import { ModelLogo, PrivacyTag, modelOption, privacyOf } from './ModelBadge';
+import { ModelLogo, PrivacyTag, modelOption, per1M, privacyOf } from './ModelBadge';
 
 const KEYS_URL = 'https://cloud.near.ai';
-const per1M = (n: number) => `$${n < 1 ? n.toFixed(2) : n.toFixed(n % 1 ? 2 : 0)}`;
 
 export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
   const [settings, setSettings] = useState<CompanySettings | null>(null);

@@ -161,7 +161,7 @@ function NewDept() {
                 <span><i>Skills</i>{d.skills.length ? <span className="hire-skills">{d.skills.map((s) => <i key={s}>{s}</i>)}</span> : 'none'}</span>
                 <span><i>Tools</i>{d.toolsets.length ? <span className="hire-skills">{d.toolsets.map((s) => <i key={s}>{s}</i>)}</span> : 'none'}</span>
                 <span><i>Model</i>{d.model ? <ModelName id={d.model.id} /> : <span className="mono">Hermes default</span>}</span>
-                <span><i>Agents</i>{d.agents.length}, each its own Hermes agent · ~{d.creditsPerDay} credits/day <small>estimate</small></span>
+                <span><i>Agents</i>{d.agents.length}, each its own Hermes agent</span>
                 <ul className="nd-agents">{d.agents.map((a, i) => (
                   <li key={i}><b>{a.name || a.title}</b><em>{a.name ? a.title : ''}{i === 0 ? (a.name ? ' · lead' : 'lead') : ''}</em>{a.does && <span>{a.does}</span>}</li>
                 ))}</ul>

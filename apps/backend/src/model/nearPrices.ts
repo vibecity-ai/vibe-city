@@ -13,7 +13,9 @@ export interface ModelPrices { list(): Promise<PriceList> }
 export const DAY_TOKENS = { input: 1_000_000, output: 100_000 } as const;
 /** Credits per day at DAY_TOKENS. 1 credit = 1 US cent of NEAR AI usage. */
 export const dailyCredits = (p: ModelPrice) => Math.max(1, Math.round((p.inPerM * DAY_TOKENS.input + p.outPerM * DAY_TOKENS.output) / 1e4));
-export const priceNote = (p: ModelPrice) => `$${p.inPerM.toFixed(2)} in / $${p.outPerM.toFixed(2)} out per 1M tokens${p.vision ? ', sees images' : ''}${p.privacy === 'private' ? ', Private TEE: sealed in NEAR AI\'s TEE' : p.privacy === 'confidential' ? ', Incognito: sealed in an attested partner TEE' : ', Incognito: relayed to the vendor, not sealed'}`;
+/** NEAR AI's list price, as the boss reads it. */
+export const perMillion = (p: ModelPrice) => `$${p.inPerM.toFixed(2)} in / $${p.outPerM.toFixed(2)} out per 1M tokens`;
+export const priceNote = (p: ModelPrice) => `${perMillion(p)}${p.vision ? ', sees images' : ''}${p.privacy === 'private' ? ', Private TEE: sealed in NEAR AI\'s TEE' : p.privacy === 'confidential' ? ', Incognito: sealed in an attested partner TEE' : ', Incognito: relayed to the vendor, not sealed'}`;
 
 type Money = { amount?: number; scale?: number } | null | undefined;
 const perM = (c: Money) => (c && typeof c.amount === 'number' && typeof c.scale === 'number' ? (c.amount / 10 ** c.scale) * 1e6 : NaN);

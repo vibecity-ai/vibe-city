@@ -598,6 +598,8 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .psel > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* a model's vendor logo and privacy tag (ModelBadge.tsx), in pickers and on cards */
 .psel > span:has(.mlogo), .psel-opt > span:has(.mlogo), .mname { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
+.mprice { flex: none; color: var(--ink-mute); font: 500 11px var(--f-mono); }
+.mname { flex-wrap: wrap; row-gap: 2px; }
 .mlogo { width: 16px; height: 16px; flex: none; border-radius: 4px; object-fit: cover; background: #241D31; display: inline-grid; place-items: center; font: 600 10px/1 var(--f-mono); font-style: normal; color: var(--ink); }
 .mpriv { flex: none; font: 700 9px/1 var(--f-mono); font-style: normal; text-transform: uppercase; letter-spacing: .08em; padding: 3px 5px; border-radius: 3px; white-space: nowrap; }
 .mpriv.private { color: #0F0B17; background: var(--mint); }

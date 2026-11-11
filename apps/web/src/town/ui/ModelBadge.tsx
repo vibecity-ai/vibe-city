@@ -42,11 +42,14 @@ export function PrivacyTag({ info }: { info?: ModelInfo | undefined }) {
   return <em className={`mpriv ${p.cls}`} title={p.note}>{p.label}</em>;
 }
 
+/** NEAR AI's list price in USD per 1M tokens. */
+export const per1M = (n: number) => `$${n < 1 ? n.toFixed(2) : n.toFixed(n % 1 ? 2 : 0)}`;
+
 /** The logo and tag a PixelSelect option shows for a model. */
 export const modelOption = (id: string, info?: ModelInfo) => ({ icon: <ModelLogo id={id} icon={info?.icon} />, tag: <PrivacyTag info={info} /> });
 
-/** A model id with its logo and privacy tag, where a model is shown before it is chosen (a hire's card, a floor draft). */
+/** A model id with its logo, privacy tag and real price, where a model is shown before it is chosen (a hire's card, a floor draft). */
 export function ModelName({ id }: { id: string }) {
   const info = useModelInfo().get(id);
-  return <span className="mname"><ModelLogo id={id} icon={info?.icon} /><span className="mono">{id}</span><PrivacyTag info={info} /></span>;
+  return <span className="mname"><ModelLogo id={id} icon={info?.icon} /><span className="mono">{id}</span><PrivacyTag info={info} />{info && <small className="mprice">{per1M(info.inPerM)} in · {per1M(info.outPerM)} out per 1M tokens</small>}</span>;
 }
