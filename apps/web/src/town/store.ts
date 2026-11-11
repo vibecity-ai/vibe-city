@@ -20,8 +20,6 @@ export type Fx =
   | { k: 'questStarted'; dept: string; title: string }
   /** A job now waits on the CEO. */
   | { k: 'needsYou'; dept: string; title: string }
-  /** The Chief of Staff's hiring moved on: scouting started, a shortlist is in, someone was hired. */
-  | { k: 'hiring'; phase: 'scouting' | 'shortlist' | 'hired'; floor: string | null }
   | { k: 'floorAdded'; dept: string }
   | { k: 'chiefArrived'; dept: string }
   | { k: 'workerJoined'; dept: string; worker: string }
@@ -70,8 +68,8 @@ interface UI {
   /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
       'new'; omitted = their last chat). */
   talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
-  /** AR hiring: the dialogue window on AR's head (intake) or on a candidate (interview), or the shortlist popup. */
-  call: { mode: 'ar' | 'interview' | 'shortlist'; reqId: string; candId?: string } | null;
+  /** AR hiring: the dialogue window on the Chief of Staff's head (intake, then the candidates). */
+  call: { reqId: string } | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */
   boardQuest: string | null;
   /** New floor through the dialogue window with the executive assistant (the form stays as the accessible fallback). */
@@ -117,7 +115,7 @@ export interface State {
   /** In-flight mutations, keyed e.g. `provision:<deptId>`. */
   busy: Record<string, true>;
   ui: UI;
-  /** The open AR hiring request (ringing, intake, scouting, shortlist), polled from the backend. */
+  /** The open AR hiring request (ringing, intake, shortlist), polled from the backend. */
   hiring: HiringRequestView | null;
   /** Quests between departments (spec 2.4): recent requests, and who created each quest. */
   requests: QuestRequestView[];

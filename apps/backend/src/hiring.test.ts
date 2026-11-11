@@ -15,13 +15,12 @@ const arModel = () => new FakeChatModel((turns: ChatTurn[]) => {
       { name: 'Milo Tran', pitch: 'Give me the hard ones.', traits: ['bold', 'precise'], speechStyle: 'calm', quirk: 'two monitors, one plant' },
     ] });
   }
-  if (sys.includes('job candidate')) return JSON.stringify({ say: 'Happy to take a test question.', mood: 'happy', replies: ['Go on'] });
   if (turns.length <= 2) return JSON.stringify({ say: 'Which floor and what skills?', mood: 'focused', replies: ['Research, pdf skills'], brief: null });
   return JSON.stringify({ say: 'Got it. Here is the brief.', mood: 'happy', replies: ['Looks good'], brief: { department: 'research', focus: 'Reads papers and PDFs', skills: ['pdf', 'arxiv', 'not-installed'], budgetPerDay: 300, notes: '' } });
 });
 
 test('AR rings when a one-agent floor has quests piling up, and only once', async () => {
-  const { app, readyDept, create } = questApp({ chatModel: arModel(), hiringScoutMs: 0 });
+  const { app, readyDept, create } = questApp({ chatModel: arModel() });
   const d = await readyDept('Research', {}, 0);
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);
   await create(d.id, { title: 'A' }); await create(d.id, { title: 'B' });
@@ -34,8 +33,8 @@ test('AR rings when a one-agent floor has quests piling up, and only once', asyn
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);
 });
 
-test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -> offer adds an agent with its own profile', async () => {
-  const { app, hermes, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 0 });
+test('full hire: intake -> brief -> candidates right away (2 serious, 2 joke) -> offer adds an agent with its own profile', async () => {
+  const { app, hermes, readyDept } = questApp({ chatModel: arModel() });
   const d = await readyDept('Research');
   const start = await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { departmentId: d.id } });
   assert.equal(start.statusCode, 201);
@@ -55,7 +54,7 @@ test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -
   assert.equal(r.brief.budgetPerDay, 300);
 
   r = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/brief`, payload: {} })).json();
-  assert.equal(r.state, 'shortlist'); // scoutMs 0: the timer is already over
+  assert.equal(r.state, 'shortlist'); // no scouting wait
   assert.equal(r.candidates.length, 4);
   const serious = r.candidates.filter((c: any) => c.serious);
   const jokes = r.candidates.filter((c: any) => !c.serious);
@@ -70,10 +69,8 @@ test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -
   assert.ok(jokes.every((c: any) => c.fitScore < 25 && c.gag));
   assert.ok(Math.min(...serious.map((c: any) => c.fitScore)) > Math.max(...jokes.map((c: any) => c.fitScore)));
 
-  const iv = await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/candidates/${serious[0].id}/interview`, payload: { message: 'Summarise a paper in one line.' } });
-  assert.equal(iv.statusCode, 200);
-  assert.equal(iv.json().agent.text, 'Happy to take a test question.');
-  assert.ok(iv.json().stats.tokens > 0);
+  // the Chief of Staff says the candidates are in, in the same chat
+  assert.match(r.messages.at(-1).text, /4 candidates for Research/);
 
   // A joke candidate needs the CEO to overrule AR's concerns.
   assert.equal((await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/offer`, payload: { candidateId: jokes[0].id } })).statusCode, 409);
@@ -102,14 +99,47 @@ test('full hire: intake -> brief -> shortlist (2 serious, 2 joke) -> interview -
   assert.equal((await app.inject('/api/hiring/current')).json().request, null);
 });
 
-test('scouting hides candidates until the timer runs out', async () => {
-  const { app, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 60_000 });
+test('a confirmed brief yields candidates right away, and the CEO can hire straight from them', async () => {
+  const { app, readyDept } = questApp({ chatModel: arModel() });
   const d = await readyDept('Research');
   const id = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { departmentId: d.id } })).json().id;
   const r = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/brief`, payload: { brief: { departmentId: d.id, focus: 'Reading', skills: [], budgetPerDay: 100, notes: '' } } })).json();
-  assert.equal(r.state, 'scouting');
-  assert.deepEqual(r.candidates, []);
-  assert.ok(Date.parse(r.scoutingUntil) > Date.now());
+  assert.equal(r.state, 'shortlist');
+  assert.equal(r.candidates.length, 4);
+  assert.equal(r.scoutingUntil, null);
+  const pick = r.candidates.find((c: any) => c.serious);
+  const hired = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/offer`, payload: { candidateId: pick.id } })).json();
+  assert.equal(hired.state, 'hired');
+  assert.equal(hired.hiredCandidateId, pick.id);
+});
+
+test('the Chief of Staff knows the offered models and their real prices, and the candidates once they are in', async () => {
+  const usd = (perM: number) => ({ amount: Math.round(perM * 1000), scale: 9, currency: 'USD' });
+  const entry = (id: string, inM: number, outM: number) => ({ modelId: id, inputCostPerToken: usd(inM), outputCostPerToken: usd(outM), metadata: { contextLength: 1000, architecture: { inputModalities: ['text'], outputModalities: ['text'] }, supportedFeatures: ['tools'] } });
+  const sealed = entry('model-b', 1, 5);
+  Object.assign(sealed.metadata, { verifiable: true, ownedBy: 'nearai' });
+  const list = parsePriceList({ models: [entry('model-a', 0.1, 0.5), sealed] });
+  const prompts: string[] = [];
+  const model = new FakeChatModel((turns: ChatTurn[]) => {
+    if (turns[0]!.content.includes('Models Hermes offers')) prompts.push(turns[0]!.content);
+    return JSON.stringify({ say: 'model-a is the cheapest.', mood: 'focused', replies: [], brief: { department: 'Research', focus: 'x', skills: [], budgetPerDay: 1 } });
+  });
+  const { app, readyDept } = questApp({ chatModel: model, modelPrices: { list: async () => list } });
+  const d = await readyDept('Research');
+  const id = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { departmentId: d.id } })).json().id;
+  await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/chat`, payload: { message: 'Which model is cheapest?' } });
+  assert.match(prompts[0]!, /- model-a \(near-ai\): about \$0\.15 a day for one busy agent, small by price; \$0\.10 in \/ \$0\.50 out per 1M tokens/);
+  assert.match(prompts[0]!, /- model-b \(near-ai\): about \$1\.50 a day.*Private TEE/);
+  assert.match(prompts[0]!, /- claude-x \(anthropic\): price unknown/);
+  assert.ok(prompts[0]!.indexOf('model-a (') < prompts[0]!.indexOf('model-b ('), 'cheapest first');
+
+  const brief = { departmentId: d.id, focus: 'Reading', skills: [], budgetPerDay: 200, notes: '' };
+  const r = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/brief`, payload: { brief } })).json();
+  const asked = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${id}/chat`, payload: { message: 'Which one is cheapest?' } })).json();
+  assert.equal(asked.state, 'shortlist', 'questions about the candidates keep them on screen');
+  assert.equal(asked.brief.focus, 'Reading', 'the confirmed brief stays');
+  assert.equal(asked.messages.at(-1).text, 'model-a is the cheapest.');
+  for (const c of r.candidates) assert.ok(prompts[1]!.includes(`${c.character.name} (`), 'every candidate is in the prompt');
 });
 
 test('without a model the intake is 503; model tiers and reply parsing', async () => {
@@ -155,7 +185,7 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
   assert.equal(dailyCredits(list.get('model-a')!), 15); // $0.10 + $0.05 a day
   assert.equal(dailyCredits(list.get('m-1')!), 750);
 
-  const { app, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 0, modelPrices: { list: async () => list } });
+  const { app, readyDept } = questApp({ chatModel: arModel(), modelPrices: { list: async () => list } });
   const d = await readyDept('Research');
   const seen = new Set<string>();
   for (let i = 0; i < 6; i++) {
@@ -175,7 +205,7 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
 
 test('a brief for a floor that does not exist is not silently dropped: the Chief of Staff says so', async () => {
   const model = new FakeChatModel(() => JSON.stringify({ say: 'Brief locked, off to scout!', mood: 'happy', replies: ['Go scout'], brief: { department: 'Security Audits', focus: 'Audits contracts', skills: ['pdf'], budgetPerDay: 50, notes: '' } }));
-  const { app, readyDept } = questApp({ chatModel: model, hiringScoutMs: 0 });
+  const { app, readyDept } = questApp({ chatModel: model });
   await readyDept('Research');
   const start = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: {} })).json();
   const r = (await app.inject({ method: 'POST', url: `/api/hiring/requests/${start.id}/chat`, payload: { message: 'New Security Audits floor, go scout' } })).json();
@@ -189,7 +219,7 @@ test('a brief for a floor that does not exist is not silently dropped: the Chief
 });
 
 test('calling to hire for a floor starts fresh over an old talk about another floor or a cold one; a search under way is kept', async () => {
-  const { app, db, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 60_000 });
+  const { app, db, readyDept } = questApp({ chatModel: arModel() });
   const a = await readyDept('Research'), b = await readyDept('Red Team');
   const start = async (departmentId?: string) => (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: departmentId ? { departmentId } : {} })).json();
   const first = await start(a.id);
@@ -201,7 +231,7 @@ test('calling to hire for a floor starts fresh over an old talk about another fl
   db.prepare('UPDATE hiring_request SET updated_at = ? WHERE id = ?').run(new Date(Date.now() - 31 * 60_000).toISOString(), forB.id);
   const fresh = await start();
   assert.notEqual(fresh.id, forB.id);
-  // once scouting, the search is what any call shows
+  // once candidates are in, they are what any call shows
   await app.inject({ method: 'POST', url: `/api/hiring/requests/${fresh.id}/brief`, payload: { brief: { departmentId: a.id, focus: 'Reading', skills: [], budgetPerDay: 100, notes: '' } } });
   assert.equal((await start(b.id)).id, fresh.id);
 });

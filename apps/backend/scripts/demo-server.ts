@@ -29,12 +29,6 @@ const scripted = new FakeChatModel((turns) => {
       { name: 'Kai Lindgren', pitch: 'Bigger brain, more skills. I take the hard cases and write it all down.', traits: ['sharp', 'thorough'], speechStyle: 'confident, numbers-first', quirk: 'keeps three timers running' },
     ] });
   }
-  // Candidate interviews.
-  if (sys.includes('job candidate')) {
-    const joke = sys.includes('joke candidate');
-    if (joke) return JSON.stringify({ say: /test|summar/.test(last) ? "Great question. I'd circle back on that after we align on the vision. Also, is the corner office still free?" : "Honestly? I'm the best hire you'll ever make. My last three companies said so, right before they shut down.", mood: 'smug', replies: ['What did you do last job?', 'Thanks, next'] });
-    return JSON.stringify({ say: /test|summar/.test(last) ? 'Your floor: support tickets in, answers out, nothing left waiting overnight. That is the job and I like it.' : 'I pick up the queue on day one, ask before I guess, and write down what I learn.', mood: 'happy', replies: ['What would you cost me?', 'Test: summarise our floor in one line'] });
-  }
   // The executive assistant drafting a new floor.
   if (sys.includes('Executive assistant')) {
     const kinds: Record<string, [string, string, string[]]> = {
@@ -51,8 +45,13 @@ const scripted = new FakeChatModel((turns) => {
     return JSON.stringify({ say: `${name} it is. Small team to start: a lead and two teammates. Here's the blueprint.`, mood: 'happy', replies: ['Make it cheaper', 'Add web search'],
       draft: { name, purpose, skills, toolsets: ['web', 'file'], model: 'near-ai/model-a', teammates: 2 } });
   }
-  // The AR intake call.
-  if (sys.includes('Head of Agent Resources')) {
+  // The Chief of Staff with the candidates on screen: answers from the model facts in its prompt.
+  if (sys.includes('The candidates are on the boss')) {
+    const cheap = /^- (\S+) \([^)]*\): about (\$[\d.]+) a day/m.exec(sys);
+    return JSON.stringify({ say: cheap ? `Cheapest model Hermes offers is ${cheap[1]}, about ${cheap[2]} a day for one busy agent. Each card says what that candidate runs on.` : 'No prices right now, boss. The cards show each model.', mood: 'focused', replies: ['Which model is best for this?'], brief: null });
+  }
+  // The hiring intake call.
+  if (sys.includes('about a new hire')) {
     const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
     if (/not now/.test(last)) return JSON.stringify({ say: "Your call, boss. I'll keep the file open. Ring me when the floor starts smoking.", mood: 'annoyed', replies: ['Fine, find someone'], brief: null });
     if (!/\d/.test(said)) return JSON.stringify({ say: "Good. Support needs someone who can work tickets and keep the queue moving. What's the daily budget?", mood: 'focused', replies: ['200 credits a day', '500 a day, get someone good'], brief: null });
@@ -110,7 +109,7 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   return `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?${meta({ mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null })}`;
 });
 
-const { app, schedules, chiefOfStaffId } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000) });
+const { app, schedules, chiefOfStaffId } = buildServices(db, hermes, { kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat });
 
 // the real server syncs the Chief of Staff's Hermes profile at start; the demo does the same with the fake
 await app.inject({ method: 'POST', url: `/api/departments/${chiefOfStaffId}/provision` });

@@ -4,7 +4,7 @@
 
 import { BELL_STRIKES, bellStrike } from './data/fx.ts';
 
-export type Sfx = 'floor' | 'job' | 'done' | 'hire' | 'scout' | 'shortlist' | 'input' | 'tick' | 'fail' | 'lift' | 'pass' | 'coin' | 'bell';
+export type Sfx = 'floor' | 'job' | 'done' | 'hire' | 'input' | 'tick' | 'fail' | 'lift' | 'pass' | 'coin' | 'bell';
 
 const KEY = 'vc-sound';
 let muted = (() => { try { return localStorage.getItem(KEY) === 'off'; } catch { return false; } })();
@@ -76,12 +76,6 @@ export function play(kind: Sfx) {
       break;
     case 'hire': // the elevator ding
       note(c, N('E6'), t, 1.4, 'sine', 0.3); note(c, N('C6'), t + 0.22, 1.6, 'sine', 0.28); note(c, N('E7'), t, 0.25, 'triangle', 0.05);
-      break;
-    case 'scout': // a radar sweep: three pings fading away
-      for (let i = 0; i < 3; i++) note(c, 1320, t + i * 0.28, 0.4, 'sine', 0.22 / (i + 1), 980);
-      break;
-    case 'shortlist': // the desk phone, twice
-      for (let i = 0; i < 2; i++) { note(c, N('A5'), t + i * 0.22, 0.12, 'square', 0.12); note(c, N('C#6'), t + i * 0.22 + 0.06, 0.12, 'square', 0.1); }
       break;
     case 'input': // a polite two-tone nudge
       seq(['A5', 'E5'], 0.16, 0.32, 'triangle', 0.28);

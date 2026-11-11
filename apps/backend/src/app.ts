@@ -61,7 +61,7 @@ import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, Quest
 import { AssistantViewSchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
 import {
   HiringBriefConfirmSchema, HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringSendSchema, HiringStartSchema,
-  InterviewReplySchema, InterviewSendSchema,
+  
 } from '@vibe-city/shared';
 
 const parse = <T>(schema: ZodType<T>, v: unknown): T => schema.parse(v);
@@ -111,7 +111,7 @@ export interface ServicesExtra {
   allowedOrigins?: string[];
   /** Built web app (apps/web/dist). When set, the backend serves it on the same origin as the API. */
   webDist?: string;
-  /** Chat model for AR interviews and the executive assistant (NEAR AI Cloud in the container). Omit: those answer 503 model_unavailable. */
+  /** Chat model for the Chief of Staff (hiring and floor drafting) (NEAR AI Cloud in the container). Omit: those answer 503 model_unavailable. */
   chatModel?: ChatModel;
   /** The gateway API server, for the dialogue window's chat with an agent's own Hermes profile. Omit: agent chat answers 503. */
   agentChat?: AgentChat;
@@ -127,8 +127,6 @@ export interface ServicesExtra {
   mcpUrl?: string;
   /** NEAR AI Cloud model prices for AR's shortlist. Omit: costs are guessed from model names. */
   modelPrices?: ModelPrices;
-  /** AR scouting time before the shortlist shows (ms). Default 45 s. */
-  hiringScoutMs?: number;
 }
 
 /** `hermes` is optional so Milestone 1 callers (and tests) keep working: Hermes routes then answer 503. */
@@ -364,7 +362,6 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     db, departments, provisioning, quests: (id) => quests_.list(id), model: extra.chatModel ?? noModel,
     companyId: () => company.view().id, companyName: () => company.view().name,
     savePersona: (d, k, c) => characters.save(d, k, c),
-    ...(extra.hiringScoutMs !== undefined ? { scoutMs: extra.hiringScoutMs } : {}),
     ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
   });
   const reqId = (params: unknown) => (params as { reqId: string }).reqId;
@@ -383,14 +380,6 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     const body = parse(HiringBriefConfirmSchema, req.body ?? {});
     if (body.brief) idOf({ id: body.brief.departmentId });
     return parse(HiringRequestViewSchema, await hiring.confirmBrief(reqId(req.params), body.brief));
-  });
-  app.get('/api/hiring/requests/:reqId/candidates/:candId/interview', async (req) => {
-    const p = req.params as { candId: string };
-    return hiring.candidateHistory(reqId(req.params), p.candId).messages;
-  });
-  app.post('/api/hiring/requests/:reqId/candidates/:candId/interview', async (req) => {
-    const p = req.params as { candId: string };
-    return parse(InterviewReplySchema, await hiring.interview(reqId(req.params), p.candId, parse(InterviewSendSchema, req.body).message));
   });
   app.post('/api/hiring/requests/:reqId/offer', async (req) => {
     const body = parse(HiringOfferSchema, req.body);
