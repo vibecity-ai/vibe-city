@@ -8,8 +8,8 @@ import {
   type ProvisioningStatus, type SyncCheck, type QuestCreate, type QuestCreated, type QuestDetail, type QuestResults, type QuestSummary,
 } from '@vibe-city/shared';
 import {
-  InterviewHistorySchema, HiringCurrentSchema, HiringRequestViewSchema, InterviewReplySchema,
-  type ChatMessage, type HiringBrief, type HiringRequestView, type InterviewReply,
+  HiringCurrentSchema, HiringRequestViewSchema,
+  type HiringBrief, type HiringRequestView,
   AssistantViewSchema, type AssistantView, MarketDraftReplySchema, type MarketDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
@@ -189,8 +189,6 @@ export const api = {
   hiringDecline: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/decline`, HiringRequestViewSchema),
   hiringChat: (id: string, message: string): Promise<HiringRequestView> => request('POST', `${h(id)}/chat`, HiringRequestViewSchema, { message }),
   hiringBrief: (id: string, brief?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', `${h(id)}/brief`, HiringRequestViewSchema, brief ? { brief } : {}),
-  interviewHistory: (id: string, cand: string): Promise<ChatMessage[]> => request('GET', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewHistorySchema),
-  interview: (id: string, cand: string, message: string): Promise<InterviewReply> => request('POST', `${h(id)}/candidates/${encodeURIComponent(cand)}/interview`, InterviewReplySchema, { message }),
   hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
   chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
     chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),

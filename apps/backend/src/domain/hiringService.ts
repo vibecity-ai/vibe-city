@@ -1,15 +1,16 @@
 /* AR (Agent Resources): scouting and hiring (feature spec 7.1).
    AR watches the boards with a few plain rules and calls the CEO when a floor needs people. The intake is a chat with
-   AR's head that ends in a brief; AR then scouts two serious candidates (loadouts built from what Hermes really has:
+   AR's head that ends in a brief; confirming it shows two serious candidates (loadouts built from what Hermes really has:
    its models and installed skills) and two joke candidates (an original, curated cast whose numbers are honestly bad).
-   Nothing changes in Hermes until the offer. An offer adds one agent to the department, with the candidate's own model
+   The candidates show right away in the same chat, where AR answers questions about them and Hermes' models (real
+   NEAR AI prices in its prompt). Nothing changes in Hermes until the offer. An offer adds one agent to the department, with the candidate's own model
    and skills, then re-provisions the department through the normal path, which creates the agent's Hermes profile. */
 import type { DatabaseSync } from 'node:sqlite';
 import { randomUUID } from 'node:crypto';
 import {
   CandidateSchema, HiringBriefSchema, HiringMessageSchema, MAX_TEAMMATES, MOODS, profileNameForAgent,
   type Candidate, type Character, type HiringBrief, type HiringMessage, type HiringRequestView, type HiringState,
-  type HiringTrigger, type HermesModelsView, type InterviewReply, type ChatMessage, type Mood, type ModelChoice, type QuestSummary,
+  type HiringTrigger, type HermesModelsView, type Mood, type ModelChoice, type QuestSummary,
 } from '@vibe-city/shared';
 import type { ChatModel, ChatTurn } from '../model/chatModel.ts';
 import { ModelUnavailableError } from '../model/chatModel.ts';
@@ -29,8 +30,6 @@ export interface HiringDeps {
   companyName: () => string;
   /** NEAR AI Cloud prices. Omit: costs are guessed from model names and every offered model is eligible. */
   prices?: ModelPrices;
-  /** How long scouting takes before the shortlist shows (the demo theatre). Default 45 s. */
-  scoutMs?: number;
   /** Store the hire's persona on its new seat so the office and dialogue window show the same person. */
   savePersona?: (departmentId: string, agentKey: string, c: Character) => void;
   now?: () => Date;
@@ -70,9 +69,8 @@ const JOKES = [
 
 export class HiringService {
   private d: HiringDeps;
-  private scoutMs: number;
   private now: () => Date;
-  constructor(d: HiringDeps) { this.d = d; this.scoutMs = d.scoutMs ?? 45_000; this.now = d.now ?? (() => new Date()); }
+  constructor(d: HiringDeps) { this.d = d; this.now = d.now ?? (() => new Date()); }
 
   /** Who runs hiring: the Chief of Staff (AR merged into it), the same person who drafts floors. */
   ar(): Character {
@@ -122,7 +120,7 @@ export class HiringService {
 
   async send(id: string, message: string): Promise<HiringRequestView> {
     const r = this.row(id);
-    if (r.state !== 'intake' && r.state !== 'ringing') throw new ConflictError(`the intake is over (request is ${r.state})`);
+    if (r.state !== 'intake' && r.state !== 'ringing' && r.state !== 'shortlist') throw new ConflictError(`the call is over (request is ${r.state})`);
     if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
     const past = this.messages(r);
     const system = await this.intakePrompt(r);
@@ -135,9 +133,11 @@ export class HiringService {
     const raw = await this.d.model.complete(turns, { maxTokens: 700 });
     const user = HiringMessageSchema.parse({ id: randomUUID(), from: 'user', text: message, mood: null, replies: [], brief: null, at: this.iso() });
     const parsed = parseJsonReply(raw);
-    const brief = parsed.obj ? this.resolveBrief(parsed.obj.brief, r) : null;
+    // Once the candidates are in, the chat is questions about them: the brief stays as confirmed.
+    const intake = r.state !== 'shortlist';
+    const brief = intake && parsed.obj ? this.resolveBrief(parsed.obj.brief, r) : null;
     // A brief that names no existing floor is dropped; say so instead of letting the model claim it went scouting.
-    const asked = parsed.obj?.brief && typeof parsed.obj.brief === 'object' ? parsed.obj.brief as Record<string, unknown> : null;
+    const asked = intake && parsed.obj?.brief && typeof parsed.obj.brief === 'object' ? parsed.obj.brief as Record<string, unknown> : null;
     const floors = this.d.departments.list().map((d) => d.name);
     const lost = asked && !brief ? String(asked.department ?? asked.departmentName ?? '').trim().slice(0, 60) : null;
     const reply = lost === null ? { say: parsed.say, mood: parsed.mood, replies: parsed.replies } : {
@@ -147,12 +147,12 @@ export class HiringService {
     const agent = HiringMessageSchema.parse({
       id: randomUUID(), from: 'agent', text: reply.say, mood: reply.mood, replies: reply.replies, brief, at: this.iso(),
     });
-    this.d.db.prepare("UPDATE hiring_request SET messages_json = ?, state = 'intake', brief_json = COALESCE(?, brief_json), updated_at = ? WHERE id = ?")
+    this.d.db.prepare("UPDATE hiring_request SET messages_json = ?, state = CASE state WHEN 'shortlist' THEN state ELSE 'intake' END, brief_json = COALESCE(?, brief_json), updated_at = ? WHERE id = ?")
       .run(JSON.stringify([...past, user, agent]), brief ? JSON.stringify(brief) : null, this.iso(), id);
     return this.get(id);
   }
 
-  /** The CEO confirms the brief (optionally edited). AR leaves to scout; the shortlist shows after the timer. */
+  /** The CEO confirms the brief (optionally edited). The candidates are in right away (the shortlist). */
   async confirmBrief(id: string, edited?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> {
     const r = this.row(id);
     if (r.state !== 'intake') throw new ConflictError(`cannot confirm a brief now (request is ${r.state})`);
@@ -163,61 +163,13 @@ export class HiringService {
     }
     if (!brief) throw new InvalidInputError('No brief yet: tell the Chief of Staff what you need first');
     const candidates = await this.scout(r.id, brief);
-    const until = new Date(this.now().getTime() + this.scoutMs).toISOString();
-    this.d.db.prepare("UPDATE hiring_request SET state = 'scouting', brief_json = ?, department_id = ?, scouting_until = ?, updated_at = ? WHERE id = ?")
-      .run(JSON.stringify(brief), brief.departmentId, until, this.iso(), id);
+    const back: HiringMessage = HiringMessageSchema.parse({ id: randomUUID(), from: 'agent', mood: 'smug', replies: ['Which one is cheapest?', 'Which model is best for this?'], brief: null, at: this.iso(),
+      text: `Here are ${candidates.length} candidates for ${brief.departmentName}. Two are solid. The other two... you'll see. Ask me about any of them, or their models.` });
+    this.d.db.prepare("UPDATE hiring_request SET state = 'shortlist', brief_json = ?, department_id = ?, messages_json = ?, updated_at = ? WHERE id = ?")
+      .run(JSON.stringify(brief), brief.departmentId, JSON.stringify([...this.messages(r), back]), this.iso(), id);
     const ins = this.d.db.prepare('INSERT INTO hiring_candidate (id, request_id, idx, candidate_json) VALUES (?, ?, ?, ?)');
     candidates.forEach((c, i) => ins.run(c.id, id, i, JSON.stringify(c)));
     return this.get(id);
-  }
-
-  // ---- interviews -------------------------------------------------------------------------------------------------
-
-  candidateHistory(id: string, candidateId: string): { candidate: Candidate; messages: ChatMessage[] } {
-    const c = this.candidateRow(id, candidateId);
-    return { candidate: CandidateSchema.parse(JSON.parse(c.candidate_json)), messages: JSON.parse(c.interview_json) as ChatMessage[] };
-  }
-
-  async interview(id: string, candidateId: string, message: string): Promise<InterviewReply> {
-    const r = this.row(id);
-    if (r.state !== 'shortlist') throw new ConflictError(`interviews happen on the shortlist (request is ${r.state})`);
-    if (!this.d.model.ready) throw new ModelUnavailableError('No chat model is configured. Set NEAR_AI_API_KEY and restart.');
-    const { candidate: c, messages } = this.candidateHistory(id, candidateId);
-    const brief = HiringBriefSchema.parse(JSON.parse(r.brief_json!));
-    const system = [
-      `You are ${c.character.name}, a job candidate interviewing with the CEO of ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents.`,
-      `The role: ${brief.focus} on the ${brief.departmentName} floor.`,
-      `Your personality: ${c.character.traits.join(', ')}. Way of speaking: ${c.character.speechStyle}. Quirk: ${c.character.quirk}.`,
-      `Your pitch: "${c.pitch}". Your loadout: model ${c.loadout.model ? c.loadout.model.id : 'unknown'}, skills ${c.loadout.skills.join(', ') || 'none'}.`,
-      c.serious
-        ? 'You are a serious candidate. If asked a test question, actually answer it well and briefly. Stay in character.'
-        : 'You are a joke candidate, played for laughs: stay in character, be confidently unhelpful, never answer a test question properly. Keep it light: no insults about real people or groups.',
-      'Rules: at most 3 short sentences, under 60 words. Never claim to have done work for this company.',
-      `Reply with JSON only: {"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 short things the CEO might ask next]}`,
-    ].join('\n');
-    const turns: ChatTurn[] = [
-      { role: 'system', content: system },
-      ...messages.slice(-10).map((m): ChatTurn => (m.from === 'user' ? { role: 'user', content: m.text } : { role: 'assistant', content: JSON.stringify({ say: m.text, mood: m.mood, replies: m.replies }) })),
-      { role: 'user', content: message },
-    ];
-    // A serious candidate answers on its own model when that model is served by the chat provider (NEAR AI Cloud).
-    const own = c.serious && c.loadout.model && /near/i.test(c.loadout.model.provider) ? c.loadout.model.id : undefined;
-    const t0 = Date.now();
-    const run = this.d.model.run
-      ? await this.d.model.run(turns, { maxTokens: 400, ...(own ? { model: own } : {}) })
-      : { content: await this.d.model.complete(turns, { maxTokens: 400 }), tokens: null, model: 'chat model' };
-    const ms = Date.now() - t0;
-    const p = parseJsonReply(run.content);
-    const user: ChatMessage = { id: randomUUID(), from: 'user', text: message, mood: null, replies: [], proposal: null, at: this.iso() };
-    const agent: ChatMessage = { id: randomUUID(), from: 'agent', text: p.say, mood: p.mood, replies: p.replies, proposal: null, at: this.iso() };
-    this.d.db.prepare('UPDATE hiring_candidate SET interview_json = ? WHERE id = ?').run(JSON.stringify([...messages, user, agent]), candidateId);
-    return {
-      user, agent,
-      stats: {
-        ms, tokens: run.tokens, model: run.model,
-        costNote: own ? `Answered on the candidate's own model (${own}).` : `Answered by the chat model (${run.model}); the candidate's model is not served by the chat provider.`,
-      },
-    };
   }
 
   // ---- offer ------------------------------------------------------------------------------------------------------
@@ -225,7 +177,7 @@ export class HiringService {
   async offer(id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> {
     const r = this.row(id);
     if (r.state !== 'shortlist') throw new ConflictError(`no shortlist to hire from (request is ${r.state})`);
-    const { candidate: c } = this.candidateHistory(id, candidateId);
+    const c = CandidateSchema.parse(JSON.parse(this.candidateRow(id, candidateId).candidate_json));
     if (!c.serious && !acceptConcerns) throw new ConflictError('The Chief of Staff has concerns about this candidate: confirm to hire anyway');
     const brief = HiringBriefSchema.parse(JSON.parse(r.brief_json!));
     const before = this.d.departments.agents(brief.departmentId).length;
@@ -282,16 +234,40 @@ export class HiringService {
     });
     let skills: string[] = [];
     try { skills = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name).slice(0, 60); } catch { /* Hermes down */ }
+    const { all, prices } = await this.offeredModels();
+    const usd = (credits: number) => `$${(credits / 100).toFixed(2)}`;
+    const SIZE = ['', 'small', 'mid-size', 'large'];
+    // Real facts only: what Hermes offers, with NEAR AI's price, daily cost and privacy when priced; cheapest first.
+    const daily = (m: ModelChoice) => { const p = prices?.get(m.id); return p ? dailyCredits(p) : Infinity; };
+    const modelFacts = [...all].sort((a, b) => daily(a) - daily(b)).slice(0, 40).map((m) => {
+      const p = prices?.get(m.id);
+      return p ? `- ${m.id} (${m.provider}): about ${usd(dailyCredits(p))} a day for one busy agent, ${SIZE[priceTier(dailyCredits(p))]} by price; ${priceNote(p)}; context ${p.context} tokens`
+        : `- ${m.id} (${m.provider}): price unknown; ${SIZE[modelTier(m.id)]} going by its name (a guess)`;
+    });
+    const brief = r.brief_json ? HiringBriefSchema.parse(JSON.parse(r.brief_json)) : null;
+    const cands = r.state === 'shortlist'
+      ? (this.d.db.prepare('SELECT candidate_json FROM hiring_candidate WHERE request_id = ? ORDER BY idx').all(r.id) as { candidate_json: string }[])
+          .map((x) => CandidateSchema.parse(JSON.parse(x.candidate_json)))
+          .map((c) => `- ${c.character.name} (${c.serious ? 'serious' : `joke candidate, your honest concern: ${c.note}`}): model ${c.loadout.model?.id ?? 'floor default'}, about ${usd(c.costPerDay)} a day, fit ${c.fitScore}/100, skills ${c.loadout.skills.join(', ') || 'none'}`)
+      : [];
+    const job = cands.length && brief ? [
+      `The boss confirmed the brief: ${brief.focus} for ${brief.departmentName}, budget ${usd(brief.budgetPerDay)} a day. The candidates are on the boss's screen as cards, each with a Hire button:`,
+      ...cands,
+      'Your job now: answer the boss\'s questions about these candidates and the models, using only the facts above. Explain a candidate\'s model when asked (cost a day, size, privacy). Compare honestly, recommend one when asked. The boss hires with the Hire button; you never hire. "brief" is always null now.',
+    ] : [
+      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily model budget in US dollars (use the model prices above; say dollars, never "credits"), and any must-have skills. Ask one thing at a time. Answer questions about the models from the list above.',
+      'A hire joins one of the floors listed above: the brief\'s department must be one of those names exactly. If the boss wants a floor that does not exist yet, say it has to be created first and leave the brief null.',
+      'When you know enough, sum it up as a brief. Once the boss confirms it, the candidates show up right away. You do not hire anyone in this call.',
+    ];
     return [
       `You are ${ar.name}, ${ar.title} at ${this.d.companyName()}, a company in the game Vibe City whose employees are AI agents.`,
       `Personality: ${ar.traits.join(', ')}. Way of speaking: ${ar.speechStyle}. Quirk: ${ar.quirk}.`,
       `You are on a call with the CEO ("boss") about a new hire. Why you are talking: ${trigger.reason}`,
       `Floors:\n${depts.join('\n') || '- none yet'}`,
       skills.length ? `Skills installed in Hermes (a hire can only get these): ${skills.join(', ')}` : 'The list of installed skills is unavailable right now.',
+      modelFacts.length ? `Models Hermes offers (a day = 1M input + 100k output tokens; "Private TEE"/"Incognito" is how sealed the model runs):\n${modelFacts.join('\n')}` : 'The list of models Hermes offers is unavailable right now: say so if asked, do not guess prices.',
       '',
-      'Your job in this call: find out which floor the hire is for, what they should be good at, the daily model budget in US dollars (one busy agent on a small model costs about $0.10-0.50 a day, on a top model $5-15; say dollars, never "credits"), and any must-have skills. Ask one thing at a time.',
-      'A hire joins one of the floors listed above: the brief\'s department must be one of those names exactly. If the boss wants a floor that does not exist yet, say it has to be created first and leave the brief null.',
-      'When you know enough, sum it up as a brief. The boss confirms it, then you go scouting. Never say you are scouting before the boss confirmed a brief. You do not hire anyone in this call.',
+      ...job,
       '- Your words appear in a retro game dialogue box: at most 3 short sentences, under 60 words.',
       '- Reply with JSON only, no other text:',
       `{"say": "<what you say>", "mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short answers the boss might give, each under 40 characters], "brief": null or {"department": "<floor name>", "focus": "<what the hire is good at>", "skills": ["<installed skill names>"], "budgetPerDay": <the budget in US cents, an integer: $3 a day = 300>, "notes": "<anything else>"}}`,
@@ -318,16 +294,21 @@ export class HiringService {
     return parsed.success ? parsed.data : null;
   }
 
+  /** The models Hermes offers and NEAR AI's prices for them; either is empty when its source is down. */
+  private async offeredModels(): Promise<{ all: ModelChoice[]; prices: PriceList | null }> {
+    let models: HermesModelsView | null = null;
+    try { models = await this.d.provisioning.hermesModels(); } catch { /* Hermes down: keep the floor's model */ }
+    let prices: PriceList | null = null;
+    try { prices = (await this.d.prices?.list()) ?? null; } catch { /* price list down: guess from names */ }
+    return { all: models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [], prices };
+  }
+
   /** Builds the four candidates. Serious loadouts only use models Hermes offers and skills Hermes has installed. */
   private async scout(requestId: string, brief: HiringBrief): Promise<Candidate[]> {
     const inv = this.d.departments.getInventory(brief.departmentId);
-    let models: HermesModelsView | null = null;
-    try { models = await this.d.provisioning.hermesModels(); } catch { /* Hermes down: keep the floor's model */ }
+    const { all, prices } = await this.offeredModels();
     let installed: string[] = [];
     try { installed = (await this.d.provisioning.hermesDefaults()).skills.map((s) => s.name); } catch { /* unknown */ }
-    let prices: PriceList | null = null;
-    try { prices = (await this.d.prices?.list()) ?? null; } catch { /* price list down: guess from names */ }
-    const all: ModelChoice[] = models?.providers.flatMap((p) => p.models.map((id) => ({ provider: p.slug, id }))) ?? [];
     const pool = all.length ? all : inv.model ? [inv.model] : [];
     const seed = hash(`${requestId}:${brief.departmentId}`);
     const pickOne = <T>(xs: T[], salt: string) => (xs.length ? xs[hash(`${seed}:${salt}`) % xs.length]! : null);
@@ -437,7 +418,7 @@ export class HiringService {
   }
 
   private view(r: Row): HiringRequestView {
-    // Scouting ends by time: the first read after the timer moves the request to the shortlist.
+    // Rows from before scouting was instant: the first read after their timer moves them to the shortlist.
     if (r.state === 'scouting' && r.scouting_until && Date.parse(r.scouting_until) <= this.now().getTime()) r = this.setState(r.id, 'shortlist');
     const showCandidates = r.state === 'shortlist' || r.state === 'hired';
     const candidates = showCandidates
@@ -463,7 +444,7 @@ export class HiringService {
     return r;
   }
   private candidateRow(id: string, candidateId: string) {
-    const c = this.d.db.prepare('SELECT * FROM hiring_candidate WHERE id = ? AND request_id = ?').get(candidateId, id) as { candidate_json: string; interview_json: string } | undefined;
+    const c = this.d.db.prepare('SELECT * FROM hiring_candidate WHERE id = ? AND request_id = ?').get(candidateId, id) as { candidate_json: string } | undefined;
     if (!c) throw new NotFoundError('candidate not found');
     return c;
   }

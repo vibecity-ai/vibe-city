@@ -63,11 +63,10 @@ const scripted = new FakeChatModel((turns) => {
       { name: 'Kai Lindgren', pitch: 'Bigger brain, more skills. I take the hard cases and write it all down.', traits: ['sharp', 'thorough'], speechStyle: 'confident, numbers-first', quirk: 'keeps three timers running' },
     ] });
   }
-  // Candidate interviews.
-  if (sys.includes('job candidate')) {
-    const joke = sys.includes('joke candidate');
-    if (joke) return JSON.stringify({ say: /test|summar/.test(last) ? "Great question. I'd circle back on that after we align on the vision. Also, is the corner office still free?" : "Honestly? I'm the best hire you'll ever make. My last three companies said so, right before they shut down.", mood: 'smug', replies: ['What did you do last job?', 'Thanks, next'] });
-    return JSON.stringify({ say: /test|summar/.test(last) ? 'Your floor: support tickets in, answers out, nothing left waiting overnight. That is the job and I like it.' : 'I pick up the queue on day one, ask before I guess, and write down what I learn.', mood: 'happy', replies: ['What would you cost me?', 'Test: summarise our floor in one line'] });
+  // The Chief of Staff with the candidates on screen: answers from the model facts in its prompt.
+  if (sys.includes('The candidates are on the boss')) {
+    const cheap = /^- (\S+) \([^)]*\): about (\$[\d.]+) a day/m.exec(sys);
+    return JSON.stringify({ say: cheap ? `Cheapest model Hermes offers is ${cheap[1]}, about ${cheap[2]} a day for one busy agent. Each card says what that candidate runs on.` : 'No prices right now, boss. The cards show each model.', mood: 'focused', replies: ['Which model is best for this?'], brief: null });
   }
   // The Chief of Staff's hiring call: which floor, then the daily budget in dollars, then the brief.
   if (sys.includes('about a new hire')) {
@@ -169,7 +168,7 @@ const upstream = (async (_url: string, init: RequestInit = {}) => {
 }) as typeof fetch;
 const origin = `http://127.0.0.1:${cfg.port}`;
 const { app, schedules, chiefOfStaffId, market, departments } = buildServices(db, hermes, {
-  kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat, hiringScoutMs: Number(process.env.HIRING_SCOUT_MS ?? 12_000),
+  kanban, ...(cfg.webDist ? { webDist: cfg.webDist } : {}), chatModel, agentChat,
   outlayerFetch: net.fetch, marketFetch: net.fetch, nearRpc: net.rpc, modelPrices: { list: async () => PRICES }, chatModelDefault: cfg.chat.model,
   aiProxy: { publicUrl: origin, upstreamUrl: 'https://cloud-api.near.ai/v1', fetch: upstream },
   live: { wsBaseUrl: `ws://127.0.0.1:${(hermesWs.address() as AddressInfo).port}`, sessionToken: 'demo' },

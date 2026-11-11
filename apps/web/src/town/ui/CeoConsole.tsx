@@ -65,7 +65,6 @@ export function CeoConsole() {
       {game && (
         <section className="ceo-quest" aria-label="Your quest">
           <div className="ceo-qhead">
-            {next && <span>Next quest</span>}
             <Pips g={game} />
             <button className="ceo-log" onClick={() => s.ui$({ questLog: true })}>Log · {progressLabel(game)}</button>
           </div>

@@ -67,7 +67,7 @@ export function DialogueFrame({ who, look, gag = null, lines, ready, waiting, st
   onNewChat?: () => void;
   /** Shown once the speaker has finished talking (proposal cards, brief cards…). */
   cards?: (lastAgent: Line | null) => ReactNode;
-  /** A small line under the text bar (interview stats, scouting timer). */
+  /** A small line under the text bar (stats, notes). */
   below?: ReactNode;
   hideInput?: boolean; inputHint?: string;
   /** Said when the CEO ends a chat they took part in: the speaker signs off before the window closes. */
