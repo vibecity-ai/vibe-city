@@ -58,7 +58,7 @@ import { IpoService } from './domain/ipoService.ts';
 import { DEFAULT_RPC, NearRpc, type NearReader } from './near/rpc.ts';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
-import { AssistantViewSchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
+import { AssistantViewSchema } from '@vibe-city/shared';
 import {
   HiringCurrentSchema, HiringOfferSchema, HiringRequestViewSchema, HiringStartSchema,
   
@@ -320,6 +320,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     companyStatus: async () => companyStatus(await gameState(services)),
     floorKit: () => assistant.floorKit(), // built further down; called per chat turn
     hiringFacts: () => hiring.facts(), // built further down too
+    listable: () => assistant.listable(),
     agentEnv: (profile) => aiEnv((db.prepare('SELECT department_id AS id FROM department_agent WHERE profile_ref = ?').get(profile) as { id: string } | undefined)?.id ?? ''),
   });
   /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */
@@ -385,9 +386,9 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
 
   // ---- executive assistant: draft a new floor in the dialogue window (feature spec 4.3) ----
   const assistant = new AssistantService({
-    departments, provisioning, model: extra.chatModel ?? noModel,
+    departments, provisioning,
     ...(extra.modelPrices ? { prices: extra.modelPrices } : {}),
-    companyId: () => company.view().id, companyName: () => company.view().name,
+    companyId: () => company.view().id,
     isListed: (id) => market.isListed(id), // market is built further down; called per request
   });
   app.get('/api/assistant', async () => parse(AssistantViewSchema, { character: assistant.character(), modelReady: (extra.chatModel ?? noModel).ready }));
@@ -401,9 +402,6 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
         .map(([id, p]) => ({ id, inPerM: Math.round(p.inPerM * 100) / 100, outPerM: Math.round(p.outPerM * 100) / 100, context: p.context, privacy: p.privacy ?? null, icon: p.icon ?? null })),
     });
   });
-  // ---- the Chief of Staff drafts the Agent Market listing; registering is POST /api/market/register ----
-  app.post('/api/assistant/market-draft', async (req) =>
-    parse(MarketDraftReplySchema, await assistant.draftListing(parse(DeptDraftRequestSchema, req.body).messages)));
 
   // ---- quests between departments + the Vibe City MCP server (feature spec 2.4) ----
   const questRequests = new QuestRequestService({

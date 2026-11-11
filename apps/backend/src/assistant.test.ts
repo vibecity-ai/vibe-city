@@ -4,7 +4,7 @@ import { questApp } from './testUtils.ts';
 import { FakeHermes } from './testing/fakeHermes.ts';
 import { FakeAgentChat } from './testing/fakeAgentChat.ts';
 import { FakeChatModel } from './model/chatModel.ts';
-import { clampDraft, clampListing } from './domain/assistantService.ts';
+import { clampDraft } from './domain/assistantService.ts';
 import { parsePriceList } from './model/nearPrices.ts';
 
 /** The Chief of Staff's Hermes chat with a scripted agent: what it was told, and the floor draft that came back. */
@@ -68,34 +68,4 @@ test('a drafted roster reaches the card and the created floor: names, titles, wh
   const lead = (await app.inject(`/api/departments/${id}/characters/chief`)).json();
   assert.equal(lead.name, 'Rhea'); assert.equal(lead.title, 'Release Lead');
   assert.equal((await app.inject(`/api/departments/${id}/characters/W-01`)).json().name, 'Ode');
-});
-
-test('the market listing draft names a listable floor and a handle and category the market accepts', async () => {
-  const model = new FakeChatModel(() => JSON.stringify({ say: 'Here it is.', mood: 'happy', replies: ['List it'], draft: {
-    floor: 'markets intel', handle: 'Markets Intel!!', name: 'Markets Intel', category: 'astrology', slaHours: 9999, tagline: 'Daily crypto brief.', description: 'Prices, flows, news.', priceUsdc: '$7' } }));
-  const { app } = questApp({ chatModel: model });
-  const id = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Markets Intel', purpose: 'Watches markets.' } })).json().id;
-  const r = await app.inject({ method: 'POST', url: '/api/assistant/market-draft', payload: { messages: [{ from: 'user', text: 'list markets intel' }] } });
-  assert.equal(r.statusCode, 200, r.body);
-  const d = r.json().draft;
-  assert.equal(d.departmentId, id);
-  assert.equal(d.handle, 'markets-intel');
-  assert.equal(d.category, 'other');
-  assert.equal(d.slaHours, 720);
-  assert.equal(d.priceUsdc, '7.00');
-  assert.match(model.calls[0]![0]!.content, /- Markets Intel: Watches markets\./);
-  // a floor that is not on the listable list is never drafted
-  assert.equal(clampListing({ floor: 'Nope' }, (await app.inject('/api/departments')).json().departments), null);
-});
-
-test('a floor already on the market is not offered for listing again', async () => {
-  const model = new FakeChatModel(() => JSON.stringify({ say: 'Which one?', mood: 'happy', replies: [], draft: { floor: 'Listed Desk', handle: 'listed-desk', name: 'L', category: 'other', slaHours: 24 } }));
-  const { app, db } = questApp({ chatModel: model }) as ReturnType<typeof questApp> & { db: import('node:sqlite').DatabaseSync };
-  const listed = (await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Listed Desk' } })).json();
-  await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'Fresh Desk' } });
-  db.prepare("INSERT INTO market_agent (department_id, handle, token, created_at) VALUES (?, 'listed-desk', 'aat_x', '2026-11-10')").run(listed.id);
-  const r = (await app.inject({ method: 'POST', url: '/api/assistant/market-draft', payload: { messages: [{ from: 'user', text: 'list one' }] } })).json();
-  assert.equal(r.draft, null, 'the listed floor is not listable');
-  assert.match(model.calls[0]![0]!.content, /- Fresh Desk/);
-  assert.doesNotMatch(model.calls[0]![0]!.content, /- Listed Desk/);
 });

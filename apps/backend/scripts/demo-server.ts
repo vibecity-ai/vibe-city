@@ -42,17 +42,6 @@ kanban.realClock = true;
 const scripted = new FakeChatModel((turns) => {
   const last = turns.at(-1)?.content.toLowerCase() ?? '';
   const sys = turns[0]!.content;
-  // The Chief of Staff drafts the Agent Market listing for the floor the boss names.
-  if (sys.includes('listing ONE floor')) {
-    const floors = [...(/Floors that can be listed:\n([\s\S]*?)\nCategories:/.exec(sys)?.[1] ?? '').matchAll(/^- ([^:\n]+):/gm)].map((m) => m[1]!.trim());
-    const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
-    const floor = floors.find((f) => said.includes(f.toLowerCase()));
-    if (!floor) return JSON.stringify({ say: 'Which floor goes on the market, boss?', mood: 'focused', replies: floors.slice(0, 3), draft: null });
-    const slug = floor.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-    return JSON.stringify({ say: `${floor} it is. Here is the front page buyers will read. Register it and it goes up as a draft.`, mood: 'happy', replies: ['Make it cheaper', 'Faster delivery'],
-      draft: { floor, handle: `${slug}-works`.slice(0, 30), name: `${floor} Works`, category: 'research', slaHours: 24, priceUsdc: /cheap/.test(said) ? '3.00' : '5.00',
-        tagline: 'A whole floor of AI agents on your job: a lead plans, teammates dig and write.', description: 'One tidy Markdown brief per job, sources linked, delivered within a day.' } });
-  }
   // The Chief of Staff writes the two serious candidates' personas.
   if (sys.startsWith('You write short')) {
     return JSON.stringify({ candidates: [
@@ -82,7 +71,7 @@ const chatModel = cfg.chat.apiKey ? new OpenAiCompatModel(cfg.chat) : scripted;
 
 // The dialogue window talks to the agent's own Hermes profile; offline, a scripted agent stands in.
 const meta = (m: object) => `\n<vc>${JSON.stringify(m)}</vc>`;
-const agentChat = new FakeAgentChat(hermes, (t) => {
+const agentChat = new FakeAgentChat(hermes, (t, history) => {
   // an answered call opens with its reason in brackets: the boss's own words follow
   const last = t.message.toLowerCase().replace(/^\(you called me about hiring:[^)]*\)\s*/, '');
   const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
@@ -99,6 +88,16 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
       const cents = Math.round(Number(usd[1]) * 100);
       return `Got it: a ticket handler for Support, $${(cents / 100).toFixed(2)} a day. Here's the brief.${meta({ mood: 'happy', replies: ['Change the budget'], proposal: null,
         hire: { department: 'Support', focus: 'Works support tickets and keeps the queue moving', skills: ['github', 'pdf'], budgetPerDay: cents, notes: '' } })}`;
+    }
+    // the Agent Market: which floor, then the listing card for the one the boss names
+    const listable = /Floors that can be listed: ([^;]*);/.exec(t.system)?.[1]?.split(', ').filter((f) => f !== 'none') ?? [];
+    const pick = listable.find((f) => last.includes(f.toLowerCase()));
+    if (/market|listing/.test(last) || (pick && /Agent Market/.test(history.at(-1) ?? ''))) {
+      if (!pick) return `Which floor goes on the Agent Market, boss? Buyers hire it, and every job lands on its board.${meta({ mood: 'focused', replies: listable.slice(0, 3), proposal: null })}`;
+      const slug = pick.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+      return `${pick} it is. Here is the front page buyers will read: register it and it goes up as a draft.${meta({ mood: 'happy', replies: ['Make it cheaper', 'Faster delivery'], proposal: null,
+        listing: { floor: pick, handle: `${slug}-works`.slice(0, 30), name: `${pick} Works`, category: 'research', slaHours: 24, priceUsdc: /cheap/.test(last) ? '3.00' : '5.00',
+          tagline: 'A whole floor of AI agents on your job: a lead plans, teammates dig and write.', description: 'One tidy Markdown brief per job, sources linked, delivered within a day.' } })}`;
     }
     const floor = /### ([^\n(]+)/.exec(t.system)?.[1]?.trim(), quests = /CEO quests: [^\n]+/.exec(t.system)?.[0] ?? '';
     if (/floor|department/.test(last)) {
