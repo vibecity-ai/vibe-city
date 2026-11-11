@@ -136,6 +136,7 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
   // NEAR AI's flag for a model served from an attested TEE; its owner says whose TEE
   Object.assign(sealed.metadata, { verifiable: true, ownedBy: 'nearai', modelIcon: 'https://avatars.example/b.png' });
   Object.assign(partner.metadata, { verifiable: true, ownedBy: 'attested 3p', modelIcon: 'javascript:alert(1)' });
+  Object.assign(sealed, { cacheReadCostPerToken: usd(0.02) }); // prompt tokens served from NEAR AI's cache
   const list = parsePriceList({ models: [
     entry('model-a', 0.1, 0.5, ['text', 'image']), sealed, partner,
     entry('anthropic/claude-x', 0.01, 0.01), // rejects the reasoning_effort Hermes always sends
@@ -149,6 +150,8 @@ test('NEAR price list keeps only agent-capable models; priced shortlists use rea
   assert.equal(list.get('model-a')!.privacy, undefined); // routed to the vendor: no tag
   assert.equal(list.get('model-b')!.icon, 'https://avatars.example/b.png');
   assert.equal(list.get('m-1')!.icon, undefined); // only https logos reach the browser
+  assert.equal(Math.round(list.get('model-b')!.cachedPerM! * 1000), 20);
+  assert.equal(list.get('model-a')!.cachedPerM, undefined); // no cache price: cached tokens cost full input
   assert.equal(dailyCredits(list.get('model-a')!), 15); // $0.10 + $0.05 a day
   assert.equal(dailyCredits(list.get('m-1')!), 750);
 

@@ -57,3 +57,20 @@ test('metering proxy: forwards with the company key, records burn per floor, enf
   const r = (await app.inject('/api/game')).json().runway;
   assert.deepEqual([r.creditsRemainingCents, Math.round(r.dailyBurnCents), r.days], [1900, 129, 14]);
 });
+
+test('metering proxy: prompt tokens NEAR AI served from its cache cost the cache price', async () => {
+  const cachedPrices = { list: async (): Promise<PriceList> => new Map([
+    ['m/cache', { inPerM: 2, outPerM: 10, cachedPerM: 0.2, context: 1000, vision: false }],
+    ['m/one', { inPerM: 2, outPerM: 10, context: 1000, vision: false }],
+  ]) };
+  const answer = { id: 'r', usage: { ...usage, prompt_tokens_details: { cached_tokens: 900_000 } } };
+  const { app, db, readyDept } = questApp({ modelPrices: cachedPrices, aiProxy: { publicUrl: 'http://vc.test', upstreamUrl: 'http://near.test/v1', fetch: (async () => Response.json(answer)) as typeof fetch } });
+  setSecrets(db, { nearAiApiKey: KEY });
+  const a = await readyDept('A'), b = await readyDept('B');
+  for (const [d, model] of [[a.id, 'm/cache'], [b.id, 'm/one']] as const) {
+    await app.inject({ method: 'POST', url: '/ai/v1/chat/completions', headers: { authorization: `Bearer ${aiKeyFor(db, d)}` }, payload: { model } });
+  }
+  const today = Object.fromEntries((await app.inject('/api/ai/usage')).json().byDepartment.map((d: any) => [d.departmentId, d.todayCents]));
+  // 100k fresh x $2 + 900k cached x $0.20 + 100k out x $10 = $1.38; a model without a cache price bills all input in full
+  assert.deepEqual([today[a.id], today[b.id]], [138, 300]);
+});

@@ -37,7 +37,7 @@ function deptOfKey(db: DatabaseSync, auth: string | undefined): string | null {
   return m && timingSafeEqual(Buffer.from(sign(db, m[1]!)), Buffer.from(m[2]!)) ? m[1]! : null;
 }
 
-interface Usage { prompt_tokens?: number; completion_tokens?: number }
+interface Usage { prompt_tokens?: number; completion_tokens?: number; prompt_tokens_details?: { cached_tokens?: number } | null }
 interface Answer { id?: string; model?: string; usage?: Usage | null }
 
 export function register(app: FastifyInstance, deps: AppServices) {
@@ -64,10 +64,12 @@ export function register(app: FastifyInstance, deps: AppServices) {
     const record = (a: Answer) => {
       if (!a.usage) return;
       const model = String(body?.model ?? a.model ?? ''), p = prices?.get(model), i = a.usage.prompt_tokens ?? 0, o = a.usage.completion_tokens ?? 0;
+      // agent loops resend their context, so most prompt tokens are cache hits, billed at the cache price
+      const c = Math.min(i, a.usage.prompt_tokens_details?.cached_tokens ?? 0);
       // USD per 1M tokens -> nano USD per token is x1000. ponytail: a model without a listed price costs 0 here (tokens are
       // still kept); POST /v1/billing/costs with the stored request ids gives exact costs if the estimate drifts.
       deps.db.prepare('INSERT INTO ai_usage (department_id, model, input_tokens, output_tokens, cost_nano_usd, request_id, at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(deptId, model, i, o, p ? Math.round((i * p.inPerM + o * p.outPerM) * 1000) : 0, a.id ?? null, new Date().toISOString());
+        .run(deptId, model, i, o, p ? Math.round(((i - c) * p.inPerM + c * (p.cachedPerM ?? p.inPerM) + o * p.outPerM) * 1000) : 0, a.id ?? null, new Date().toISOString());
     };
     const type = res.headers.get('content-type') ?? 'application/json';
     reply.code(res.status).header('content-type', type);

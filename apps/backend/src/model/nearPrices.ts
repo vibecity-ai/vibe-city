@@ -5,7 +5,8 @@
    attested TEE: "private" when NEAR AI runs it (owner `nearai`), "confidential" at an attested partner (Chutes, Tinfoil).
    Image input is not required; it is kept as a flag for the card. */
 
-export interface ModelPrice { inPerM: number; outPerM: number; context: number; vision: boolean; privacy?: 'private' | 'confidential'; icon?: string }
+/** `cachedPerM`: NEAR AI's price for prompt tokens served from its cache (DeepSeek: 50x below `inPerM`); absent = no discount. */
+export interface ModelPrice { inPerM: number; outPerM: number; cachedPerM?: number; context: number; vision: boolean; privacy?: 'private' | 'confidential'; icon?: string }
 export type PriceList = Map<string, ModelPrice>;
 export interface ModelPrices { list(): Promise<PriceList> }
 
@@ -30,7 +31,9 @@ export function parsePriceList(body: unknown): PriceList {
     const inM: string[] = md.architecture?.inputModalities ?? [];
     const outM: string[] = md.architecture?.outputModalities ?? [];
     const feats: string[] = md.supportedFeatures ?? [];
+    const cached = perM(m.cacheReadCostPerToken);
     const p = { inPerM: perM(m.inputCostPerToken), outPerM: perM(m.outputCostPerToken), context: Number(md.contextLength) || 0, vision: inM.includes('image'),
+      ...(Number.isFinite(cached) ? { cachedPerM: cached } : {}),
       ...(md.verifiable === true ? { privacy: md.ownedBy === 'nearai' ? 'private' as const : 'confidential' as const } : {}),
       ...(typeof md.modelIcon === 'string' && md.modelIcon.startsWith('https://') ? { icon: md.modelIcon } : {}) };
     if (typeof m.modelId !== 'string' || m.modelId.startsWith('anthropic/') || !inM.includes('text') || outM.join() !== 'text' || !feats.includes('tools')) continue;
