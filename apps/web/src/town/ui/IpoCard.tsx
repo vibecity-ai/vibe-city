@@ -137,7 +137,8 @@ function Prospectus({ ipo, ceo, company, busy, checking, err, onLaunch, onCheck 
           : <button className="bell" type="button" disabled={!ok} onClick={() => onLaunch({ ceoAccountId: account.trim(), symbol })}><Bell />
             <span>{started ? 'Listing…' : ipo.state === 'error' ? 'Ring the bell again' : daoFixed ? 'Continue the listing' : 'Ring the opening bell'}</span></button>}
         <span className="xb-links">
-          {ext(OUTLAYER_APP, 'OutLayer ▸')}
+          {/* only when there is something to approve there; the safe's Policy button covers the rest of OutLayer */}
+          {waiting && ext(OUTLAYER_APP, 'Approve in OutLayer ▸')}
           {ipo.daoAccountId && ext(trezu(ipo.daoAccountId), 'DAO on Trezu ▸')}
         </span>
       </div>
