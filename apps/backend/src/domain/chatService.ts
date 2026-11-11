@@ -49,6 +49,8 @@ export class ChatService {
   private busy = new Set<string>();
   /** Profiles whose .env was written by this process: credentials are re-synced once per start (a rotated key propagates). */
   private synced = new Set<string>();
+  /** Task id -> title, from every board read for a prompt. ponytail: grows with the boards' tasks for the process's life. */
+  private titles = new Map<string, string>();
   constructor(d: ChatDeps) { this.d = d; }
 
   character(departmentId: string, agentKey: string): Character {
@@ -121,6 +123,8 @@ export class ChatService {
       const user = ChatMessageSchema.parse({ id: randomUUID(), from: 'user', text: input.message, mood: null, replies: [], proposal: null, at });
       // the Chief of Staff's own board is not shown anywhere: its proposals name the floor that takes the job
       const said = parseAgentReply(raw, cos ? { floors: this.d.departments.list(), ...(kit ? { clampFloor: kit.clamp } : {}) } : undefined);
+      said.text = taskTitles(said.text, this.titles);
+      said.replies = said.replies.map((r) => taskTitles(r, this.titles));
       const agent = ChatMessageSchema.parse({ id: randomUUID(), from: 'agent', ...said, at: new Date().toISOString() });
       this.store(departmentId, agentKey, creds.session_id, user);
       this.store(departmentId, agentKey, creds.session_id, agent);
@@ -165,6 +169,7 @@ export class ChatService {
       'How to answer:',
       '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
       '- To see what a task produced, use list_task_files with its task id from the board, then read_task_file to read a file. Read the files before describing or summarising the work.',
+      '- Task ids (t_…) are for tools only: the boss never sees them. Call a task by its title.',
       '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',
       '- End every reply with one final line, exactly in this form (JSON inside the tag):',
@@ -197,6 +202,7 @@ export class ChatService {
       'How to answer:',
       '- Be fast: answer from the briefing above. It already holds every floor, its team and its board, so do NOT call a tool to learn about floors or tasks. If the answer is not there, say so plainly; never guess or invent results.',
       '- Tools are only for two things: reading what a task produced (list_task_files then read_task_file, with the task id and the floor name as "department"), and list_on_market after the boss confirmed a listing. One or two calls at most per answer.',
+      '- Task ids (t_…) are for tools only: the boss never sees them. Call a task by its title.',
       '- When the boss wants work done, pick the floor whose purpose fits and propose the job with that floor\'s exact name as "department": the boss starts it with one click and it lands on that floor\'s board. Only a floor synced with Hermes can take a job. Do not say you will do it yourself.',
       '- When the boss asks how things are going (a briefing, a status, "what needs me"): say ONE headline sentence, and put the rest in "report" so it shows as a card: "needs_you" = what waits on the boss (decisions waiting, blocked or failed tasks, the next CEO quest; [] when nothing does), "in_flight" = one row per job that is moving, "money" = one line, marked as an estimate. Each row is short (under 20 words) and names its floor in "floor" when it is about one. Do not repeat the report in your sentence. For any other question, "report" is null.',
       '- A new floor: first ask "a ready template or a custom floor?" with the replies "Show me the templates" and "Design a custom floor" (templates are picked in their own panel). For a custom floor, if the boss has not said what it should do, ask that one question and make your "replies" 2 or 3 concrete floor ideas built from the installed skills below. Once the purpose is clear, propose the floor right away in "floor": small, granting only what the purpose needs, never duplicating a floor in the briefing. If the boss asks for changes, propose the whole floor again.',
@@ -218,6 +224,7 @@ export class ChatService {
       if (e instanceof HermesRejectedError || e instanceof HermesUnavailableError || e instanceof HermesAuthError) return '(the board cannot be read right now)';
       throw e;
     }
+    for (const t of tasks) this.titles.set(t.id, t.title);
     const open = tasks.filter((t) => t.status !== 'done').sort((a, b) => (b.created_at ?? 0) - (a.created_at ?? 0));
     const done = tasks.filter((t) => t.status === 'done').sort((a, b) => (b.completed_at ?? 0) - (a.completed_at ?? 0));
     // shortcut: a fixed cap keeps the prompt small; older work is out of chat's sight until it can look tasks up on demand.
@@ -242,6 +249,10 @@ export class ChatService {
       .run(m.id, departmentId, agentKey, next, sessionId, JSON.stringify(m), m.at);
   }
 }
+
+/** Task ids mean nothing to the boss: an id the agent wrote becomes that task's title in quotes. */
+export const taskTitles = (s: string, titles: ReadonlyMap<string, string>) =>
+  s.replace(/\bt_[0-9a-z]+\b/gi, (id) => (titles.has(id) ? `"${titles.get(id)}"` : id));
 
 /** Splits the agent's reply into what it says and the trailing <vc>{…}</vc> metadata. A missing or broken tag just
     means plain speech: the agent's words are never lost to a formatting slip. */

@@ -236,3 +236,14 @@ test('the Chief of Staff answers from a briefing of every floor and proposes a j
   assert.deepEqual(f.json().agent.proposal, { kind: 'quest', title: 'Competitor brief', objective: 'Summarise three competitors.' });
   assert.equal(f.json().agent.briefing, undefined, 'only the Chief of Staff reports on the company');
 });
+
+test('task ids the agent writes reach the window as the task titles from the board', async () => {
+  let id = '';
+  const { app, kanban, agentChat, readyDept } = agentApp(() => `${id} is done; t_unknown is not on the board.\n<vc>{"mood":"happy","replies":["What was in ${id}?"],"proposal":null}</vc>`);
+  const d = await readyDept('Research', {});
+  id = (await kanban.createTask(d.board, { title: 'Scan competitor pricing' })).task.id;
+  const r = await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'Status?' } });
+  assert.equal(r.json().agent.text, '"Scan competitor pricing" is done; t_unknown is not on the board.');
+  assert.deepEqual(r.json().agent.replies, ['What was in "Scan competitor pricing"?']);
+  assert.match(agentChat.turns[0]!.system, new RegExp(`${id} \\[`), 'the prompt keeps the id for the file tools');
+});
