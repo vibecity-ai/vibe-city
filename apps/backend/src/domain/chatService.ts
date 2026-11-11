@@ -17,6 +17,7 @@ import type { KanbanApi, RawTask } from '../hermes/kanbanApi.ts';
 import type { FloorKit } from './assistantService.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { CharacterService } from './characters.ts';
+import { scrub } from './scrub.ts';
 import { ConflictError } from './errors.ts';
 
 export interface ChatDeps {
@@ -268,7 +269,8 @@ export function parseAgentReply(raw: string, cos?: { floors: { id: string; name:
     const body = tag[1]!.trim().replace(/^```[a-z]*|```$/gi, '').trim();
     try { meta = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1)) as Record<string, unknown>; } catch { meta = {}; }
   }
-  const text = (tag ? clean.slice(0, tag.index) + clean.slice(tag.index + tag[0].length) : clean).trim().slice(0, 4000) || '…';
+  // the agent's words are Hermes free text: host paths and credentials never reach the browser
+  const text = scrub((tag ? clean.slice(0, tag.index) + clean.slice(tag.index + tag[0].length) : clean).trim(), 4000) ?? '…';
   const mood = (MOODS as readonly string[]).includes(meta.mood as string) ? (meta.mood as Mood) : 'neutral';
   const replies = Array.isArray(meta.replies)
     ? meta.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3)
