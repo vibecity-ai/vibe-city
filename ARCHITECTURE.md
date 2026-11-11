@@ -13,7 +13,7 @@ apps/backend         Fastify API, SQLite (node:sqlite), Hermes adapter
   src/hermes         ports.ts (HermesRuntime interface), realRuntime.ts (dashboard REST + `hermes` CLI), kanbanClient.ts
   src/mcp            the Vibe City MCP server that Hermes agents call
   src/model, near    the NEAR AI chat model and its prices; NEAR RPC reads
-  src/testing        FakeHermes / FakeKanban, used by tests and the offline demo
+  src/testing        FakeHermes / FakeKanban / FakeNet (OutLayer, NEAR RPC, market.near.ai), used by tests and the offline demo
   src/app.ts         the older routes (departments, quests, chat, hiring, schedules, live) + validation + error mapping
   src/routes         the newer route modules: company, templates, game, wallet, market, ipo, ai (the metering proxy)
   scripts/           demo-server.ts (offline demo with fakes)

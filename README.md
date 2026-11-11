@@ -60,15 +60,31 @@ The key can also be set before the first start: copy `.env.example` to `.env` an
 
 ## See it without Docker or keys
 
-The same backend and web app against in-memory fakes of Hermes, with a seeded company (floors with quests queued,
-running, failed and done). Needs Node 24 or newer.
+The same backend and web app, with in-memory fakes for everything outside it: Hermes and its Kanban, NEAR AI Cloud,
+OutLayer, NEAR mainnet and market.near.ai. The company starts with three floors and quests queued, running, failed,
+done and waiting on you. Needs Node 24 or newer.
 
 ```
 npm ci
 npm run demo
 ```
 
-Then open <http://127.0.0.1:4199>. Nothing in the demo talks to a real service.
+Then open <http://127.0.0.1:4199>. Nothing in the demo talks to a real service, and every quest in the log can be
+finished:
+
+| Quest | What you do in the demo |
+|---|---|
+| Set up your Chief of Staff | Paste any text as the key and pick a model (the prices are sample figures). The agents start working their boards once the key is in |
+| Set up the treasury | Paste any key that starts with `wk_`, for example `wk_demo0000000000000000`. The wallet holds 6 NEAR and 1,250 USDC |
+| Hire your first department | Already done: the seeded floors count. Template floors build like custom ones |
+| List on the Agent Market, Win your first job | Ask the Chief of Staff, press Register as draft, then Claim it and I claimed it. The listing goes live and a buyer hires the floor within a minute; it is paid once the floor delivers |
+| Fund the IPO, IPO | The wallet already holds the NEAR. Press IPO in the safe with any NEAR account as CEO; investors start buying shares |
+| Connect Hyperliquid, Connect Polymarket | Press Check |
+
+Each agent step goes through the metering proxy, so the burn, the floor budgets and the runway count real numbers
+over fake work: Growth has a 10 cent daily budget and stops when it reaches it. Two things stay online-only: the
+`/invest` page connects a real NEAR wallet, and the transaction links open nearblocks.io, where demo transactions do
+not exist.
 
 ## Check it
 

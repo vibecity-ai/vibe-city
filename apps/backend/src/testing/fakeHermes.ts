@@ -31,14 +31,17 @@ export class FakeHermes implements HermesRuntime {
   /** Sessions per profile, newest first (already reduced to SessionInfo, as the real adapter does). */
   sessions = new Map<string, SessionInfo[]>();
   private faults: { method: Method; err: Error; times: number }[] = [];
+  /** The model every new profile starts on (the offline demo uses the container's default). */
+  private defaultModel = 'base-model';
 
-  constructor() {
+  constructor(opts: { model?: string } = {}) {
+    if (opts.model) this.defaultModel = opts.model;
     this.profiles.set('default', this.freshProfile('default profile'));
   }
 
   private freshProfile(description: string): FakeProfile {
     return {
-      description, model: 'base-model', provider: 'near-ai',
+      description, model: this.defaultModel, provider: 'near-ai',
       toolsets: Object.fromEntries(FAKE_TOOLSETS.map((t) => [t, true])),
       chatToolsets: Object.fromEntries(FAKE_TOOLSETS.map((t) => [t, true])),
       skills: Object.fromEntries(FAKE_SKILLS.map((s) => [s, true])),

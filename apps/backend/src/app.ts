@@ -55,7 +55,7 @@ import { register as registerEnv } from './routes/env.ts';
 import { DepartmentEnvService } from './domain/departmentEnv.ts';
 import { MarketService } from './domain/marketService.ts';
 import { IpoService } from './domain/ipoService.ts';
-import { DEFAULT_RPC, NearRpc } from './near/rpc.ts';
+import { DEFAULT_RPC, NearRpc, type NearReader } from './near/rpc.ts';
 import { ScheduleCreateSchema, ScheduleListSchema, SchedulePatchSchema, ScheduleSchema } from '@vibe-city/shared';
 import { QuestOriginListSchema, QuestPolicyPatchSchema, QuestPolicySchema, QuestRequestCreateSchema, QuestRequestListSchema, QuestRequestViewSchema } from '@vibe-city/shared';
 import { AssistantViewSchema, MarketDraftReplySchema, DeptDraftRequestSchema } from '@vibe-city/shared';
@@ -129,6 +129,8 @@ export interface ServicesExtra {
   modelPrices?: ModelPrices;
   /** AR scouting time before the shortlist shows (ms). Default 45 s. */
   hiringScoutMs?: number;
+  /** What the IPO reads from NEAR (the offline demo passes a fake chain). Default: mainnet RPC. */
+  nearRpc?: NearReader;
 }
 
 /** `hermes` is optional so Milestone 1 callers (and tests) keep working: Hermes routes then answer 503. */
@@ -630,7 +632,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     app, provisioning, quests: quests_, hub, schedules, db, departments, wallet, pushDepartmentEnv, market, listOnMarket, chiefOfStaffId,
     chatModel: extra.chatModel ?? noModel, modelPrices: extra.modelPrices ?? null, chatModelDefault: extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, deptEnv, aiProxy: extra.aiProxy ?? null,
     ipo: new IpoService({
-      db, wallet, rpc: new NearRpc(DEFAULT_RPC.mainnet),
+      db, wallet, rpc: extra.nearRpc ?? new NearRpc(DEFAULT_RPC.mainnet),
       walletAccount: () => readSettings(db).outlayerAccountId, companyName: () => company.view().name, nearUsd: () => wallet.nearUsd(),
     }),
   };
