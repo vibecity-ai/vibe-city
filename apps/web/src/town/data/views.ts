@@ -222,10 +222,6 @@ export function farewellLine(o: { lead: boolean; task: string | null; n: number 
   return ['Anytime, boss. See you around!', 'Talk soon! I’ll be at my desk.'][Math.abs(Math.floor(o.n)) % 2]!;
 }
 
-/** What an agent says when the CEO clicks them: a short hello, picked by a number so it varies between clicks. */
-export const GREETINGS = ['Hey boss!', 'Hi! Need me?', 'Oh, hello!', 'Hey, CEO!', 'At your service!', 'Hi there!'] as const;
-export const greetingLine = (n: number) => GREETINGS[Math.abs(Math.floor(n)) % GREETINGS.length]!;
-
 /** The lead handing a task to a teammate at their desk: what each says. */
 export function handoffLines(title: string | null, n: number): { lead: string; mate: string } {
   const replies = ['On it!', 'Sure, leave it to me.', 'Got it!', 'Starting now.'];

@@ -6,7 +6,7 @@ import { useStore, type Fx, type State } from '../store';
 import type { AgentStatus, Dept } from '../data/types';
 import { Pix, Lights, Post, Bakery, NULL_LIGHTS, type Pt } from './pix';
 import { getSprite, ghostSprite, COS_LOOK, lookFor, mix, quirkProp, AX, AY, type Look } from './sprites';
-import { greetingLine, handoffLines } from '../data/views';
+import { handoffLines } from '../data/views';
 import {
   mkP, shell, wallLive, roomLights, deskStatic, deskLive, screenKindFor, chairItem, plant, coolerItem, LOUNGE_PROPS, loungeLive, chiefDeskStatic, chiefDeskLive, shelfItem, glassWalls, cast,
   DESKS, seatOf, CHIEF_SEAT, ELEVATOR, BOARD_SPOT, COFFEE, LOUNGE, COOLER, OFFICE_DOOR, AISLE, GAPS, C, type IC,
@@ -108,8 +108,12 @@ export class City {
   resize() {
     const r = this.cv.parentElement!.getBoundingClientRect();
     this.dpr = Math.min(2, window.devicePixelRatio || 1); this.W = Math.max(1, r.width); this.H = Math.max(1, r.height);
-    this.cv.width = Math.round(this.W * this.dpr); this.cv.height = Math.round(this.H * this.dpr);
+    const w = Math.round(this.W * this.dpr), h = Math.round(this.H * this.dpr);
     this.cv.style.width = this.W + 'px'; this.cv.style.height = this.H + 'px';
+    if (this.cv.width === w && this.cv.height === h) return;
+    this.cv.width = w; this.cv.height = h;
+    // setting the size wipes the canvas, and this runs after the frame was drawn: draw again now, or it shows black
+    this.frame(performance.now());
   }
   zoomBy(f: number) { this.user.active = true; this.user.dz = clamp(this.user.dz * f, 0.6, 2.6); }
   fit() { this.user = { dx: 0, dy: 0, dz: 1, active: false }; }
@@ -238,12 +242,12 @@ export class City {
     return out;
   }
   private walkTo(a: Actor, to: Pt) { a.path = this.route([a.u, a.v], to); a.mode = 'walk'; }
-  /** Clicked: the agent stops where it is, turns to face you, hops and says hello, and stays put for a while (a
+  /** Clicked: the agent stops where it is, turns to face you, hops, and stays put for a while (a
       seated one bobs at its desk). A lead on an errand drops it and hands the task out later. */
   greet(dept: string, id: string) {
     const a = this.actors.get(dept)?.get(id); if (!a) return;
     // the press and the click that ends it are one greeting, not two
-    if (a.greetAt === undefined || this.t - a.greetAt > 0.6) { a.greetAt = this.t; this.say(a, greetingLine(this.said++), 2.4); }
+    if (a.greetAt === undefined || this.t - a.greetAt > 0.6) a.greetAt = this.t;
     if (a.errand) { (this.errands.get(dept) ?? this.errands.set(dept, []).get(dept)!).unshift({ to: a.errand.to, title: a.errand.title }); a.errand = undefined; }
     if (a.mode !== 'seat') { a.path = []; a.mode = 'stand'; a.walkT = 0; a.dir = 'f'; a.flip = false; }
     a.standUntil = this.t + 9; a.next = Math.max(a.next, this.t + 9);

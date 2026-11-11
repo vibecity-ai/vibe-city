@@ -87,6 +87,9 @@ interface UI {
   skillLib: { deptId: string | null; skill: string | null } | null;
 }
 
+/** Every sheet on the desk (App.tsx's desk layer), put away. */
+const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, marketDraft: false, modal: null } satisfies Partial<UI>;
+
 export interface State {
   company: { name: string } | null;
   depts: Dept[];
@@ -164,7 +167,8 @@ export const useStore = create<State>((set) => ({
   openFloor: (id) => set((s) => ({ ui: { ...s.ui, view: 'floor', floorId: id, panel: 'dept', deptTab: 'overview', agent: null, composer: false, execRoom: false, execModal: null, floorSheet: null } })),
   openExec: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: true } })),
   closeFloor: () => set((s) => ({ ui: { ...s.ui, view: 'tower', floorId: null, panel: 'exec', agent: null, composer: false, talk: null, execRoom: false, execModal: null, floorSheet: null } })),
-  openPanel: (panel, extra) => set((s) => ({ ui: { ...s.ui, panel, ...extra } })),
+  // the desk's sheets lie over the panel: opening a panel puts them away, or the panel would open unseen behind them
+  openPanel: (panel, extra) => set((s) => ({ ui: { ...s.ui, ...SHEETS_CLOSED, panel, ...extra } })),
   toast: (text, tone = 'good') => {
     const id = ++toastSeq;
     set((s) => ({ toasts: [...s.toasts, { id, text, tone }] }));

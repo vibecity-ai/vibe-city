@@ -109,7 +109,8 @@ button { font: inherit; color: inherit; }
 .app { height: 100%; display: grid; grid-template-rows: var(--top-h) minmax(0, 1fr); grid-template-columns: minmax(0, 1fr); }
 @keyframes blink { 50% { opacity: .25; } }
 
-.main { display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w); min-height: 0; }
+/* clip: a panel or sheet sliding in from the right must not widen the page (a scrollbar would shrink the stage and blank the canvas) */
+.main { display: grid; grid-template-columns: minmax(0, 1fr) var(--panel-w); min-height: 0; overflow-x: clip; }
 .stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--n900); container-type: inline-size; }
 .stage canvas { position: absolute; inset: 0; display: block; touch-action: none; }
 .panel { position: relative; border-left: 1px solid var(--line2); min-width: 0; min-height: 0; display: flex; animation: panelIn .35s cubic-bezier(.2,.8,.2,1);
