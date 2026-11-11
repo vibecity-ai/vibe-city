@@ -213,6 +213,16 @@ test('a chat about a blocked task tells the agent why it is blocked, and its res
   assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
 });
 
+test('a lead that phoned about a finished quest is told to report on it, reading the task files first', async () => {
+  const { app, agentChat, readyDept } = agentApp(() => 'Done: three competitors summarised.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>');
+  const d = await readyDept('Desk', {});
+  const url = `/api/departments/${d.id}/characters/chief/chat`;
+  assert.equal((await app.inject({ method: 'POST', url, payload: { message: 'Report?', finishedQuest: { title: 'Competitor brief' } } })).statusCode, 200);
+  assert.match(agentChat.turns[0]!.system, /the quest "Competitor brief" on your board is finished.*read the task files first/);
+  await app.inject({ method: 'POST', url, payload: { message: 'Thanks' } });
+  assert.doesNotMatch(agentChat.turns[1]!.system, /is finished, and they picked up/, 'only the call carries the report context');
+});
+
 test('the Chief of Staff answers from a briefing of every floor and proposes a job for the floor it names', async () => {
   const { app, services, agentChat, kanban, readyDept } = agentApp((t) => /nobody/.test(t.message)
     ? 'Sales should.\n<vc>{"mood":"happy","replies":["OK"],"proposal":{"department":"Sales","title":"Call leads","objective":"Call ten leads."}}</vc>'

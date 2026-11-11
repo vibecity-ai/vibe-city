@@ -2,12 +2,13 @@
    dialogue (NewDept.tsx) with the reason, where the talk ends in a brief and confirming it puts the three candidates that
    fit it best right in that dialogue. Every number on a card comes from the backend: loadouts are built from what
    Hermes really offers, priced at NEAR AI's list prices. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import type { Candidate, HiringRequestView } from '@vibe-city/shared';
+import type { Candidate, HiringRequestView, Mood } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api } from '../../api';
-import { COS_LOOK, lookFor } from '../world/sprites';
+import { COS_LOOK, lookFor, type Look } from '../world/sprites';
+import type { Gag } from '../world/portrait';
 import { PortraitCanvas, blip, readMuted } from './Dialogue';
 import { Icon } from './kit';
 import { ModelName } from './ModelBadge';
@@ -43,14 +44,51 @@ const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 export function HiringLayer() {
   useHiringPoll();
   const h = useStore((s) => s.hiring);
+  const [call, hangUp] = useLeadCall();
   const slot = useHudSlot();
-  return slot && h && h.state === 'ringing' ? createPortal(<IncomingCall h={h} />, slot) : null;
+  if (!slot) return null;
+  // one phone: the Chief of Staff's call first, then a lead's
+  if (h && h.state === 'ringing') return createPortal(<IncomingCall h={h} />, slot);
+  return call ? createPortal(<LeadCall key={call.seq} {...call} hangUp={hangUp} />, slot) : null;
+}
+
+/** A floor's lead phones when one of its quests finishes. Only what finishes from now on, never the backlog; a newer
+    finish replaces an unanswered call. */
+function useLeadCall() {
+  const fx = useStore((s) => s.fx);
+  const seen = useRef(useStore.getState().fx.at(-1)?.seq ?? 0);
+  const [call, setCall] = useState<{ seq: number; dept: string; title: string } | null>(null);
+  useEffect(() => {
+    for (const { seq, fx: f } of fx) {
+      if (seq <= seen.current) continue;
+      seen.current = seq;
+      if (f.k === 'questDone' && useStore.getState().depts.some((d) => d.id === f.dept)) setCall({ seq, dept: f.dept, title: f.title });
+    }
+  }, [fx]);
+  return [call, () => setCall(null)] as const;
+}
+
+function LeadCall({ dept, title, hangUp }: { dept: string; title: string; hangUp: () => void }) {
+  const s = useStore.getState();
+  const floor = s.depts.find((d) => d.id === dept)?.name ?? 'A floor';
+  const name = s.personas[`${dept}:chief`]?.name ?? `${floor} lead`;
+  return (
+    <Ring look={lookFor(`${dept}:chief`, '#FFFFFF', true)} mood="happy" name={name} why={`${floor} finished "${title}". Pick up for the report.`}
+      onAnswer={() => { hangUp(); s.ui$({ talk: { deptId: dept, agentKey: 'chief', session: 'new', report: title } }); }}
+      onDecline={hangUp} />
+  );
 }
 
 /** The Chief of Staff calling: a small phone in the top bar that rings three times and then waits quietly. It never
     takes the keyboard and never covers the game; the reason shows on hover or focus. */
 function IncomingCall({ h }: { h: HiringRequestView }) {
-  const look = COS_LOOK;
+  // picking up ends the ring: the talk is the Chief of Staff's chat, opened on the reason for the call
+  const answer = () => { void api.hiringDecline(h.id).catch(() => undefined); set(null); useStore.getState().ui$({ newDept: true, cosCall: h.trigger.reason }); };
+  const decline = async () => { try { set(await api.hiringDecline(h.id)); } catch { /* ignore */ } set(null); };
+  return <Ring look={COS_LOOK} gag="clipboard" mood="worried" name={h.ar.name} why={h.trigger.reason} onAnswer={answer} onDecline={() => void decline()} />;
+}
+
+function Ring({ look, gag = null, mood, name, why, onAnswer, onDecline }: { look: Look; gag?: Gag | null; mood: Mood; name: string; why: string; onAnswer: () => void; onDecline: () => void }) {
   useEffect(() => {
     if (readMuted()) return;
     let n = 0;
@@ -58,19 +96,16 @@ function IncomingCall({ h }: { h: HiringRequestView }) {
     const id = window.setInterval(ring, 2200); ring();
     return () => window.clearInterval(id);
   }, []);
-  // picking up ends the ring: the talk is the Chief of Staff's chat, opened on the reason for the call
-  const answer = () => { void api.hiringDecline(h.id).catch(() => undefined); set(null); useStore.getState().ui$({ newDept: true, cosCall: h.trigger.reason }); };
-  const decline = async () => { try { set(await api.hiringDecline(h.id)); } catch { /* ignore */ } set(null); };
   return (
     <div className="ring" role="status" aria-labelledby="ring-t" aria-describedby="ring-d">
-      <div className="ring-face"><PortraitCanvas look={look} mood="worried" talking={false} size={96} gag="clipboard" className="ring-portrait" /></div>
+      <div className="ring-face"><PortraitCanvas look={look} mood={mood} talking={false} size={96} gag={gag} className="ring-portrait" /></div>
       <div className="ring-body">
         <span className="ring-tag"><Icon n="phone" size={11} /> Calling</span>
-        <b id="ring-t">{h.ar.name}</b>
+        <b id="ring-t">{name}</b>
       </div>
-      <button className="ring-yes" onClick={answer}>Answer</button>
-      <button className="ring-no" onClick={() => void decline()} aria-label="Decline the call" title="Decline"><Icon n="x" size={13} /></button>
-      <p className="ring-why" id="ring-d">{h.trigger.reason}</p>
+      <button className="ring-yes" onClick={onAnswer}>Answer</button>
+      <button className="ring-no" onClick={onDecline} aria-label="Decline the call" title="Decline"><Icon n="x" size={13} /></button>
+      <p className="ring-why" id="ring-d">{why}</p>
     </div>
   );
 }

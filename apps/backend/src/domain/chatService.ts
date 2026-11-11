@@ -119,7 +119,7 @@ export class ChatService {
       const kit = cos ? await this.d.floorKit?.().catch(() => null) ?? null : null;
       let creds = await this.creds(profile, input.sessionId);
       const hiring = cos && ([input.message, ...this.load(departmentId, agentKey, creds.session_id, 6).map((m) => (m.hire ? 'hire' : m.text))].some((t) => HIRING_WORDS.test(t)) || !!this.d.hiringOpen?.());
-      const system = cos ? await this.chiefOfStaffMessage(ch, kit, hiring) : await this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask);
+      const system = cos ? await this.chiefOfStaffMessage(ch, kit, hiring) : await this.systemMessage(departmentId, ch, input.taskTitle, input.blockedTask, input.finishedQuest);
       // the skills Hermes reports loading during this turn stay on the reply
       const skills = new Set<string>();
       const relay = (e: AgentChatEvent) => { if (e.kind === 'skill') skills.add(e.name); onEvent?.(e); };
@@ -166,7 +166,7 @@ export class ChatService {
     return { profile, api_key: key, session_id: session };
   }
 
-  private async systemMessage(departmentId: string, ch: Character, taskTitle?: string, blocked?: ChatSend['blockedTask']): Promise<string> {
+  private async systemMessage(departmentId: string, ch: Character, taskTitle?: string, blocked?: ChatSend['blockedTask'], finished?: ChatSend['finishedQuest']): Promise<string> {
     const dept = this.d.departments.get(departmentId);
     const board = await this.boardSnapshot(dept.hermesBoardSlug);
     return [
@@ -178,6 +178,7 @@ export class ChatService {
         'Explain plainly what is wrong and exactly what you need from the boss to carry on. Ask follow-up questions until it is clear.',
         'Once the boss has given you what the task needs, add "resume" to the final tag: their answer, written as a short instruction for the task (it is posted on the task as their comment and the task is resumed). Leave it out until then.',
       ].join(' ') : '',
+      finished ? `You phoned the boss because the quest "${finished.title}" on your board is finished, and they picked up. Give your report: what the team did, what came out of it (read the task files first and give the key result itself, not just that there is one), and anything left open or worth doing next. Up to ~150 words; never invent results the board and files do not show.` : '',
       // Outside a dispatched task the agent has no board context, and chat has no tools to read it: hand it the board.
       `Your department's Kanban board right now (open tasks first, then the latest finished):\n${board}`,
       '',

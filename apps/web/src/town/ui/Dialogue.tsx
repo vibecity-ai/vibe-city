@@ -189,10 +189,10 @@ const SEE_BOARD = 'Show me the board';
 export function DialogueWindow() {
   const talk = useStore((s) => s.ui.talk);
   if (!talk) return null;
-  return <AgentDialogue key={`${talk.deptId}:${talk.agentKey}:${talk.session ?? ''}:${talk.blocked?.taskId ?? ''}`} deptId={talk.deptId} agentKey={talk.agentKey} session={talk.session} blocked={talk.blocked} />;
+  return <AgentDialogue key={`${talk.deptId}:${talk.agentKey}:${talk.session ?? ''}:${talk.blocked?.taskId ?? ''}:${talk.report ?? ''}`} deptId={talk.deptId} agentKey={talk.agentKey} session={talk.session} blocked={talk.blocked} report={talk.report} />;
 }
 
-function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk }) {
+function AgentDialogue({ deptId, agentKey, session, blocked, report }: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk; report?: string }) {
   const d = useStore((s) => s.depts.find((x) => x.id === deptId) ?? (s.chiefOfStaff?.id === deptId ? s.chiefOfStaff : undefined));
   const personas = useStore((s) => s.personas);
   const worker = agentKey === 'chief' ? null : d?.workers.find((w) => w.id === agentKey) ?? null;
@@ -217,7 +217,9 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
 
   const look = useMemo(() => ({ ...lookFor(deptId + ':' + agentKey, worker?.shirt ?? '#FFFFFF', agentKey === 'chief'), prop: quirkProp(ch?.quirk) }), [deptId, agentKey, worker?.shirt, ch?.quirk]);
   const status = agentKey === 'chief' ? d?.chief?.status : worker?.status;
-  const greeting = !ch ? '' : blocked
+  const greeting = !ch ? '' : report
+    ? `${ch.name} here. "${report}" is done, boss. Let me pull up what we got.`
+    : blocked
     ? `${ch.name} here. I'm stuck on "${blocked.title}" and need your input before I can carry on.`
     : agentKey === 'chief'
     ? `${ch.name}. ${d?.chief?.activity && d.chief.activity !== 'Waiting for a job' ? d.chief.activity + '.' : 'Nothing on my desk right now.'} What do you need, boss?`
@@ -228,7 +230,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
     setError(null); setWaiting(true); setProgress(null);
     setMessages((xs) => [...xs, { id: 'pending', from: 'user', text: m, mood: null, replies: [], proposal: null, at: new Date().toISOString() }]);
     try {
-      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}), ...(blocked ? { blockedTask: { title: blocked.title, reason: blocked.reason } } : {}) }, (p) => setProgress(progressLabel(p)));
+      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}), ...(blocked ? { blockedTask: { title: blocked.title, reason: blocked.reason } } : {}), ...(report ? { finishedQuest: { title: report } } : {}) }, (p) => setProgress(progressLabel(p)));
       setMessages((xs) => [...xs.filter((x) => x.id !== 'pending'), r.user, r.agent]);
       return true;
     } catch (e) {
@@ -237,6 +239,14 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
       return false;
     } finally { setWaiting(false); setProgress(null); }
   };
+
+  // a lead's call about a finished quest: picking up asks for the report straight away
+  const asked = useRef(false);
+  useEffect(() => {
+    if (!report || !ch || !ready || asked.current) return;
+    asked.current = true;
+    void onSend(`Give me the report on "${report}".`);
+  }, [report, ch, ready]);
 
   const startQuest = async (msgId: string, p: ChatProposal) => {
     setProposalDone((x) => ({ ...x, [msgId]: 'started' }));

@@ -67,7 +67,7 @@ interface UI {
   questFrom: 'board' | 'dept';
   /** The dialogue window: who you are talking to (a chief or a worker desk), in which chat (a Hermes session id or
       'new'; omitted = their last chat). */
-  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk } | null;
+  talk: { deptId: string; agentKey: string; session?: string; blocked?: BlockedTalk; /** a finished quest the lead phoned about */ report?: string } | null;
   /** Why the Chief of Staff's window was opened to hire (an answered call, a floor's Hire button): its opening context. */
   cosCall: string | null;
   /** Quest open in the drawer over the company board (the board stays visible behind it). */

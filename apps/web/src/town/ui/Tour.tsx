@@ -15,7 +15,7 @@ const STEPS: DriveStep[] = [
   { element: '.ceo-quest', popover: { title: 'Your next quest', description: 'Quests open up the company one step at a time. The pink button is always the next thing to do.' } },
   { element: '.ceo-keys', popover: { title: 'Give out work', description: 'New job hands work to a floor: its lead plans it and splits it among the team. Staff calls your Chief of Staff to hire.' } },
   { element: '.topkey.ops', popover: { title: 'The Ops board', description: 'Every job in the company, from Order in to Served. Jobs that need you are counted here.' } },
-  { element: '#hud-phone', popover: { title: 'Your phone', description: 'When your Chief of Staff needs you, the phone rings up here. It rings three times, then waits.' } },
+  { element: '#hud-phone', popover: { title: 'Your phone', description: 'When your Chief of Staff needs you, or a floor finishes a job and its lead wants to report, the phone rings up here. It rings three times, then waits.' } },
 ];
 
 const visible = (sel: string) => { const el = document.querySelector<HTMLElement>(sel); if (!el) return false; const r = el.getBoundingClientRect(); return r.width > 0 && r.height > 0; };
