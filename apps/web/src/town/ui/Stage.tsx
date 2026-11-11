@@ -227,7 +227,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       )}
 
       {/* bottom: camera */}
-      {wide && ui.view === 'tower' && (
+      {wide && ui.view === 'tower' && !ui.execRoom && (
         <div className="zoom">
           <button className="zb" onClick={() => city?.zoomBy(0.85)} aria-label="Zoom out"><Icon n="minus" /></button>
           <button className="zb" onClick={() => city?.zoomBy(1.18)} aria-label="Zoom in"><Icon n="plus" /></button>
@@ -316,7 +316,7 @@ function LiftDisplay({ n, at }: { n: number; at: number | null }) {
   const [shown, setShown] = useState<number | null>(at);
   const [dir, setDir] = useState<'up' | 'down'>('up');
   useEffect(() => {
-    if (at === null || shown === null || at === shown) { setShown(at); return; }
+    if (at === null || shown === null || at === shown) { if (shown === null) setDir('up'); setShown(at); return; } // from the tower: always up
     setDir(at > shown ? 'up' : 'down');
     const id = window.setTimeout(() => {
       const next = shown + (at > shown ? 1 : -1);

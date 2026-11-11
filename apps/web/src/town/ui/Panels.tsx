@@ -84,7 +84,7 @@ export function TopBar() {
   const down = [!conn.backend && 'Backend', !conn.hermes && 'Hermes', !conn.gateway && 'Gateway'].filter((x): x is string => !!x);
   // a dropped live link is not an outage (floors still refresh every 30 s): the dot turns amber, nothing else shouts
   const reconnecting = useStore((s) => Object.keys(s.liveDown).length > 0);
-  const health = down.length === 0 ? (reconnecting ? 'warn' : 'ok') : conn.backend && conn.hermes ? 'warn' : 'bad';
+  const health = down.length === 0 ? (reconnecting || stale ? 'warn' : 'ok') : conn.backend && conn.hermes ? 'warn' : 'bad';
   const said = `Backend ${conn.backend ? 'connected' : 'not responding'}. Hermes ${conn.hermes ? 'connected' : 'not responding'}. Gateway ${conn.gateway ? 'running' : 'not running'}.${reconnecting ? ' Live updates are reconnecting; floors still refresh every 30 seconds.' : ''}${stale ? ' Showing out-of-date data.' : ''}`;
   // the news line: one item at a time, the next every 6 s (a scrolling marquee trained people to ignore it)
   const [tick, setTick] = useState(0);
@@ -136,7 +136,10 @@ export function ExecPanel() {
 /* ============ D · department ============ */
 export function DeptPanel() {
   const s = useStore();
-  const d = s.depts.find((x) => x.id === s.ui.floorId);
+  const floorId = s.ui.floorId;
+  // the chain of command's model chips read each agent's Hermes profile
+  useEffect(() => { if (floorId) void loadDeptInfo(floorId); }, [floorId]);
+  const d = s.depts.find((x) => x.id === floorId);
   if (!d) return <ExecPanel />;
   const st = deptStatus(d.state);
   const quests = s.quests.filter((q) => q.deptId === d.id);
@@ -161,7 +164,7 @@ export function DeptPanel() {
           {!canWork && <p className="fine">{d.provisioning !== 'ready' ? 'New jobs need the floor to be in sync with Hermes.' : 'New jobs need Hermes to be reachable.'}</p>}
           {canWork && !s.conn.gateway && <p className="fine">The Hermes gateway is not running: new jobs wait in Queued until it starts.</p>}
           <Tabs label="Floor sections" idBase="dept" value={tab} onChange={(t) => s.ui$({ deptTab: t })}
-            options={(['overview', 'tools', 'skills', 'env', 'quests'] as const).map((t) => ({ key: t, label: <>{DEPT_TAB_LABEL[t]}{t === 'quests' && <span className="count">{active.length}</span>}</> }))} />
+            options={(['overview', 'tools', 'skills', 'env', 'quests'] as const).map((t) => ({ key: t, label: <>{DEPT_TAB_LABEL[t]}{t === 'quests' && <span className="count">{quests.length}</span>}</> }))} />
         </section>
         <div id="dept-panel" role="tabpanel" aria-labelledby={`dept-tab-${tab}`}>
           <div aria-live="polite">
@@ -1033,10 +1036,11 @@ export function QuestDetail({ id, drawer }: { id?: string; drawer?: boolean } = 
             <section className="pane-sec" aria-busy={extra?.loading}>
               {extra?.loading && !extra.activity.length && <p className="muted">Loading…</p>}
               {extra && !extra.loading && !extra.error && !extra.activity.length && <p className="muted">No events yet.</p>}
-              <ol className="timeline">{[...(extra?.activity ?? [])].reverse().map((e) => (
-                <li key={e.id}><span className="mono muted" title={formatTime(e.at)}>{clock(e.at)}</span><Glyph k={/fail|block|crash|timed/i.test(e.kind) ? 'failed' : /complet/i.test(e.kind) ? 'completed' : 'running'} />
-                  <span><span>{e.label}</span> <small className="muted">{e.taskTitle}</small>{e.detail && <small className="err-t">{e.detail}</small>}</span></li>
-              ))}</ol>
+              <ol className="timeline">{[...(extra?.activity ?? [])].reverse().map((e) => {
+                const bad = /fail|block|crash|timed/i.test(e.kind);
+                return <li key={e.id}><span className="mono muted" title={formatTime(e.at)}>{clock(e.at)}</span><Glyph k={bad ? 'failed' : /complet/i.test(e.kind) ? 'completed' : 'running'} />
+                  <span><span>{e.label}</span> <small className="muted">{e.taskTitle}</small>{e.detail && <small className={bad ? 'err-t' : 'muted'}>{e.detail}</small>}</span></li>;
+              })}</ol>
               {ACTIVE.has(sum.status) && <p className="muted small live"><Glyph k="running" />Live · refreshes when Hermes reports an event</p>}
             </section>
           )}

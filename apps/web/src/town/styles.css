@@ -2034,8 +2034,13 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 
 /* phones: the top bar keeps the brand, the phone, the two keys and the status dot */
 @media (max-width: 480px) {
-  .top .health > span, .topkey.snd, .topkey.quests { display: none; }
+  .top .health > span, .topkey.snd, .topkey.quests, .top .stale, .ring-face { display: none; }
   .ring-yes { padding: 0 9px; }
+  /* 390px holds the brand, the phone and Ops board only if the brand shrinks and the phone gives way, not the page */
+  .top { gap: 6px; padding: 0 8px 0 2px; }
+  .top .brand { padding: 0 4px; }
+  .top .brand .wordmark { height: 18px; width: auto; }
+  .hud-phone { flex: 0 1 auto; overflow: hidden; }
 }
 
 /* the first-run tour (ui/Tour.tsx, driver.js): the HUD's own colours */

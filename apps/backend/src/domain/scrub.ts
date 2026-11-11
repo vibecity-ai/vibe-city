@@ -13,9 +13,16 @@ export function scrubPaths(text: string): string {
   });
 }
 
+/** Credentials an agent may print while it works (its MCP token, a wallet or API key): never relayed, not even a prefix. */
+const SECRET = /\bBearer\s+\S+|\b(?:vc|wk)_[A-Za-z0-9]{4,}(?:(?:\.{2,}|…)\w*)?|\bsk-[A-Za-z0-9_-]{8,}/g;
+
+export function scrubSecrets(text: string): string {
+  return text.replace(SECRET, (m) => (m.startsWith('Bearer') ? 'Bearer <secret>' : '<secret>'));
+}
+
 export function scrub(text: string | null | undefined, max = 4000): string | null {
   if (text == null || text === '') return null;
-  const s = scrubPaths(text);
+  const s = scrubSecrets(scrubPaths(text));
   return s.length > max ? `${s.slice(0, max)}…` : s;
 }
 

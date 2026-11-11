@@ -76,6 +76,8 @@ async function request<T>(method: string, path: string, schema: z.ZodType<T>, bo
   }
   // Non-JSON bodies (proxy error pages, HTML) are never shown: they can contain anything.
   const json: unknown = await res.json().catch(() => undefined);
+  // the backend always answers errors in JSON: a bare 5xx is a proxy (Vite, a load balancer) saying it is not there
+  if (!res.ok && res.status >= 500 && json === undefined) throw new ApiError(0, 'backend_unreachable', 'The Vibe City backend is not reachable.');
   if (!res.ok) throw errorFrom(res.status, json);
   const parsed = schema.safeParse(json);
   if (!parsed.success) throw new ApiError(res.status, 'invalid_response', 'The backend sent a response this app does not understand. Reload the page; if it persists, the app and backend versions differ.');

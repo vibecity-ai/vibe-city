@@ -17,6 +17,7 @@ import type { KanbanApi, RawTask } from '../hermes/kanbanApi.ts';
 import { clampListing, type FloorKit } from './assistantService.ts';
 import type { DepartmentService } from './departmentService.ts';
 import type { CharacterService } from './characters.ts';
+import { scrub } from './scrub.ts';
 import { briefOf } from './hiringService.ts';
 import { ConflictError } from './errors.ts';
 
@@ -186,7 +187,7 @@ export class ChatService {
       '- In this window you only talk: you cannot run commands, change files, or work on tasks here. Answer from the board above, your memory and what the boss tells you. If the answer is not there, say so plainly; never guess or invent results.',
       '- To see what a task produced, use list_task_files with its task id from the board, then read_task_file to read a file. Read the files before describing or summarising the work.',
       '- Task ids (t_…) are for tools only: the boss never sees them. Call a task by its title.',
-      '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself.',
+      '- When the boss wants something done, however small, propose a job: it goes on the board and the team carries it out. Do not say you will do it yourself. The job shows as a card with its own Start button, so never put a reply that just approves it (like "Ship it") among your "replies".',
       '- Your words appear in a retro game dialogue box: plain text, no markdown headings or tables. Usually 1-4 sentences; when reporting results the boss asked for, give the substance (up to ~150 words).',
       '- End every reply with one final line, exactly in this form (JSON inside the tag):',
       `<vc>{"mood": one of ${MOODS.map((m) => `"${m}"`).join(', ')}, "replies": [2 or 3 short things the boss might say next, each under 40 characters], "proposal": null or {"title": "<quest title, under 80 characters>", "objective": "<1-3 sentences: what to do and what done looks like>"}${blocked ? ', "resume": "<only once the boss has answered>"' : ''}}</vc>`,
@@ -223,7 +224,7 @@ export class ChatService {
       '- Be fast: answer from the briefing above. It already holds every floor, its team and its board, so do NOT call a tool to learn about floors or tasks. If the answer is not there, say so plainly; never guess or invent results.',
       '- Tools are only for reading what a task produced (list_task_files then read_task_file, with the task id and the floor name as "department"). One or two calls at most per answer. Never call list_on_market here: the boss registers a listing with the card\'s button.',
       '- Task ids (t_…) are for tools only: the boss never sees them. Call a task by its title.',
-      '- When the boss wants work done, pick the floor whose purpose fits and propose the job with that floor\'s exact name as "department": the boss starts it with one click and it lands on that floor\'s board. Only a floor synced with Hermes, or being built right now, can take a job. Do not say you will do it yourself.',
+      '- When the boss wants work done, pick the floor whose purpose fits and propose the job with that floor\'s exact name as "department": the boss starts it with one click and it lands on that floor\'s board. Only a floor synced with Hermes, or being built right now, can take a job. Do not say you will do it yourself. A proposed job or floor shows as a card with its own button, so never put a reply that just approves it (like "Looks good") among your "replies".',
       '- When the boss asks how things are going (a briefing, a status, "what needs me"): say ONE headline sentence, and put the rest in "report" so it shows as a card: "needs_you" = what waits on the boss (decisions waiting, blocked or failed tasks, the next CEO quest; [] when nothing does), "in_flight" = one row per job that is moving, "money" = one line, marked as an estimate. Each row is short (under 20 words) and names its floor in "floor" when it is about one. Do not repeat the report in your sentence. For any other question, "report" is null.',
       '- A new floor: first ask "a ready template or a custom floor?" with the replies "Show me the templates" and "Design a custom floor" (templates are picked in their own panel). For a custom floor, if the boss has not said what it should do, ask that one question and make your "replies" 2 or 3 concrete floor ideas built from the installed skills below. Once the purpose is clear, propose the floor right away in "floor": small, granting only what the purpose needs, never duplicating a floor in the briefing. If the boss asks for changes, propose the whole floor again.',
       kit ? kit.prompt : 'What Hermes has installed cannot be read right now: do not propose a floor ("floor": null), say so.',
@@ -287,7 +288,8 @@ export function parseAgentReply(raw: string, cos?: { floors: { id: string; name:
     const body = tag[1]!.trim().replace(/^```[a-z]*|```$/gi, '').trim();
     try { meta = JSON.parse(body.slice(body.indexOf('{'), body.lastIndexOf('}') + 1)) as Record<string, unknown>; } catch { meta = {}; }
   }
-  const text = (tag ? clean.slice(0, tag.index) + clean.slice(tag.index + tag[0].length) : clean).trim().slice(0, 4000) || '…';
+  // the agent's words are Hermes free text: host paths and credentials never reach the browser
+  const text = scrub((tag ? clean.slice(0, tag.index) + clean.slice(tag.index + tag[0].length) : clean).trim(), 4000) ?? '…';
   const mood = (MOODS as readonly string[]).includes(meta.mood as string) ? (meta.mood as Mood) : 'neutral';
   const replies = Array.isArray(meta.replies)
     ? meta.replies.filter((r): r is string => typeof r === 'string' && !!r.trim()).map((r) => r.trim().slice(0, 60)).slice(0, 3)
