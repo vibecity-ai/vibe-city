@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { GameState } from '@vibe-city/shared';
-import { decisionTarget, ipoSteps, ipoSymbol, nextQuest, questTarget } from './game.ts';
+import { decisionTarget, ipoRang, ipoSteps, ipoSymbol, nextQuest, questTarget } from './game.ts';
 import { IPO_SYMBOL_RE } from '@vibe-city/shared';
 
 const fixture: GameState = {
@@ -71,4 +71,12 @@ test('IPO steps: preview, working, waiting for OutLayer approval on the right st
   assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near', error: "The wallet's call to tokens.vibecity.near create_token did not succeed: failed" }), ['done', 'done', 'failed'], 'the step the error names');
   assert.deepEqual(st({ state: 'error', daoAccountId: 'a.sputnik-dao.near' }, true), ['done', 'working', 'todo'], 'a retry in flight');
   assert.deepEqual(st({ state: 'done', daoAccountId: 'a', tokenAccountId: 't' }), ['done', 'done', 'done']);
+});
+
+test('the bell rings when the IPO completes in front of the player, never for one that was already done', () => {
+  assert.equal(ipoRang('running', 'done'), true);
+  assert.equal(ipoRang('awaiting_approval', 'done'), true);
+  assert.equal(ipoRang(null, 'done'), false); // first load of a listed company
+  assert.equal(ipoRang('done', 'done'), false);
+  assert.equal(ipoRang('ready', 'running'), false);
 });

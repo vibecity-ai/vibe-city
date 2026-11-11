@@ -30,7 +30,9 @@ export type Fx =
   /** An agent just used a tool: a light carries its symbol from where that tool lives on the floor to the agent. */
   | { k: 'toolUse'; dept: string; agent: string; via: StepVia }
   /** A schedule fired: the floor holds a short stand-up at its Kanban wall. */
-  | { k: 'standup'; dept: string };
+  | { k: 'standup'; dept: string }
+  /** The IPO just completed: the opening bell rings on the roof. */
+  | { k: 'ipo'; symbol: string };
 
 export type View = 'tower' | 'floor';
 export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';

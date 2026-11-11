@@ -3,7 +3,7 @@
 import type { AgentStatus, Dept, DeptState } from '../data/types';
 import { Pix, Lights, Bakery, NULL_LIGHTS, textWidth, type Pt } from './pix';
 import { box, hash, C, STATUS_COL, type IC, type PFn } from './interior';
-import { shade, getSprite, ghostSprite, AX, AY, type Look } from './sprites';
+import { shade, getSprite, ghostSprite, lookFor, AX, AY, type Look } from './sprites';
 import { clouds, farSkyline, bay, cityBack, skyLife, HZ } from './citybg';
 
 export const FH = 56, PH_H = 88;
@@ -400,6 +400,60 @@ function phStatic(px: Pix, company: string, flick: number) {
   px.line(R(170, 120, 0), R(170, 120, 62), '#5A47A0', 2);
   px.line(R(170, 120, 40), R(176, 120, 30), '#5A47A0');
   void L;
+}
+
+/* ------------------------------------------------------------------ the opening bell (IPO) */
+const CEO_LOOK = lookFor('ceo', '#3A2A5E', true);
+/** The exchange bell on the roof of a listed company: a timber frame beside the helipad with a brass bell hung in it.
+ *  `swing` is the bell's angle (radians, 0 at rest). `show` (0..1) brings in what only the ceremony has: the CEO on
+ *  the rope and the LISTED ticker running along the parapet. */
+export function roofBell(px: Pix, L: Lights, t: number, T: number, alpha: number, o: { swing: number; show: number; symbol: string }) {
+  const H = PH_H;
+  const P: PFn = (u, v, h = 0) => [u + v, T + H + 0.5 * u - 0.5 * v - h];
+  const R = (u: number, v: number, h = 0) => P(u, v, H + h);
+  const c: IC = { px, L: NULL_LIGHTS, t: 0, P, power: 1 };
+  // the bell turns about the pin it hangs from; x across, y down from the pin
+  const pin = R(69.5, 30.5, 55), cs = Math.cos(o.swing), sn = Math.sin(o.swing);
+  const B = (x: number, y: number, k = 1): Pt => { const co = k === 1 ? cs : Math.cos(o.swing * k), si = k === 1 ? sn : Math.sin(o.swing * k); return [pin[0] + 1.2 * (x * co - y * si), pin[1] + 1.2 * (x * si + y * co)]; };
+  const side: Pt[] = [[3, 2], [7, 5], [9, 11], [11, 20], [14, 26], [18, 30], [18, 33]];
+  const oval = (rx: number, ry: number, y: number, k = 1) => Array.from({ length: 12 }, (_, i) => B(Math.cos((i / 12) * Math.PI * 2) * rx, y + Math.sin((i / 12) * Math.PI * 2) * ry, k));
+  px.push(alpha);
+  const ground = R(69.5, 30.5);
+  px.shadeEllipse(ground[0] + 4, ground[1], 24, 9, 0.4);
+  box(c, 44, 29, H, 3, 3, 56, '#6B4A3A', { top: '#8A6048' });
+  if (o.show > 0.01) {
+    // the CEO on the rope, rising on every pull
+    const g = R(33, 31), lift = Math.round(Math.abs(o.swing) * 6), sp = getSprite(CEO_LOOK, { dir: 'f', frame: 0, seated: false, type: 0 });
+    px.push(o.show);
+    px.shadeEllipse(g[0] + 2, g[1], 8, 3.5, 0.45);
+    px.sprite(sp.img, sp.sil, g[0] - AX, g[1] - AY - lift);
+    px.line([g[0] + 6, g[1] - 21 - lift], B(0, 38, 1.5), '#E8D8A0');
+    px.pop();
+  }
+  px.poly(oval(3, 3, 38, 1.5), '#8A5A1E'); // the clapper swings wider than the bell
+  px.poly([...side.map(([x, y]) => B(-x, y)), ...side.map(([x, y]) => B(x, y)).reverse()], C.gold, 0.55);
+  px.poly([B(2, 2), ...side.slice(1).map(([x, y]) => B(x * 0.45, y)), ...side.map(([x, y]) => B(x, y)).reverse()], '#D8962E', 0.45);
+  px.poly(oval(18, 4, 33), '#B8782A', 0.4);
+  px.line(B(-4, 6), B(-9, 25), '#FFF1B0', 1, 1);
+  px.poly([B(-3, -2), B(3, -2), B(3, 3), B(-3, 3)], '#8A6048');
+  box(c, 41, 29, H + 56, 57, 3, 4, '#7A5440', { top: '#9A6E50' });
+  box(c, 92, 29, H, 3, 3, 56, '#6B4A3A', { top: '#8A6048' });
+  if (o.show > 0.01) {
+    // the ticker: an LED band under the roof's edge, the symbol in gold
+    const LF = (a: number, h: number) => P(a, 0, h);
+    const msg = `${o.symbol} LISTED · SPUTNIK DAO · NEP-141 · `, len = msg.length * 8, off = Math.floor(t * 40) % len;
+    px.push(o.show);
+    px.poly([LF(4, H - 14), LF(236, H - 14), LF(236, H - 2), LF(4, H - 2)], '#07120E');
+    px.line(LF(4, H - 14), LF(236, H - 14), C.mint, 1, 0.8);
+    [...msg].forEach((ch, i) => {
+      const a0 = (((i * 8 - off) % len) + len) % len;
+      if (a0 <= 224) px.text(ch, (a, b) => LF(5 + a0 + a, H - 3 - b), 2, i < o.symbol.length ? C.gold : C.mint, 1);
+    });
+    px.pop();
+    L.add(...LF(120, H - 8), 130, C.mint, 0.3 * o.show * alpha, 0.5);
+  }
+  px.pop();
+  L.add(pin[0], pin[1] + 24, 66, C.gold, (0.3 + 0.5 * o.show) * alpha, 0.8);
 }
 
 /* ------------------------------------------------------------------ status pips (pixel) */

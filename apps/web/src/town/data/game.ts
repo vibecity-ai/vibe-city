@@ -88,3 +88,6 @@ export function ipoSteps(ipo: Pick<IpoState, 'state' | 'awaiting' | 'daoAccountI
   const now: IpoStepStatus = ipo.state === 'awaiting_approval' ? 'approval' : ipo.state === 'error' && !busy ? 'failed' : 'working';
   return steps.map((s, i) => ({ ...s, status: i < at ? 'done' : i === at && started ? now : 'todo' }));
 }
+
+/** The IPO completed while the player watched: it was in another state a moment ago (never on the first load). */
+export const ipoRang = (was: IpoState['state'] | null, now: IpoState['state']) => was !== null && was !== 'done' && now === 'done';
