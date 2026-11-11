@@ -146,7 +146,7 @@ test('the Chief of Staff hires in its own Hermes chat: brief, models with prices
   const list = parsePriceList({ models: [entry('model-a', 0.1, 0.5), sealed] });
   const hermes = new FakeHermes();
   const agentChat = new FakeAgentChat(hermes, (t) => /\$3/.test(t.message)
-    ? 'Here is the brief.\n<vc>{"mood":"happy","replies":[],"proposal":null,"hire":{"department":"research","focus":"Reads papers","skills":["pdf"],"budgetPerDay":300,"notes":""}}</vc>'
+    ? 'Here is the brief.\n<vc>{"mood":"happy","replies":[],"proposal":null,"hire":{"department":"research","focus":"Reads papers","skills":["pdf"],"budgetPerDay":300,"notes":"","model":"model-b"}}</vc>'
     : 'Sure.\n<vc>{"mood":"focused","replies":[],"proposal":null}</vc>');
   agentChat.events = [{ kind: 'thinking' }, { kind: 'skill', name: 'vibe-city' }];
   const { app, services, readyDept } = questApp({ agentChat, chatModel: arModel(), modelPrices: { list: async () => list } }, hermes);
@@ -161,7 +161,7 @@ test('the Chief of Staff hires in its own Hermes chat: brief, models with prices
   assert.equal(hello.user.skills, undefined);
 
   const brief = (await say('I want to hire someone for Research, $3 a day')).agent.hire;
-  assert.deepEqual(brief, { departmentId: d.id, departmentName: 'Research', focus: 'Reads papers', skills: ['pdf'], budgetPerDay: 300, notes: '' });
+  assert.deepEqual(brief, { departmentId: d.id, departmentName: 'Research', focus: 'Reads papers', skills: ['pdf'], budgetPerDay: 300, notes: '', model: 'model-b' });
   const sys = agentChat.turns.at(-1)!.system;
   assert.match(sys, /- model-a \(near-ai\): about \$0\.15 a day for one busy agent, small by price; \$0\.10 in \/ \$0\.50 out per 1M tokens/);
   assert.match(sys, /- model-b \(near-ai\): about \$1\.50 a day.*Private TEE/);
@@ -173,7 +173,9 @@ test('the Chief of Staff hires in its own Hermes chat: brief, models with prices
   const { departmentName: _, ...input } = brief;
   const r = (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: { brief: input } })).json();
   assert.equal(r.candidates.length, 4);
-  await say('Which one is cheapest?');
+  assert.equal(r.candidates.find((c: any) => c.serious && c.loadout.model.id === 'model-b')?.serious, true, 'the recommended model is on a serious candidate');
+  // no hiring words in this turn: the open request alone keeps the candidates in the briefing
+  await say('Then nothing changes?');
   for (const c of r.candidates) assert.ok(agentChat.turns.at(-1)!.system.includes(`${c.character.name} (`), 'every candidate is in the briefing');
   const pick = r.candidates.find((c: any) => c.serious);
   assert.equal((await app.inject({ method: 'POST', url: `/api/hiring/requests/${r.id}/offer`, payload: { candidateId: pick.id } })).json().state, 'hired');

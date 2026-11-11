@@ -128,7 +128,7 @@ function NewDept() {
   const scout = async (turn: string, b: HiringBrief) => {
     setWaiting(true); setError(null);
     try {
-      const h = await api.hiringStart({ departmentId: b.departmentId, focus: b.focus, skills: b.skills, budgetPerDay: b.budgetPerDay, notes: b.notes });
+      const h = await api.hiringStart({ departmentId: b.departmentId, focus: b.focus, skills: b.skills, budgetPerDay: b.budgetPerDay, notes: b.notes, ...(b.model ? { model: b.model } : {}) });
       setHiring({ turn, h });
       setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Here are ${h.candidates.length} candidates for ${b.departmentName}. Two are solid. The other two... you'll see. Ask me about any of them, or their models.`, mood: 'smug', replies: ['Which one is cheapest?', 'Which model is best for this?'], draft: null }]);
     } catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong.'); }
@@ -195,7 +195,7 @@ function NewDept() {
             <div>
               <span className="dlg-tag">Hire brief</span>
               <b>{brief.focus}</b>
-              <span>{brief.departmentName} · budget {dollars(brief.budgetPerDay)} a day{brief.notes ? ` · ${brief.notes}` : ''}</span>
+              <span>{brief.departmentName} · budget {dollars(brief.budgetPerDay)} a day{brief.model ? ` · ${brief.model}` : ''}{brief.notes ? ` · ${brief.notes}` : ''}</span>
               {brief.skills.length > 0 && <span className="hire-skills">{brief.skills.map((s) => <i key={s}>{s}</i>)}</span>}
             </div>
             <div className="dlg-prop-act"><button className="btn primary small" disabled={waiting} onClick={() => void scout(last!.id, brief)}>Go find candidates</button></div>

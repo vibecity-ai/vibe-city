@@ -320,6 +320,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     companyStatus: async () => companyStatus(await gameState(services)),
     floorKit: () => assistant.floorKit(), // built further down; called per chat turn
     hiringFacts: () => hiring.facts(), // built further down too
+    hiringOpen: () => hiring.isOpen(),
     agentEnv: (profile) => aiEnv((db.prepare('SELECT department_id AS id FROM department_agent WHERE profile_ref = ?').get(profile) as { id: string } | undefined)?.id ?? ''),
   });
   /** `?session=<Hermes session id>` or `?session=new`; absent = the agent's last chat. */

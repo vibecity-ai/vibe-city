@@ -782,6 +782,8 @@ export const HiringBriefSchema = z.object({
   /** Daily budget in credits (1 credit = 1 US cent of model usage, see candidate cost). */
   budgetPerDay: z.number().int().min(1).max(100_000),
   notes: z.string().max(500),
+  /** The model the Chief of Staff recommended (an offered model id): the first serious candidate gets it. */
+  model: z.string().trim().min(1).max(200).optional(),
 }).strict();
 export type HiringBrief = z.infer<typeof HiringBriefSchema>;
 

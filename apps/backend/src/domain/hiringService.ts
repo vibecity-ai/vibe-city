@@ -125,7 +125,7 @@ export class HiringService {
     const cands = brief ? this.candidates(open!.id).map((c) => `- ${c.character.name} (${c.serious ? 'serious' : `joke candidate, your honest concern: ${c.note}`}): model ${c.loadout.model?.id ?? 'floor default'}, about ${usd(c.costPerDay)} a day, fit ${c.fitScore}/100, skills ${c.loadout.skills.join(', ') || 'none'}`) : [];
     return [
       modelFacts.length ? `Models Hermes offers (NEAR AI list prices; a day = 1M input + 100k output tokens, an estimate; "Private TEE"/"Incognito" is how sealed the model runs):\n${modelFacts.join('\n')}` : 'The list of models Hermes offers is unavailable right now: say so if asked, do not guess prices.',
-      brief ? `Candidates on the boss's screen for "${brief.focus}" on ${brief.departmentName} (budget ${usd(brief.budgetPerDay)} a day), each with a Hire button; the boss hires, you never do:\n${cands.join('\n')}` : 'No candidates are on screen yet.',
+      brief ? `Candidates on the boss's screen for "${brief.focus}" on ${brief.departmentName} (budget ${usd(brief.budgetPerDay)} a day), each with a Hire button; the boss hires, you never do. These cards are the only candidates: describe only these models, never claim a card has a model it does not:\n${cands.join('\n')}` : 'No candidates are on screen yet.',
     ].join('\n');
   }
 
@@ -211,14 +211,15 @@ export class HiringService {
       const vendor = (m: ModelChoice | null) => m?.id.split('/')[0];
       // Seeded picks so every shortlist differs: balanced from the cheaper half of what fits, premium from above it.
       cheapest = pickOne(ranked.slice(0, 5), 'cheap');
-      balanced = pickOne(within.slice(0, Math.ceil(within.length / 2)), 'bal') ?? ranked[0]!;
+      // The model the Chief of Staff recommended in the brief, when Hermes offers it, is the balanced pick.
+      balanced = ranked.find((m) => m.id === brief.model) ?? pickOne(within.slice(0, Math.ceil(within.length / 2)), 'bal') ?? ranked[0]!;
       const up = ranked.filter((m) => daily(m) > daily(balanced!));
       premium = pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay && vendor(m) !== vendor(balanced)), 'prem')
         ?? pickOne(up.filter((m) => daily(m) <= brief.budgetPerDay), 'prem') ?? pickOne(up.slice(0, 3), 'prem') ?? balanced;
     } else {
       const byTier = (t: number) => pool.filter((m) => modelTier(m.id) === t);
       cheapest = byTier(1)[0] ?? byTier(2)[0] ?? pool[0] ?? null;
-      balanced = byTier(2)[0] ?? byTier(1)[0] ?? pool[0] ?? null;
+      balanced = pool.find((m) => m.id === brief.model) ?? byTier(2)[0] ?? byTier(1)[0] ?? pool[0] ?? null;
       premium = byTier(3)[0] ?? [...byTier(2)].reverse().find((m) => m.id !== balanced?.id) ?? balanced;
     }
     const tierOf = (m: ModelChoice | null) => { const p = price(m); return p ? priceTier(dailyCredits(p)) : m ? modelTier(m.id) : 2; };
@@ -321,6 +322,8 @@ export class HiringService {
     return (this.d.db.prepare('SELECT candidate_json FROM hiring_candidate WHERE request_id = ? ORDER BY idx').all(id) as { candidate_json: string }[])
       .map((c) => CandidateSchema.parse(JSON.parse(c.candidate_json)));
   }
+  /** A hiring talk is on: a call, or candidates on the boss's screen. */
+  isOpen(): boolean { return !!this.openRow(); }
   private iso() { return this.now().toISOString(); }
   private openRow(): Row | undefined {
     return this.d.db.prepare("SELECT * FROM hiring_request WHERE state NOT IN ('hired', 'closed') ORDER BY created_at DESC LIMIT 1").get() as Row | undefined;
@@ -385,6 +388,7 @@ export function briefOf(raw: unknown, floors: { id: string; name: string }[]): H
     skills: Array.isArray(b.skills) ? b.skills.filter((s): s is string => typeof s === 'string' && !!s.trim()).map((s) => s.trim().slice(0, 100)).slice(0, 10) : [],
     budgetPerDay: Number.isFinite(budget) ? Math.min(100_000, Math.max(1, budget)) : 150,
     notes: String(b.notes ?? '').slice(0, 500),
+    ...(typeof b.model === 'string' && b.model.trim() ? { model: b.model.trim().slice(0, 200) } : {}),
   });
   return parsed.success ? parsed.data : null;
 }
