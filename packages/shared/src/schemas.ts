@@ -1187,7 +1187,8 @@ export const IpoSaleSchema = z.object({
 export type IpoSale = z.infer<typeof IpoSaleSchema>;
 export const IpoStateSchema = z.object({
   state: z.enum(['locked', 'ready', 'running', 'awaiting_approval', 'done', 'error']),
-  /** The wallet call waiting for the owner's approval in OutLayer (state awaiting_approval), e.g. "sputnik-dao.near create". */
+  /** The wallet call the IPO is stopped at, e.g. "sputnik-dao.near create": waiting for the owner's approval in
+      OutLayer (state awaiting_approval), or the step that failed (state error). */
   awaiting: z.string().nullable(),
   /** The CEO's NEAR account: the DAO's approver and admin. */
   ceoAccountId: z.string().nullable(),
