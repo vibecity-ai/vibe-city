@@ -412,7 +412,7 @@ export function buildServices(db: DatabaseSync, hermes?: HermesRuntime, extra: S
     return parse(ChiefOfStaffModelsSchema, {
       current: chosen ?? extra.chatModelDefault ?? DEFAULT_CHAT_MODEL, chosen: !!chosen,
       models: [...list].sort(([, a], [, b]) => dailyCredits(a) - dailyCredits(b))
-        .map(([id, p]) => ({ id, inPerM: Math.round(p.inPerM * 100) / 100, outPerM: Math.round(p.outPerM * 100) / 100, context: p.context })),
+        .map(([id, p]) => ({ id, inPerM: Math.round(p.inPerM * 100) / 100, outPerM: Math.round(p.outPerM * 100) / 100, context: p.context, privacy: p.privacy ?? null, icon: p.icon ?? null })),
     });
   });
   // ---- the Chief of Staff drafts the Agent Market listing; registering is POST /api/market/register ----

@@ -12,6 +12,7 @@ import { createDepartment, createQuest } from '../data/live';
 import { COS_LOOK } from '../world/sprites';
 import { DialogueFrame, progressLabel, type Line } from './Dialogue';
 import { callAr } from './Hiring';
+import { ModelName } from './ModelBadge';
 
 /** The menu every visit opens on (handled here, no model). */
 const ADD = 'Add a new floor', HIRE = 'Hire a new agent', LIST = 'List a floor on the Agent Market';
@@ -159,7 +160,7 @@ function NewDept() {
               <span className="nd-rows">
                 <span><i>Skills</i>{d.skills.length ? <span className="hire-skills">{d.skills.map((s) => <i key={s}>{s}</i>)}</span> : 'none'}</span>
                 <span><i>Tools</i>{d.toolsets.length ? <span className="hire-skills">{d.toolsets.map((s) => <i key={s}>{s}</i>)}</span> : 'none'}</span>
-                <span><i>Model</i><span className="mono">{d.model ? d.model.id : 'Hermes default'}</span></span>
+                <span><i>Model</i>{d.model ? <ModelName id={d.model.id} /> : <span className="mono">Hermes default</span>}</span>
                 <span><i>Agents</i>{d.agents.length}, each its own Hermes agent · ~{d.creditsPerDay} credits/day <small>estimate</small></span>
                 <ul className="nd-agents">{d.agents.map((a, i) => (
                   <li key={i}><b>{a.name || a.title}</b><em>{a.name ? a.title : ''}{i === 0 ? (a.name ? ' · lead' : 'lead') : ''}</em>{a.does && <span>{a.does}</span>}</li>

@@ -21,6 +21,7 @@ import { AttachTray, ReferenceFiles } from './QuestFiles';
 import { DeptEnvTab } from './DeptEnv';
 import { isMuted, onMuted, play, setMuted } from '../sfx';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
+import { modelOption, useModelInfo } from './ModelBadge';
 import { DeskSheet } from './Desk';
 import { Mark } from './Device';
 import { Wordmark } from './Wordmark';
@@ -598,6 +599,7 @@ function ModelPicker({ label, hint, models, error, onRetry, value: chosen, fallb
   fallback?: ModelChoice | null;
 }) {
   const value = chosen ?? fallback ?? null;
+  const info = useModelInfo();
   const offered = !value || !models || models.providers.some((p) => p.slug === value.provider && p.models.includes(value.id));
   return (
     <Field label={label} hint={hint} error={error ? `${error}` : !offered ? `${value!.id} (${value!.provider}) is not in Hermes’ list anymore. Choose another model.` : null}>
@@ -613,7 +615,7 @@ function ModelPicker({ label, hint, models, error, onRetry, value: chosen, fallb
             options={!models ? [] : [
               ...(fallback === undefined ? [{ value: '', label: 'Keep the profile’s own model' }] : []),
               ...(!offered ? [{ value: modelKey(value), label: `${value!.id} · ${value!.provider}`, note: 'not offered' }] : []),
-              ...models.providers.flatMap((pr) => pr.models.map((m) => ({ value: modelKey({ provider: pr.slug, id: m }), label: m, group: `${pr.name}${pr.current ? ' · current provider' : ''}` }))),
+              ...models.providers.flatMap((pr) => pr.models.map((m) => ({ value: modelKey({ provider: pr.slug, id: m }), label: m, group: `${pr.name}${pr.current ? ' · current provider' : ''}`, ...modelOption(m, info.get(m)) }))),
             ]} />
           {error && <button type="button" className="link" onClick={onRetry}>Retry</button>}
         </div>

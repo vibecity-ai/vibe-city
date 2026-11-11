@@ -11,6 +11,7 @@ import { COS_LOOK, lookFor } from '../world/sprites';
 import type { Gag } from '../world/portrait';
 import { DialogueFrame, PortraitCanvas, blip, readMuted, type Line } from './Dialogue';
 import { Icon } from './kit';
+import { ModelName } from './ModelBadge';
 import { DeskSheet } from './Desk';
 import { loadDeptInfo, refreshDept } from '../data/live';
 
@@ -280,7 +281,7 @@ function Shortlist({ reqId }: { reqId: string }) {
                 </div>
                 <p className="cand-pitch">“{c.pitch}”</p>
                 <dl className="cand-stats">
-                  <dt>Model</dt><dd className="mono">{c.loadout.model?.id ?? 'floor default'} <small>{TIER[c.tier]}</small></dd>
+                  <dt>Model</dt><dd>{c.loadout.model ? <ModelName id={c.loadout.model.id} /> : <span className="mono">floor default</span>} <small>{TIER[c.tier]}</small></dd>
                   <dt>Skills</dt><dd>{c.loadout.skills.length ? <span className="hire-skills">{c.loadout.skills.map((s) => <i key={s}>{s}</i>)}</span> : <small className="muted">none</small>}</dd>
                   <dt>Cost</dt><dd className={over ? 'bad' : ''}>~{c.costPerDay} credits/day <small title="1 credit = 1 US cent, at 1M input + 100k output tokens a day">estimate{over ? ', over budget' : ''}</small></dd>
                   <dt>Fit</dt><dd><span className="fit" role="meter" aria-valuemin={0} aria-valuemax={100} aria-valuenow={c.fitScore} aria-label="Fit score"><i style={{ width: `${c.fitScore}%` }} /></span> <b>{c.fitScore}</b></dd>
