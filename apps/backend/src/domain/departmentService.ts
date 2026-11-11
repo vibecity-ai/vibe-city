@@ -253,7 +253,8 @@ export class DepartmentService {
     const key = t?.hidden ? hiddenNameKey(input.name) : nameKey(input.name);
     return this.tx(() => {
       if (!t?.hidden) this.assertUniqueName(input.name);
-      if (t?.single && this.db.prepare('SELECT 1 FROM department WHERE template_id = ? AND archived_at IS NULL').get(t.id)) {
+      // one floor per template: a second is refused while an active one exists (archiving it frees the template)
+      if (t && this.db.prepare('SELECT 1 FROM department WHERE template_id = ? AND archived_at IS NULL').get(t.id)) {
         throw new ConflictError(`The company already has ${t.name}: there is one per company.`);
       }
       const id = randomUUID();

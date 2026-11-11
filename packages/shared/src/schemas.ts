@@ -992,11 +992,9 @@ export const TemplateSchema = z.object({
   dailyBudgetCredits: z.number().int().min(0),
   /** Not offered in the hire grid (the Chief of Staff). */
   hidden: z.boolean().default(false),
-  /** One per company: hiring it again is refused while an active floor of it exists. */
-  single: z.boolean().default(false),
 }).strict();
 export type Template = z.infer<typeof TemplateSchema>;
-/** `hired`: a single template the company already has a floor of (the grid shows it taken). */
+/** `hired`: the company already has an active floor of it. Every template is one per company: the grid shows it taken. */
 export const TemplateListSchema = z.array(TemplateSchema.extend({ locked: z.boolean(), unlocks: z.string().nullable(), hired: z.boolean() }));
 export type TemplateList = z.infer<typeof TemplateListSchema>;
 

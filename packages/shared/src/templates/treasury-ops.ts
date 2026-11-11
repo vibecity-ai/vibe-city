@@ -10,7 +10,7 @@ const seats = [
     cross-chain moves through NEAR Intents), so it opens as soon as the treasury is set up. Perps and prediction markets
     need a connector policy first (Trading Desk, Prediction Desk). */
 export const treasuryOps = template({
-  id: 'treasury-ops', name: 'Treasury Ops', unlock: 'treasury', loop: false, wallet: 'company', dailyBudgetCredits: 300, single: true,
+  id: 'treasury-ops', name: 'Treasury Ops', unlock: 'treasury', loop: false, wallet: 'company', dailyBudgetCredits: 300,
   toolsets: ['web', 'terminal'], skills: ['agent-custody', 'defillama'], seats,
   purpose: purpose('Swaps, moves and rebalances the company\'s funds across tokens and chains through agent-custody\'s NEAR Intents endpoints, from the shared company wallet and inside its OutLayer policy.', seats, [
     'Head of Treasury Ops turns each objective into a plan (what to swap or move, how much, and why), hands it out, and ends its result with [pnl usd=<realized profit or loss>] when a swap closes a position, valued at defillama\'s token prices.',
