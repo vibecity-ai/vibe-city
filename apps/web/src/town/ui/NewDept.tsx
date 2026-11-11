@@ -1,17 +1,17 @@
 /* The Chief of Staff (the executive assistant and AR merged into one person, brief 02): the CEO's first stop. Anything
    typed here goes to their Hermes agent, which answers from a briefing of the whole company and proposes jobs for the
    floors (one click starts one). Every visit is a fresh chat that also opens on the guided flows: add a department (a template, or a custom floor designed in conversation), hire one
-   specialist (AR's call), or list a floor on the Agent Market while one is not listed yet. A custom floor is drafted by the same agent and arrives as a proposal card built only from what Hermes has. "Looks good"
+   specialist (the talk ends in a brief card; its candidates show right here with a Hire button), or list a floor on the Agent Market while one is not listed yet. A custom floor is drafted by the same agent and arrives as a proposal card built only from what Hermes has. "Looks good"
    creates the floor through the normal department API (and syncs it when Hermes is up). The form stays one click away
    for keyboard and screen-reader users, so nothing depends on the animation or the model. */
 import { useCallback, useEffect, useState } from 'react';
-import { isInternalOnly, type AssistantView, type ChatBriefing, type ChatProposal, type DeptDraft } from '@vibe-city/shared';
+import { isInternalOnly, type AssistantView, type Candidate, type ChatBriefing, type ChatProposal, type DeptDraft, type HiringBrief, type HiringRequestView } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { createDepartment, createQuest } from '../data/live';
+import { createDepartment, createQuest, loadDeptInfo, refreshDept } from '../data/live';
 import { COS_LOOK } from '../world/sprites';
 import { DialogueFrame, progressLabel, type Line } from './Dialogue';
-import { callAr } from './Hiring';
+import { CandidateCards } from './Hiring';
 import { ModelName } from './ModelBadge';
 
 /** The menu every visit opens on (handled here, no model). */
@@ -38,10 +38,17 @@ export function NewDeptWindow() {
   return open && !locked ? <NewDept /> : null;
 }
 
-interface Turn extends Line { draft: DeptDraft | null; proposal?: ChatProposal | null; briefing?: ChatBriefing }
+interface Turn extends Line { draft: DeptDraft | null; proposal?: ChatProposal | null; briefing?: ChatBriefing; hire?: HiringBrief }
+
+/** Cents (budgets are kept in cents) as dollars. */
+const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
 function NewDept() {
-  const close = useCallback(() => useStore.getState().ui$({ newDept: false }), []);
+  const close = useCallback(() => useStore.getState().ui$({ newDept: false, cosCall: null }), []);
+  // opened to hire (an answered call, a floor's Hire button): the reason opens the talk and goes with the first message
+  const [call] = useState(() => useStore.getState().ui.cosCall);
+  // the candidates for the brief the boss confirmed in this chat, and which turn's brief that was
+  const [hiring, setHiring] = useState<{ turn: string; h: HiringRequestView } | null>(null);
   const hermesUp = useStore((s) => s.conn.hermes);
   const creating = useStore((s) => !!s.busy.create);
   const [me, setMe] = useState<AssistantView | null>(null);
@@ -71,7 +78,6 @@ function NewDept() {
   const onSend = async (m: string) => {
     const s = useStore.getState();
     if (m === ADD) { say(m, 'A new floor, boss? We can hire a ready team from our templates, or I design a custom one with you. Which will it be?', [USE_TEMPLATE, CUSTOM]); return true; }
-    if (m === HIRE) { close(); void callAr(); return true; }
     if (m === LIST) { s.ui$({ newDept: false, marketDraft: true }); return true; }
     if (m === USE_TEMPLATE) { s.ui$({ newDept: false, modal: 'create' }); return true; }
     if (built && m === SEE_FLOOR) { close(); return true; }
@@ -81,6 +87,7 @@ function NewDept() {
       ? `${m}. ${built.name} was just built (${built.crew}); its purpose: ${built.purpose.replace(/\.?\s*$/, '.')} Think of its first job: one concrete task it can do today with its skills and tools, a quick win that shows what it is for. Propose it for "${built.name}" now, even while it is still being built: I start it once the floor is ready.`
       : m === JOB
       ? `${m}. Pick the floor with the most obvious next step (an idle one first), think of one concrete job it can do now with its skills and tools, and propose it for that floor by its exact name. One job, not a list.`
+      : call && !lines.length ? `(You called me about hiring: ${call}) ${m}`
       : m;
     const cos = s.chiefOfStaff;
     if (!cos?.chief) { setError('I have no desk in Hermes yet, boss: start Hermes and I can talk. The templates, hiring and market shortcuts still work.'); return false; }
@@ -118,14 +125,36 @@ function NewDept() {
     if (!id) { setStarted(null); return; } // the toast says why; the card stays to try again
     setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done, boss: "${p.title}" is on ${p.departmentName}'s board. Ask me how it is going any time.`, mood: 'happy', replies: [SEE_BOARD, JOB, BRIEF], draft: null }]);
   };
+  const scout = async (turn: string, b: HiringBrief) => {
+    setWaiting(true); setError(null);
+    try {
+      const h = await api.hiringStart({ departmentId: b.departmentId, focus: b.focus, skills: b.skills, budgetPerDay: b.budgetPerDay, notes: b.notes });
+      setHiring({ turn, h });
+      setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Here are ${h.candidates.length} candidates for ${b.departmentName}. Two are solid. The other two... you'll see. Ask me about any of them, or their models.`, mood: 'smug', replies: ['Which one is cheapest?', 'Which model is best for this?'], draft: null }]);
+    } catch (e) { setError(e instanceof ApiError ? e.message : 'Something went wrong.'); }
+    finally { setWaiting(false); }
+  };
+  const hire = async (c: Candidate) => {
+    if (!hiring) return;
+    setWaiting(true);
+    try {
+      const h = await api.hiringOffer(hiring.h.id, c.id, !c.serious);
+      setHiring({ ...hiring, h });
+      setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done. ${c.character.name} joins ${h.brief?.departmentName}. ${c.serious ? 'Good call.' : "I've noted my concerns in the file."}`, mood: 'happy', replies: [], draft: null }]);
+      // The floor re-provisions in the background: refresh it now and once more when that is likely done.
+      const dep = h.brief!.departmentId, again = () => { void refreshDept(dep); void loadDeptInfo(dep); };
+      again(); window.setTimeout(again, 4000);
+    } catch (e) { useStore.getState().toast(e instanceof ApiError ? e.message : 'Something went wrong.', 'bad'); }
+    finally { setWaiting(false); }
+  };
   const last = [...lines].reverse().find((t) => t.from === 'agent') ?? null;
 
   return (
     <DialogueFrame
       who={me?.character ?? null} look={COS_LOOK} lines={lines} ready={me?.modelReady ?? true} waiting={waiting} status={progress} error={error}
-      greeting="What do you need, boss? Ask me anything about the company, or hand me a job for a floor. I can also add a floor, hire a specialist, or put a floor on the Agent Market."
+      greeting={call ? `Boss, ${call} Want me to find someone?` : 'What do you need, boss? Ask me anything about the company, or hand me a job for a floor. I can also add a floor, hire a specialist, or put a floor on the Agent Market.'}
       notReady="I can't think yet: finish the first quest (your NEAR AI key and my model). The templates still work."
-      baseMood="happy" defaultReplies={menu} onSend={onSend} onClose={close}
+      baseMood={call ? 'worried' : 'happy'} defaultReplies={call ? ['Yes, find someone', 'What would they need?'] : menu} onSend={onSend} onClose={close}
       inputHint="Ask about the company, say what you need done, or describe a new floor"
       cards={() => {
         const job = last?.proposal;
@@ -160,8 +189,29 @@ function NewDept() {
             </section>
           );
         }
+        const brief = last?.hire;
+        if (brief && hiring?.turn !== last!.id) return (
+          <div className="dlg-prop">
+            <div>
+              <span className="dlg-tag">Hire brief</span>
+              <b>{brief.focus}</b>
+              <span>{brief.departmentName} · budget {dollars(brief.budgetPerDay)} a day{brief.notes ? ` · ${brief.notes}` : ''}</span>
+              {brief.skills.length > 0 && <span className="hire-skills">{brief.skills.map((s) => <i key={s}>{s}</i>)}</span>}
+            </div>
+            <div className="dlg-prop-act"><button className="btn primary small" disabled={waiting} onClick={() => void scout(last!.id, brief)}>Go find candidates</button></div>
+          </div>
+        );
         const d = last?.draft;
-        if (!d) return null;
+        if (!d) {
+          // the candidates stay on screen while the boss asks about them; after the hire, the way to the floor
+          if (hiring?.h.state === 'shortlist') return <CandidateCards h={hiring.h} busy={waiting} onHire={(c) => void hire(c)} />;
+          if (hiring?.h.state === 'hired' && hiring.h.applied) return (
+            <div className="dlg-prop-act">
+              <button className="btn primary small" onClick={() => { close(); useStore.getState().openFloor(hiring.h.applied!.departmentId); }}>Go to {hiring.h.brief?.departmentName}</button>
+            </div>
+          );
+          return null;
+        }
         return (
           <div className="dlg-prop nd-card">
             <div>

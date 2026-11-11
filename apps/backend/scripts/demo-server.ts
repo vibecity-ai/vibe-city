@@ -53,7 +53,7 @@ const scripted = new FakeChatModel((turns) => {
       draft: { floor, handle: `${slug}-works`.slice(0, 30), name: `${floor} Works`, category: 'research', slaHours: 24, priceUsdc: /cheap/.test(said) ? '3.00' : '5.00',
         tagline: 'A whole floor of AI agents on your job: a lead plans, teammates dig and write.', description: 'One tidy Markdown brief per job, sources linked, delivered within a day.' } });
   }
-  // AR writes the two serious personas.
+  // The Chief of Staff writes the two serious candidates' personas.
   if (sys.startsWith('You write short')) {
     return JSON.stringify({ candidates: [
       { name: 'Ines Okoro', pitch: 'I clear queues. Give me the tickets nobody wants and a quiet desk.', traits: ['steady', 'organised'], speechStyle: 'calm and precise', quirk: 'labels everything with a label maker' },
@@ -76,20 +76,6 @@ const scripted = new FakeChatModel((turns) => {
     return JSON.stringify({ say: `${name} it is. Small team to start: a lead and two teammates. Here's the blueprint.`, mood: 'happy', replies: ['Make it cheaper', 'Add web search'],
       draft: { name, purpose, skills, toolsets: ['web', 'file'], model: 'near-ai/model-a', teammates: 2 } });
   }
-  // The Chief of Staff with the candidates on screen: answers from the model facts in its prompt.
-  if (sys.includes('The candidates are on the boss')) {
-    const cheap = /^- (\S+) \([^)]*\): about (\$[\d.]+) a day/m.exec(sys);
-    return JSON.stringify({ say: cheap ? `Cheapest model Hermes offers is ${cheap[1]}, about ${cheap[2]} a day for one busy agent. Each card says what that candidate runs on.` : 'No prices right now, boss. The cards show each model.', mood: 'focused', replies: ['Which model is best for this?'], brief: null });
-  }
-  // The hiring intake call.
-  if (sys.includes('about a new hire')) {
-    const said = turns.filter((t) => t.role === 'user').map((t) => t.content.toLowerCase()).join(' ');
-    if (/not now/.test(last)) return JSON.stringify({ say: "Your call, boss. I'll keep the file open. Ring me when the floor starts smoking.", mood: 'annoyed', replies: ['Fine, find someone'], brief: null });
-    if (!/\d/.test(said)) return JSON.stringify({ say: "Good. Support needs someone who can work tickets and keep the queue moving. What's the daily budget?", mood: 'focused', replies: ['200 credits a day', '500 a day, get someone good'], brief: null });
-    const budget = Number(/(\d+)/.exec(said)![1]);
-    return JSON.stringify({ say: `Got it. Ticket handler for Support, ${budget} credits a day. Here's the brief. Say the word and I'm out the door.`, mood: 'happy', replies: ['Change the budget'],
-      brief: { department: 'Support', focus: 'Works support tickets and keeps the queue moving', skills: ['github', 'pdf'], budgetPerDay: budget, notes: '' } });
-  }
   return JSON.stringify({ say: 'Ready when you are, boss.', mood: 'happy', replies: [], proposal: null });
 });
 const chatModel = cfg.chat.apiKey ? new OpenAiCompatModel(cfg.chat) : scripted;
@@ -97,10 +83,23 @@ const chatModel = cfg.chat.apiKey ? new OpenAiCompatModel(cfg.chat) : scripted;
 // The dialogue window talks to the agent's own Hermes profile; offline, a scripted agent stands in.
 const meta = (m: object) => `\n<vc>${JSON.stringify(m)}</vc>`;
 const agentChat = new FakeAgentChat(hermes, (t) => {
-  const last = t.message.toLowerCase();
+  // an answered call opens with its reason in brackets: the boss's own words follow
+  const last = t.message.toLowerCase().replace(/^\(you called me about hiring:[^)]*\)\s*/, '');
   const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
   // the Chief of Staff answers from its company briefing and proposes jobs for a floor by name
   if (/the Chief of Staff:/.test(t.system)) {
+    // hiring: questions about the candidates on screen, then the talk that ends in a brief
+    if (/Candidates on the boss's screen/.test(t.system) && /cheap|model|which/.test(last)) {
+      const cheap = /^- (\S+) \([^)]*\): about (\$[\d.]+) a day/m.exec(t.system);
+      return `${cheap ? `Cheapest model Hermes offers is ${cheap[1]}, about ${cheap[2]} a day for one busy agent at NEAR AI's list price (an estimate).` : 'No prices right now, boss.'} Each card says what that candidate runs on.${meta({ mood: 'focused', replies: ['Which model is best for this?'], proposal: null })}`;
+    }
+    if (/hir(e|ing)|someone|budget|a day/.test(last) || /^\(You called me about hiring/.test(t.message)) {
+      const usd = /\$?(\d+(?:\.\d+)?)/.exec(last);
+      if (!usd) return `Support is drowning in tickets, boss: I'd hire a ticket handler there. What's the budget a day, in dollars?${meta({ mood: 'focused', replies: ['$2 a day', '$5 a day, get someone good'], proposal: null })}`;
+      const cents = Math.round(Number(usd[1]) * 100);
+      return `Got it: a ticket handler for Support, $${(cents / 100).toFixed(2)} a day. Here's the brief.${meta({ mood: 'happy', replies: ['Change the budget'], proposal: null,
+        hire: { department: 'Support', focus: 'Works support tickets and keeps the queue moving', skills: ['github', 'pdf'], budgetPerDay: cents, notes: '' } })}`;
+    }
     const floor = /### ([^\n(]+)/.exec(t.system)?.[1]?.trim(), quests = /CEO quests: [^\n]+/.exec(t.system)?.[0] ?? '';
     if (/floor|department/.test(last)) {
       return `A small research floor would earn its keep, boss. Here is my pitch.${meta({ mood: 'happy', replies: ['Looks good', 'Make it one agent'], proposal: null,
@@ -139,6 +138,9 @@ const agentChat = new FakeAgentChat(hermes, (t) => {
   }
   return `${name} here. Coffee's hot, monitors are warm, and I'm ready when you are. What's the play?${meta({ mood: 'happy', replies: ['I have a job for you', 'How is the floor doing?'], proposal: null })}`;
 });
+
+// Hermes loads its vibe-city skill when the Chief of Staff talks (the real gateway reports a skill_view call).
+agentChat.events = (t) => (/the Chief of Staff:/.test(t.system) ? [{ kind: 'skill', name: 'vibe-city' }] : []);
 
 // Hermes' Kanban event stream for /api/live: every board's events after the client's cursor, then each new one.
 const hermesWs = new WebSocketServer({ host: '127.0.0.1', port: 0 });

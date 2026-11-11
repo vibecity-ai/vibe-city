@@ -1,6 +1,6 @@
 ---
 name: vibe-city
-description: "How a Vibe City agent works with the company: the Vibe City MCP tools (list_departments, request_quest, check_request, list_task_files, read_task_file) and, for the Chief of Staff, listing a floor on the NEAR AI Agent Market with list_on_market."
+description: "How a Vibe City agent works with the company: the Vibe City MCP tools (list_departments, request_quest, check_request, list_task_files, read_task_file) and, for the Chief of Staff, hiring a new agent for a floor (a brief, candidates, models and their NEAR AI prices) and listing a floor on the NEAR AI Agent Market with list_on_market."
 ---
 
 # Vibe City
@@ -34,6 +34,21 @@ company briefing: each floor, its team and its board, the CEO quests, the money 
   needs the boss (decisions, blocked or failed tasks, the next CEO quest), what is in flight (one row per moving
   job, with its floor), and the money line. The window shows it as a card whose rows open the floor's board.
 - Money figures in the briefing are estimates: say so.
+
+## The Chief of Staff: hiring
+
+When the boss wants someone hired, or a floor in the briefing clearly needs people (one agent doing everything, a
+queue piling up, tasks failing), you run the hiring talk right here in the dialogue window. A hire is one new agent on
+an existing floor, with its own Hermes profile, model and skills.
+
+1. Ask, one short question at a time: what the hire should be good at, which floor it joins (by its exact name in the
+   briefing), and the budget per day in US dollars. A floor that does not exist yet has to be created first: say so.
+2. Once you know enough, put the brief in your reply's `hire` field (the floor, the focus, installed skills it needs,
+   the budget in US cents a day, notes) and say it in one line. The boss gets a card with **Go find candidates**.
+3. The candidates then show on the boss's screen as cards with a Hire button, and the briefing lists them. Answer
+   questions about them and about the models from the briefing's model list only. Prices there are NEAR AI list
+   prices and a day's cost is an estimate (one busy agent): say so. Compare honestly and recommend one when asked.
+4. The boss hires with the button; you never hire, and you never claim someone was hired before the boss did.
 
 ## The Chief of Staff: listing a floor on the Agent Market
 

@@ -181,12 +181,9 @@ export const api = {
   assistantModels: (): Promise<ChiefOfStaffModels> => request('GET', '/api/assistant/models', ChiefOfStaffModelsSchema),
   marketDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> => request('POST', '/api/assistant/market-draft', MarketDraftReplySchema, { messages }),
   hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
-  hiringStart: (departmentId?: string): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, departmentId ? { departmentId } : {}),
-  hiring: (id: string): Promise<HiringRequestView> => request('GET', h(id), HiringRequestViewSchema),
-  hiringAnswer: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/answer`, HiringRequestViewSchema),
+  /** The brief from the Chief of Staff's chat: the request comes back with its candidates. */
+  hiringStart: (brief: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, { brief }),
   hiringDecline: (id: string): Promise<HiringRequestView> => request('POST', `${h(id)}/decline`, HiringRequestViewSchema),
-  hiringChat: (id: string, message: string): Promise<HiringRequestView> => request('POST', `${h(id)}/chat`, HiringRequestViewSchema, { message }),
-  hiringBrief: (id: string, brief?: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', `${h(id)}/brief`, HiringRequestViewSchema, brief ? { brief } : {}),
   hiringOffer: (id: string, candidateId: string, acceptConcerns = false): Promise<HiringRequestView> => request('POST', `${h(id)}/offer`, HiringRequestViewSchema, { candidateId, acceptConcerns }),
   chatStream: (dept: string, agentKey: string, input: ChatSend, onProgress: (p: ChatProgress) => void): Promise<ChatReply> =>
     chatStream(`${d(dept)}/characters/${encodeURIComponent(agentKey)}/chat/stream`, input, onProgress),

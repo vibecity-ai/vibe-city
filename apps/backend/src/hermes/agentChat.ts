@@ -61,6 +61,11 @@ export class HermesAgentChat implements AgentChat {
       let final: string | null = null;
       for await (const { event, data } of sseFrames(res.body)) {
         if (event === 'tool.progress' && data.tool_name === '_thinking') onEvent({ kind: 'thinking' });
+        // Hermes loads a skill with its skill_view tool; the frame carries the call's args (v0.22.6 api_server).
+        else if (event === 'tool.started' && data.tool_name === 'skill_view') {
+          const name = str((data.args as Record<string, unknown> | null)?.name) ?? str(data.preview);
+          if (name) onEvent({ kind: 'skill', name: name.slice(0, 100) });
+        }
         else if (event === 'tool.started') onEvent({ kind: 'tool', name: str(data.tool_name) ?? 'tool', preview: str(data.preview) });
         else if (event === 'approval.request') onEvent({ kind: 'approval', command: str(data.command) });
         else if (event === 'assistant.completed') {
