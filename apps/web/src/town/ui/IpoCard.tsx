@@ -19,7 +19,8 @@ const LAMP: Record<IpoStep['status'], string> = { done: 'Done', working: 'Workin
 /** A NEAR amount with enough decimals to show three significant digits of small prices. */
 export const fmtNear = (n: number) => n.toFixed(n >= 1 || n === 0 ? 2 : Math.min(9, 2 - Math.floor(Math.log10(n))));
 const whole = (n: number) => n.toLocaleString(undefined, { maximumFractionDigits: 2 });
-const usd = (n: number) => `$${Math.round(n).toLocaleString()}`;
+// cents while small, so a first job's $0.48 does not read as $0
+const usd = (n: number) => `$${n < 100 ? n.toFixed(2).replace(/\.00$/, '') : Math.round(n).toLocaleString()}`;
 const short = (a: string) => (a.length > 30 ? `${a.slice(0, 14)}…${a.slice(-12)}` : a);
 const ext = (href: string, text: string) => <a href={href} target="_blank" rel="noreferrer">{text}</a>;
 
@@ -109,7 +110,7 @@ function Prospectus({ ipo, ceo, company, busy, checking, err, onLaunch, onCheck 
         <div className="xb-cell"><span className="xb-k">Offer price · NEAR</span><Flaps text={o ? fmtNear(o.priceNear) : '—'} label="Offer price" /></div>
       </div>
       <p className="xb-fine">
-        {o ? <>Earned {usd(o.earnedUsd)} × {o.multiple} (minimum $1,000) over {o.supply.toLocaleString()} shares; {o.floatTokens.toLocaleString()} offered to the public, the rest kept by the company's DAO.</>
+        {o ? <>$1,000 + earned {usd(o.earnedUsd)} × {o.multiple} over {o.supply.toLocaleString()} shares; {o.floatTokens.toLocaleString()} offered to the public, the rest kept by the company's DAO.</>
           : 'NEAR price unavailable: the offering is priced when the bell rings.'}
       </p>
       {locked ? <p className="xb-fine">The listing opens after your first paid market job and with 4 NEAR in the company wallet.</p> : <>

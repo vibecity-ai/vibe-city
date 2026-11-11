@@ -43,15 +43,16 @@ export const DAO_DEPOSIT = YOCTO;
 export const TOKEN_DECIMALS = 6;
 export const TOKEN_SUPPLY = 1_000_000;
 /** The offering: this share of the supply is sold to the public; the price comes from the game's numbers.
-    ponytail: a fixed revenue multiple with a floor; a real IPO prices on book-building. */
+    A base valuation plus a revenue multiple, so every paid job moves the price (a floor alone ignored the first $50).
+    ponytail: a fixed revenue multiple; a real IPO prices on book-building. */
 export const FLOAT_SHARE = 0.4;
 export const REVENUE_MULTIPLE = 20;
-export const MIN_VALUATION_USD = 1000;
+export const BASE_VALUATION_USD = 1000;
 
 /** The offering's terms from what the company earned (game runway, cents) and NEAR's price in USD. */
 export function offerFrom(earnedCents: number, nearUsd: number): IpoOffer {
   const earnedUsd = Math.max(0, earnedCents) / 100;
-  const valuationUsd = Math.max(MIN_VALUATION_USD, earnedUsd * REVENUE_MULTIPLE);
+  const valuationUsd = BASE_VALUATION_USD + earnedUsd * REVENUE_MULTIPLE;
   const nano = Math.max(1, Math.round((valuationUsd / TOKEN_SUPPLY / nearUsd) * 1e9)); // nanoNEAR per token: exact in a double
   const priceYocto = BigInt(nano) * 10n ** 15n;
   return {

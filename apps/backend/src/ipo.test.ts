@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { openDb } from './db/db.ts';
-import { DAO_DEPOSIT, IpoService, MIN_VALUATION_USD, PAYOUT, TOKEN_FACTORY, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, offerFrom, shares, units } from './domain/ipoService.ts';
+import { DAO_DEPOSIT, IpoService, BASE_VALUATION_USD, PAYOUT, TOKEN_FACTORY, TOKEN_FACTORY_HASH, TOKEN_HASH, daoName, offerFrom, shares, units } from './domain/ipoService.ts';
 import type { AccountInfo, NearReader } from './near/rpc.ts';
 import { ConflictError, UpstreamError } from './domain/errors.ts';
 
@@ -100,16 +100,17 @@ function service(chain = fakeChain()) {
   return { ipo, chain, db };
 }
 const LAUNCH = { ceoAccountId: CEO, symbol: 'ACME' };
-/** $500 earned: 20 x 500 = $10,000 valuation */
+/** $500 earned: $1,000 + 20 x 500 = $11,000 valuation */
 const EARNED = 50_000;
 
-test('the offer: valuation from earnings (with a floor), 40% float, the price per token in NEAR', () => {
+test('the offer: a base valuation plus earnings, 40% float, the price per token in NEAR', () => {
   const o = offerFrom(EARNED, NEAR_USD);
-  assert.equal(o.valuationUsd, 10_000);
+  assert.equal(o.valuationUsd, 11_000);
   assert.equal(o.floatTokens, 400_000);
-  assert.equal(o.priceNear, 0.0025, '$10,000 / 1,000,000 tokens = $0.01 = 0.0025 NEAR at $4');
-  assert.equal(o.priceYocto, '2500000000000000000000');
-  assert.equal(offerFrom(0, NEAR_USD).valuationUsd, MIN_VALUATION_USD);
+  assert.equal(o.priceNear, 0.00275, '$11,000 / 1,000,000 tokens = $0.011 = 0.00275 NEAR at $4');
+  assert.equal(o.priceYocto, '2750000000000000000000');
+  assert.equal(offerFrom(0, NEAR_USD).valuationUsd, BASE_VALUATION_USD);
+  assert.ok(offerFrom(48, NEAR_USD).priceNear > offerFrom(0, NEAR_USD).priceNear, 'a first job of 48 cents already moves the price');
   assert.equal(offerFrom(-500, NEAR_USD).earnedUsd, 0);
 });
 
@@ -117,7 +118,7 @@ test('locked: 409 and nothing is called; the offer is still previewed', async ()
   const { ipo, chain } = service();
   const v = await ipo.view(false, EARNED);
   assert.equal(v.state, 'locked');
-  assert.equal(v.offer?.priceNear, 0.0025);
+  assert.equal(v.offer?.priceNear, 0.00275);
   await assert.rejects(ipo.launch(LAUNCH, false, EARNED), ConflictError);
   assert.equal(chain.calls.length, 0);
 });
@@ -142,12 +143,12 @@ test('unlocked: the DAO (CEO approves, wallet only proposes), its registrations,
   const tok = chain.calls[3]!;
   assert.equal(tok.deposit, '2228440000000000000000000', 'what the factory asks for');
   const a = tok.args.args as Record<string, string>;
-  assert.deepEqual([a.owner_id, a.total_supply, a.sale_amount, a.price], [DAO, '1000000000000', '400000000000', '2500000000000000000000']);
+  assert.deepEqual([a.owner_id, a.total_supply, a.sale_amount, a.price], [DAO, '1000000000000', '400000000000', '2750000000000000000000']);
   assert.equal(s.state, 'done');
   assert.equal(s.tokenAccountId, TOKEN);
   assert.deepEqual(s.sale, { open: true, sold: 0, remaining: 400_000, raisedNear: 0, buyers: 0 });
   assert.ok(ipo.isDone());
-  assert.equal((await ipo.view(true, 9_999_999)).offer?.priceNear, 0.0025, 'the price is fixed once the IPO starts');
+  assert.equal((await ipo.view(true, 9_999_999)).offer?.priceNear, 0.00275, 'the price is fixed once the IPO starts');
   await assert.rejects(ipo.launch(LAUNCH, true, EARNED), ConflictError, 'only once');
 });
 
@@ -164,7 +165,7 @@ test('a failure between steps, then a retry (now locked: the IPO spent the funds
   assert.equal(chain.calls.filter((c) => c.method === 'create').length, 1);
   assert.equal(chain.calls.filter((c) => c.method === 'storage_deposit').length, 2, 'registrations are not repeated');
   assert.equal(s.ceoAccountId, CEO, 'the council is fixed once the DAO exists');
-  assert.equal(s.offer?.priceNear, 0.0025, 'and so is the price');
+  assert.equal(s.offer?.priceNear, 0.00275, 'and so is the price');
 });
 
 test('a DAO name or token symbol someone else owns is refused, not adopted', async () => {
@@ -263,7 +264,7 @@ test('shareholders are the buyers: the dividend is pro rata over what they hold,
   chain.buy(TOKEN, 'ann.near', 30_000);
   let s = await ipo.view(true, EARNED);
   assert.deepEqual(s.holders, [{ accountId: 'ann.near', balance: 30_000 }, { accountId: 'bob.near', balance: 10_000 }], 'largest first');
-  assert.deepEqual(s.sale, { open: true, sold: 40_000, remaining: 360_000, raisedNear: 100, buyers: 2 });
+  assert.deepEqual(s.sale, { open: true, sold: 40_000, remaining: 360_000, raisedNear: 110, buyers: 2 });
 
   s = await ipo.dividend({ token: 'USDC', amount: 100 });
   const div = chain.calls.at(-1)!;

@@ -15,7 +15,7 @@ price, which is not an IPO, and the DAO moving its own unpriced token was someth
 |---|---|
 | Company and board | Sputnik DAO; the CEO is Approver and Admin, the agent wallet only proposes |
 | Authorise shares, founders keep theirs | 1,000,000 tokens; 600,000 to the DAO |
-| Price the offering | valuation = max($1,000, earned revenue x 20), / supply, in NEAR at the live price; fixed at IPO |
+| Price the offering | valuation = $1,000 + earned revenue x 20 (every paid job moves it), / supply, in NEAR at the live price; fixed at IPO |
 | Sell to the public, proceeds to the company | `buy()` on the token: 400,000 float, NEAR to the DAO, change back |
 | Shareholders | the offering's buyers (`get_buyers`), dividends pro rata over what they hold |
 | Close the books | `end_sale` by DAO proposal: the unsold float returns to the DAO |
