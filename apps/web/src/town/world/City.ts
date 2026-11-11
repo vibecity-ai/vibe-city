@@ -716,7 +716,11 @@ export class City {
     px.push(Math.min(1, k * 2));
     px.rect(x - 2, y - 9, 24, 13, '#F4EEFF'); px.rect(x - 1, y - 8, 22, 11, '#140D26');
     px.rect(x, y + 4, 3, 2, '#F4EEFF'); px.rect(x - 3, y + 6, 2, 2, '#F4EEFF');
-    for (let i = 0; i < 3; i++) px.rect(x + 3 + i * 6, y - 4, 3, 3, Math.floor(this.t * 4) % 3 === i ? C.gold : '#6B5530', 1);
+    // the same wave as the chat window's waiting dots (styles.css, dlgHop): .9 s, each dot .12 s behind, up in the first 60%
+    for (let i = 0; i < 3; i++) {
+      const ph = (((this.t - i * 0.12) % 0.9) + 0.9) % 0.9 / 0.9, up = ph < 0.6 ? Math.sin((ph / 0.6) * Math.PI) : 0;
+      px.rect(x + 3 + i * 6, y - 4 - Math.round(up * 2), 3, 3, up > 0.3 ? C.gold : '#6B5530', up > 0.3 ? 1 : 0);
+    }
     px.pop();
   }
 
