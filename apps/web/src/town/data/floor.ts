@@ -117,7 +117,7 @@ export const FLOOR_OBJECT_HELP: Record<FloorObjectId, string> = {
   lead: 'The lead\'s profile and chat',
   archive: 'The file archive: every file on this floor\'s jobs',
   rack: 'Tools: the toolsets every agent here carries',
-  library: 'The skill library, this floor first: what each skill does and who carries it',
+  library: 'This floor’s skills: what its agents may use, and what they carry',
   keys: 'Env variables: keys the floor\'s tools read',
   clock: 'This floor\'s schedules',
   station: 'The station: what this team works with',
