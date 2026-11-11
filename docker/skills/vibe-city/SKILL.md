@@ -1,6 +1,6 @@
 ---
 name: vibe-city
-description: "How a Vibe City agent works with the company: the Vibe City MCP tools (list_departments, request_quest, check_request, list_task_files, read_task_file) and, for the Chief of Staff, hiring a new agent for a floor (a brief, candidates, models and their NEAR AI prices) and listing a floor on the NEAR AI Agent Market with list_on_market."
+description: "How a Vibe City agent works with the company: the Vibe City MCP tools (list_departments, request_quest, check_request, list_task_files, read_task_file) and, for the Chief of Staff, hiring a new agent for a floor (a brief, candidates, models and their NEAR AI prices) and listing a floor on the NEAR AI Agent Market (a listing card the boss registers, or list_on_market)."
 ---
 
 # Vibe City
@@ -60,20 +60,24 @@ The NEAR AI Agent Market (https://market.near.ai) is where buyers hire AI agents
 the company is its own agent there (a floor is listed once); every job a buyer posts to it lands on that floor's board as a quest, and
 Vibe City submits the finished quest as the deliverable. Do this in the dialogue window, with the boss:
 
-1. `list_departments`. Tell the boss the floors in one line each and ask which one to list. Only a floor synced with
-   Hermes can take jobs; say so if the one they pick is not.
-2. Write the listing as plain text the boss can copy into market.near.ai: **Name**, **Tagline** (one sentence),
-   **Description** (under 200 characters, what a buyer gets), **Price** (USDC per job), **Delivery** (hours),
-   **Deliverables**. Promise only what that floor does. Ask one short question if price or turnaround matter;
-   otherwise propose them.
-3. Agree the handle (3 to 30 characters: lowercase letters, digits and dashes, starting with a letter) and the
-   category: automation, creative, customer_support, data, dev_tools, events, finance, legal_compliance, marketing,
-   operations, research, sales, travel or other.
-4. Only once the boss says yes: `list_on_market` with the department name, handle, display name, category and
-   delivery time in hours. A taken handle is an error: pick another with the boss.
-5. The tool's answer says what happened. Then tell the boss what is theirs to do on market.near.ai: set the USDC
-   price and switch the listing to **Live**. The listed floor's agents now hold the agent token as
-   `MARKET_AGENT_TOKEN` and the `marketplace-worker` skill.
+1. The briefing lists the floors that can be listed (not a company-wallet floor, not one already on the market). If
+   the boss has not picked one, ask which, with those floor names as your `replies`. Only a floor synced with Hermes
+   can take jobs; say so if the one they pick is not.
+2. Once they pick, put the listing in your reply's `listing` field and say it in one line: the floor (its exact
+   name), the **handle** (3 to 30 characters: lowercase letters, digits and dashes, starting with a letter), the
+   display **name**, the **category** (automation, creative, customer_support, data, dev_tools, events, finance,
+   legal_compliance, marketing, operations, research, sales, travel or other), the **delivery** time in hours, a
+   **tagline** (one sentence), a **description** (under 200 characters, what a buyer gets) and a **price** (USDC per
+   job). Promise only what that floor does. If the boss asks for changes, put the whole listing in `listing` again.
+3. The boss gets a card with **Register as draft**: it registers the floor on market.near.ai as a Draft (handle, name,
+   category, delivery time) and gives its agents the agent token as `MARKET_AGENT_TOKEN` and the `marketplace-worker`
+   skill. The tagline, description and price are suggestions the boss pastes on market.near.ai, where they also set
+   the price and switch the listing to **Live**. Say "register", never "publish"; you never register it yourself in
+   the dialogue window, and never claim it is registered before the boss pressed the button.
+
+Outside the dialogue window (no card), `list_on_market` registers the same way, with the department name, handle,
+display name, category and delivery time in hours: call it only once the boss said yes to all of them. A taken handle
+is an error: pick another with the boss.
 
 Never call `list_on_market` to "try": it registers the agent for real, once.
 

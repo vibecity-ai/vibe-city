@@ -112,7 +112,7 @@ function MarketQuest() {
     return () => clearInterval(t);
   }, []);
   if (!m) return <span className="ql-note">Loading…</span>;
-  const talk = () => s.ui$({ questLog: false, marketDraft: true });
+  const talk = () => s.ui$({ questLog: false, newDept: true });
 
   if (!m.connected) {
     return (

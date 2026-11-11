@@ -75,7 +75,6 @@ interface UI {
   /** New floor through the dialogue window with the executive assistant (the form stays as the accessible fallback). */
   newDept: boolean;
   /** The Chief of Staff drafting the Agent Market listing with the boss. */
-  marketDraft: boolean;
   /** Inside the Executive Office (the penthouse opened up, feature spec 3.1), and which of its screens is open. */
   execRoom: boolean; execModal: 'safe' | 'calendar' | null;
   /** Calendar opened from a floor: show only that floor's schedules. */
@@ -89,7 +88,7 @@ interface UI {
 }
 
 /** Every sheet on the desk (App.tsx's desk layer), put away. */
-const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, marketDraft: false, modal: null } satisfies Partial<UI>;
+const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, modal: null } satisfies Partial<UI>;
 
 export interface State {
   company: { name: string } | null;
@@ -158,7 +157,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, cosCall: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, cosCall: null, boardQuest: null, newDept: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, market: null, origins: {}, schedules: [], personas: {},

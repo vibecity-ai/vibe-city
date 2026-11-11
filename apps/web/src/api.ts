@@ -10,7 +10,7 @@ import {
 import {
   HiringCurrentSchema, HiringRequestViewSchema,
   type HiringBrief, type HiringRequestView,
-  AssistantViewSchema, type AssistantView, MarketDraftReplySchema, type MarketDraftReply, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
+  AssistantViewSchema, type AssistantView, ChiefOfStaffModelsSchema, type ChiefOfStaffModels,
   QuestOriginListSchema, QuestRequestListSchema, QuestRequestViewSchema,
   type QuestOrigin, type QuestRequestView,
   ScheduleListSchema, ScheduleSchema, type Schedule, type ScheduleCreate, type SchedulePatch,
@@ -179,7 +179,6 @@ export const api = {
   questOrigins: async (): Promise<QuestOrigin[]> => (await request('GET', '/api/quest-origins', QuestOriginListSchema)).origins,
   assistant: (): Promise<AssistantView> => request('GET', '/api/assistant', AssistantViewSchema),
   assistantModels: (): Promise<ChiefOfStaffModels> => request('GET', '/api/assistant/models', ChiefOfStaffModelsSchema),
-  marketDraft: (messages: { from: 'user' | 'agent'; text: string }[]): Promise<MarketDraftReply> => request('POST', '/api/assistant/market-draft', MarketDraftReplySchema, { messages }),
   hiringCurrent: async (): Promise<HiringRequestView | null> => (await request('GET', '/api/hiring/current', HiringCurrentSchema)).request,
   /** The brief from the Chief of Staff's chat: the request comes back with its candidates. */
   hiringStart: (brief: Omit<HiringBrief, 'departmentName'>): Promise<HiringRequestView> => request('POST', '/api/hiring/requests', HiringRequestViewSchema, { brief }),

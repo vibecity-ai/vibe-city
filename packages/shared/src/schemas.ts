@@ -713,6 +713,8 @@ export const ChatMessageSchema = z.object({
   briefing: ChatBriefingSchema.optional(),
   /** The Chief of Staff's hiring brief for a floor that exists. Nothing happens until the boss asks for candidates. */
   hire: z.lazy(() => HiringBriefSchema).optional(),
+  /** The Chief of Staff's Agent Market listing for a floor that may be listed. Nothing happens until the boss registers it. */
+  listing: z.lazy(() => MarketDraftSchema).optional(),
   /** The skills Hermes reported loading (skill_view) while writing this reply, as it reported them. */
   skills: z.array(z.string()).optional(),
   at: z.string(),
@@ -849,10 +851,7 @@ export const DeptDraftSchema = z.object({
 }).strict();
 export type DeptDraft = z.infer<typeof DeptDraftSchema>;
 
-export const AssistantTurnSchema = z.object({ from: z.enum(['user', 'agent']), text: z.string().max(4000) }).strict();
-export const DeptDraftRequestSchema = z.object({ messages: z.array(AssistantTurnSchema).min(1).max(40) }).strict();
-
-/** The Chief of Staff's Agent Market listing, drafted in the dialogue window. Registration sends only the handle,
+/** The Chief of Staff's Agent Market listing, drafted in its Hermes chat (ChatMessage.listing). Registration sends only the handle,
     name, category and delivery time; the tagline, description and price are for the boss to paste on market.near.ai. */
 export const MarketDraftSchema = z.object({
   departmentId: z.string(),
@@ -868,10 +867,6 @@ export const MarketDraftSchema = z.object({
   notSynced: z.boolean(),
 }).strict();
 export type MarketDraft = z.infer<typeof MarketDraftSchema>;
-export const MarketDraftReplySchema = z.object({
-  say: z.string(), mood: z.enum(MOODS), replies: z.array(z.string()), draft: MarketDraftSchema.nullable(),
-}).strict();
-export type MarketDraftReply = z.infer<typeof MarketDraftReplySchema>;
 export const AssistantViewSchema = z.object({ character: CharacterSchema, modelReady: z.boolean() }).strict();
 export type AssistantView = z.infer<typeof AssistantViewSchema>;
 

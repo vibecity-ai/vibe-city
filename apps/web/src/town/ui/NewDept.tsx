@@ -1,17 +1,19 @@
 /* The Chief of Staff (the executive assistant and AR merged into one person, brief 02): the CEO's first stop. Anything
    typed here goes to their Hermes agent, which answers from a briefing of the whole company and proposes jobs for the
    floors (one click starts one). Every visit is a fresh chat that also opens on the guided flows: add a department (a template, or a custom floor designed in conversation), hire one
-   specialist (the talk ends in a brief card; its candidates show right here with a Hire button), or list a floor on the Agent Market while one is not listed yet. A custom floor is drafted by the same agent and arrives as a proposal card built only from what Hermes has. "Looks good"
+   specialist (the talk ends in a brief card; its candidates show right here with a Hire button), or list a floor on the Agent Market while one is not listed yet (the talk ends in a listing card; "Register as draft" registers it on market.near.ai). A custom floor is drafted by the same agent and arrives as a proposal card built only from what Hermes has. "Looks good"
    creates the floor through the normal department API (and syncs it when Hermes is up). The form stays one click away
    for keyboard and screen-reader users, so nothing depends on the animation or the model. */
 import { useCallback, useEffect, useState } from 'react';
-import { isInternalOnly, type AssistantView, type Candidate, type ChatBriefing, type ChatProposal, type DeptDraft, type HiringBrief, type HiringRequestView } from '@vibe-city/shared';
+import { isInternalOnly, type AssistantView, type Candidate, type ChatBriefing, type ChatProposal, type DeptDraft, type HiringBrief, type HiringRequestView, type MarketDraft, type MarketRegister } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { createDepartment, createQuest, loadDeptInfo, refreshDept } from '../data/live';
 import { COS_LOOK } from '../world/sprites';
 import { DialogueFrame, progressLabel, type Line } from './Dialogue';
 import { CandidateCards } from './Hiring';
+import { ListingPaper } from './MarketListing';
+import { STATION_BUILD_MS } from '../data/floor';
 import { ModelName } from './ModelBadge';
 
 /** The menu every visit opens on (handled here, no model). */
@@ -38,7 +40,7 @@ export function NewDeptWindow() {
   return open && !locked ? <NewDept /> : null;
 }
 
-interface Turn extends Line { draft: DeptDraft | null; proposal?: ChatProposal | null; briefing?: ChatBriefing; hire?: HiringBrief }
+interface Turn extends Line { draft: DeptDraft | null; proposal?: ChatProposal | null; briefing?: ChatBriefing; hire?: HiringBrief; listing?: MarketDraft }
 
 /** Cents (budgets are kept in cents) as dollars. */
 const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -78,7 +80,6 @@ function NewDept() {
   const onSend = async (m: string) => {
     const s = useStore.getState();
     if (m === ADD) { say(m, 'A new floor, boss? We can hire a ready team from our templates, or I design a custom one with you. Which will it be?', [USE_TEMPLATE, CUSTOM]); return true; }
-    if (m === LIST) { s.ui$({ newDept: false, marketDraft: true }); return true; }
     if (m === USE_TEMPLATE) { s.ui$({ newDept: false, modal: 'create' }); return true; }
     if (built && m === SEE_FLOOR) { close(); return true; }
     if (started && m === SEE_BOARD) { close(); s.openPanel('board', { composer: false, boardDept: started.dept, boardFilter: 'all', boardQuest: null }); return true; }
@@ -90,7 +91,7 @@ function NewDept() {
       : call && !lines.length ? `(You called me about hiring: ${call}) ${m}`
       : m;
     const cos = s.chiefOfStaff;
-    if (!cos?.chief) { setError('I have no desk in Hermes yet, boss: start Hermes and I can talk. The templates, hiring and market shortcuts still work.'); return false; }
+    if (!cos?.chief) { setError('I have no desk in Hermes yet, boss: start Hermes and I can talk. The templates still work.'); return false; }
     setError(null); setWaiting(true); setProgress(null);
     const user: Turn = { id: crypto.randomUUID(), from: 'user', text: m, mood: null, replies: [], draft: null };
     const next = [...lines, user];
@@ -147,6 +148,30 @@ function NewDept() {
     } catch (e) { useStore.getState().toast(e instanceof ApiError ? e.message : 'Something went wrong.', 'bad'); }
     finally { setWaiting(false); }
   };
+  /** Registering leaves the office: the boss stands on the floor while the market answers, sees its Marketplace board
+      go up, and the board opens on the claim step. A refusal (a taken handle…) comes back here to try again. */
+  const register = (d: MarketDraft) => {
+    const s = useStore.getState();
+    close(); s.openFloor(d.departmentId);
+    s.toast(`Registering ${d.floorName} on market.near.ai as a draft…`);
+    const onFloor = () => { const u = useStore.getState().ui; return u.view === 'floor' && u.floorId === d.departmentId; };
+    void (async () => {
+      try {
+        // the pause lets the floor open first, so the board is seen going up
+        const [v] = await Promise.all([api.marketRegister({ handle: d.handle, name: d.name, category: d.category as MarketRegister['category'], slaHours: d.slaHours, departmentId: d.departmentId,
+          ...(d.tagline ? { tagline: d.tagline.slice(0, 160) } : {}), ...(d.description ? { description: d.description.slice(0, 200) } : {}), priceUsdc: d.priceUsdc }), new Promise((r) => setTimeout(r, 1200))]);
+        useStore.setState({ market: v }); // the listed floor gets its Marketplace board now: the city builds it
+        void api.game().then((game) => useStore.setState({ game })).catch(() => undefined);
+        s.toast(`${d.floorName} is registered on the Agent Market as a draft, @${v.agents.find((a) => a.departmentId === d.departmentId)?.handle ?? d.handle}. Claim it from its Marketplace board.`);
+        setTimeout(() => { if (onFloor()) useStore.getState().ui$({ floorSheet: 'station' }); }, STATION_BUILD_MS + 300);
+      } catch (e) {
+        s.toast(`The registration did not go through: ${e instanceof ApiError ? e.message : 'could not reach the market'}`, 'bad');
+        if (onFloor()) { s.openExec(); s.ui$({ newDept: true }); }
+      }
+    })();
+  };
+  const copy = (d: MarketDraft) => void navigator.clipboard?.writeText(`${d.name}\n${d.tagline}\n\n${d.description}\n\nPrice: ${d.priceUsdc} USDC per job · Delivery: ${d.slaHours} h`)
+    .then(() => useStore.getState().toast('Listing text copied.')).catch(() => undefined);
   const last = [...lines].reverse().find((t) => t.from === 'agent') ?? null;
 
   return (
@@ -199,6 +224,19 @@ function NewDept() {
               {brief.skills.length > 0 && <span className="hire-skills">{brief.skills.map((s) => <i key={s}>{s}</i>)}</span>}
             </div>
             <div className="dlg-prop-act"><button className="btn primary small" disabled={waiting} onClick={() => void scout(last!.id, brief)}>Go find candidates</button></div>
+          </div>
+        );
+        const listing = last?.listing;
+        if (listing) return (
+          <div className="dlg-prop listing">
+            <ListingPaper name={listing.name} handle={listing.handle} tagline={listing.tagline} description={listing.description} priceUsdc={listing.priceUsdc} category={listing.category} slaHours={listing.slaHours} floorName={listing.floorName}>
+              <p className="paper-fine">Registering puts {listing.floorName} on market.near.ai as a Draft and gives its agents the agent token and the marketplace-worker skill: they read each job's thread and message the buyer; Vibe City starts and submits the jobs. The price and delivery time here are suggestions: you enter them on market.near.ai, then switch the listing to Live. A floor is registered once, for real.</p>
+              {listing.notSynced && <p className="paper-fine">{listing.floorName} is not synced with Hermes yet: it is listed now, but takes jobs only once it is.</p>}
+            </ListingPaper>
+            <div className="dlg-prop-act">
+              <button className="btn small" onClick={() => copy(listing)}>Copy text</button>
+              <button className="btn primary small" onClick={() => register(listing)}>Register as draft</button>
+            </div>
           </div>
         );
         const d = last?.draft;
