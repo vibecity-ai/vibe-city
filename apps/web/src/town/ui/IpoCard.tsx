@@ -3,7 +3,7 @@
    opening bell. After it: the symbol and price on split-flap tiles, a ticker tape, the share register, and the
    board's two acts: declare a dividend (a DAO proposal) and close the books (end the offering). */
 import { useEffect, useRef, useState } from 'react';
-import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState } from '@vibe-city/shared';
+import { IPO_SYMBOL_RE, PAYOUT_TOKENS, type IpoState, type WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { ipoRang, ipoSteps, ipoSymbol, type IpoStep } from '../data/game';
@@ -42,7 +42,8 @@ function Bell() {
   );
 }
 
-export function IpoCard({ ceo }: { ceo: string | null }) {
+export function IpoCard({ wallet }: { wallet: WalletState }) {
+  const ceo = wallet.binding.accountId;
   const company = useStore((s) => s.company?.name ?? '');
   const [ipo, setIpoState] = useState<IpoState | null>(null);
   const was = useRef<IpoState['state'] | null>(null);
@@ -70,7 +71,8 @@ export function IpoCard({ ceo }: { ceo: string | null }) {
   };
   const checkRef = useRef(check);
   checkRef.current = check;
-  useEffect(() => { void load(); }, []);
+  // the wallet's funds unlock the listing: read it again whenever the wallet was (Fund, Refresh, a new key)
+  useEffect(() => { void load(); }, [wallet]);
   useEffect(() => {
     if (ipo?.state !== 'running' && ipo?.state !== 'awaiting_approval') return;
     const t = window.setInterval(() => void (ipo.state === 'running' ? load() : checkRef.current()), ipo.state === 'running' ? 3000 : APPROVAL_POLL_MS);

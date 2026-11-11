@@ -33,8 +33,8 @@ export function MoneyScreen() {
   const done = (x: WalletState) => { setW(x); refreshGame(); };
   return (
     <div className="money">
-      <WalletPager w={w} loadError={error} onChange={done} onRefresh={() => void load()} />
-      <IpoCard ceo={w.binding.accountId} />
+      <WalletPager w={w} loadError={error} onChange={done} onRefresh={() => void load().then(refreshGame)} />
+      <IpoCard wallet={w} />
       <p className="fine">Vibe City keeps the wallet's agent key on its server and gives it only to the floors that trade (Trading Desk, Prediction Desk, Treasury Ops). Spending limits are yours to set in OutLayer; Vibe City cannot read them back.</p>
     </div>
   );
