@@ -242,7 +242,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
     if (!id) { setProposalDone((x) => { const { [msgId]: _, ...rest } = x; return rest; }); return; }
     // the agent acknowledges, so the proposal's old reply chips ("say the word…") are gone
     setMessages((xs) => [...xs, { id: `ack:${msgId}`, from: 'agent', text: `On it, boss: "${p.title}" is on the board. I'll report back when it's done. Anything else?`,
-      mood: 'happy', replies: [SEE_BOARD, 'What are you working on?'], proposal: null, at: new Date().toISOString() }]);
+      mood: 'happy', replies: [SEE_BOARD, 'I have another job for you'], proposal: null, at: new Date().toISOString() }]);
   };
 
   if (!d) return null;
@@ -257,7 +257,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked }: { deptId: string;
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
       defaultReplies={blocked ? ["What's the problem?", 'What do you need from me?'] : ['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
       onSend={onSend} onClose={close}
-      farewell={farewellLine({ lead: agentKey === 'chief', task: agentKey === 'chief' ? null : worker?.status === 'running' ? worker.task : null, n: messages.length })}
+      {...(agentKey === 'chief' ? {} : { farewell: farewellLine({ task: worker?.status === 'running' ? worker.task : null, n: messages.length }) })}
       onNewChat={() => useStore.getState().ui$({ talk: { deptId, agentKey, session: 'new' } })}
       onProfile={() => { close(); useStore.getState().ui$({ agent: agentKey, panel: 'agent' }); }}
       cards={() => {

@@ -57,7 +57,6 @@ test('hand-off lines: short, the task named and clipped', () => {
 });
 
 test('chat sign-off: back to the task when there is one, else a goodbye', () => {
-  assert.equal(farewellLine({ lead: false, task: 'Scrape vendor pricing pages', n: 0 }), 'Alright, back to “Scrape vendor pricing pages”. Shout if you need me!');
-  assert.match(farewellLine({ lead: true, task: null, n: 3 }), /keep the floor moving/);
-  assert.ok(!farewellLine({ lead: false, task: null, n: 1 }).includes('“'));
+  assert.equal(farewellLine({ task: 'Scrape vendor pricing pages', n: 0 }), 'Alright, back to “Scrape vendor pricing pages”. Shout if you need me!');
+  assert.ok(!farewellLine({ task: null, n: 1 }).includes('“'));
 });

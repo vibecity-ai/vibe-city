@@ -216,9 +216,8 @@ const firstSentence = (x: string) => clip((x.split(/(?<=[.!?])\s|\n/)[0] ?? x).t
  * finishes; a nudge when it waits on the CEO or is stuck.
  */
 /** How an agent signs off when the CEO ends a chat: back to the task they are on, or a friendly goodbye. */
-export function farewellLine(o: { lead: boolean; task: string | null; n: number }): string {
+export function farewellLine(o: { task: string | null; n: number }): string {
   if (o.task) return [`Alright, back to “${clip(o.task, 40)}”. Shout if you need me!`, `Got it. Back to “${clip(o.task, 40)}” then. Talk soon, boss!`][Math.abs(Math.floor(o.n)) % 2]!;
-  if (o.lead) return 'Understood. I’ll keep the floor moving. Talk soon, boss!';
   return ['Anytime, boss. See you around!', 'Talk soon! I’ll be at my desk.'][Math.abs(Math.floor(o.n)) % 2]!;
 }
 
