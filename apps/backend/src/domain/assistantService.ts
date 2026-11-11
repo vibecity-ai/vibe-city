@@ -60,7 +60,7 @@ export class AssistantService {
       prompt: [
         `Skills installed in Hermes (only these can be granted): ${skills.join(', ') || 'unknown'}`,
         `Toolsets that can be granted: ${toolsets.join(', ')}`,
-        offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Prefer "Private TEE" models, then "Incognito (partner TEE)" ones (both run in an attested TEE, so the company\'s data stays sealed; plain "Incognito" ones are only relayed with identifying data stripped): near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
+        offered.length ? `Models Hermes offers (provider/model${prices?.size ? ', cheapest first; 1 credit = 1 US cent per agent per day' : ''}): ${offered.slice(0, 60).map(label).join(', ')}${prices?.size ? '. Pick a "Private TEE" model (sealed in NEAR AI\'s own TEE, so the company\'s data stays private); an "Incognito" one only when no Private TEE model fits the work or the boss names it, and say so: near-ai/deepseek-ai/DeepSeek-V4.1-Flash-1017 is the fast, cheap default; a cheaper one for simple chores, a pricey one only for hard reasoning or coding.' : ''}` : 'The model list is unavailable: use null for the model.',
       ].join('\n'),
       clamp: (raw) => clampDraft(raw, { skills, toolsets, offered, ...(prices ? { prices } : {}), ...(models?.current.model ? { current: models.current.model } : {}) }),
     };
