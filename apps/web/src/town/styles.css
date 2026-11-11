@@ -206,6 +206,15 @@ button { font: inherit; color: inherit; }
 .wrow::before { content: ""; position: absolute; left: -22px; top: 50%; width: 18px; height: 2px; background: repeating-linear-gradient(90deg, var(--n500) 0 2px, transparent 2px 4px); }
 .wrow.sel { --tf: var(--tf-cyan); --tb: var(--tb-cyan); }
 .wrow-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* chain of command: an agent's row with its model chip pinned to the right (a sibling button, not nested) */
+.cmd { position: relative; }
+.cmd > .chief-card, .cmd > .wrow { width: 100%; padding-right: 48px; }
+.mchip { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; cursor: pointer; background: #1D1629; border: 2px solid #3A2F4F; border-radius: 6px; transition: transform .1s, border-color .1s; }
+.cmd > .wrow + .mchip { top: 50%; transform: translateY(-50%); }
+.mchip.private { border-color: var(--mint); box-shadow: 0 0 6px rgba(124,245,180,.35); }
+.mchip:hover, .mchip:focus-visible { border-color: var(--gold); }
+.cmd > .chief-card + .mchip:hover { transform: translateY(-1px); }
+.mchip .mlogo { width: 18px; height: 18px; }
 .wrow-t small { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
 .empty-w { color: var(--ink-mute); font-size: 13px; padding: 10px 0; }
 .qmini { --sf: var(--sf-raised); --sb: var(--sb-raised); display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 10px 12px; cursor: pointer; }

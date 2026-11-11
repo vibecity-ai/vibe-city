@@ -36,15 +36,18 @@ export function pick<T>(list: readonly T[], seed: number, salt: number): T {
   return list[(hash(`${seed}:${salt}`) % list.length)]!;
 }
 
-export function generateCharacter(departmentId: string, deptName: string, agentKey: string): Character {
+/** `taken`: names already on the floor. A hash collision picks again, so two agents of one floor never share a name. */
+export function generateCharacter(departmentId: string, deptName: string, agentKey: string, taken: ReadonlySet<string> = new Set()): Character {
   const seed = hash(`${departmentId}:${agentKey}`);
+  let name = `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`;
+  for (let k = 1; taken.has(name) && k < 100; k++) name = `${pick(FIRST, seed, 100 + k)} ${pick(LAST, seed, 200 + k)}`;
   const role = agentKey === 'chief' ? 'chief' : 'worker';
   const t1 = pick(TRAITS, seed, 3);
   let t2 = pick(TRAITS, seed, 4);
   if (t2 === t1) t2 = TRAITS[(TRAITS.indexOf(t1) + 5) % TRAITS.length]!;
   return CharacterSchema.parse({
     departmentId, agentKey, role,
-    name: `${pick(FIRST, seed, 1)} ${pick(LAST, seed, 2)}`,
+    name,
     title: role === 'chief' ? `${deptName} lead` : `${deptName} specialist`,
     traits: [t1, t2],
     speechStyle: pick(STYLES, seed, 5),
@@ -82,7 +85,9 @@ export class CharacterService {
       const fresh = generateCharacter(departmentId, deptName, agentKey);
       return { ...c, title: fresh.title };
     }
-    const c = generateCharacter(departmentId, deptName, agentKey);
+    const taken = new Set((this.db.prepare("SELECT json_extract(character_json, '$.name') AS name FROM agent_character WHERE department_id = ?")
+      .all(departmentId) as { name: string }[]).map((r) => r.name));
+    const c = generateCharacter(departmentId, deptName, agentKey, taken);
     this.db.prepare('INSERT OR IGNORE INTO agent_character (department_id, agent_key, character_json, created_at) VALUES (?, ?, ?, ?)')
       .run(departmentId, agentKey, JSON.stringify(c), new Date().toISOString());
     return c;

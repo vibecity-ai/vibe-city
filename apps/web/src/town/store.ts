@@ -35,6 +35,7 @@ export type Fx =
 export type View = 'tower' | 'floor';
 export type Panel = 'exec' | 'dept' | 'settings' | 'board' | 'quest' | 'agent';
 export type DeptTab = 'overview' | 'tools' | 'skills' | 'env' | 'quests';
+export type AgentTab = 'now' | 'chat' | 'loadout' | 'record' | 'schedule';
 
 /** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
 export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
@@ -58,7 +59,7 @@ export interface DeptInfo {
 }
 
 interface UI {
-  view: View; floorId: string | null; panel: Panel; deptTab: DeptTab; questId: string | null;
+  view: View; floorId: string | null; panel: Panel; deptTab: DeptTab; agentTab: AgentTab; questId: string | null;
   modal: 'create' | 'archive' | null; composer: boolean; agent: string | null; boardFilter: 'all' | 'active' | 'attention' | 'finished'; boardBy: 'anyone' | 'user' | 'agent' | 'schedule';
   /** Company quest board: department filter (null = every department) and the department the composer starts with. */
   boardDept: string | null; composerDept: string | null;
@@ -157,7 +158,7 @@ export const useStore = create<State>((set) => ({
   busy: {},
   agents: {},
   liveDown: {},
-  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
+  ui: { view: 'tower', floorId: null, panel: 'exec', deptTab: 'overview', agentTab: 'now', questId: null, modal: null, composer: false, agent: null, boardFilter: 'all', boardDept: null, composerDept: null, questFrom: 'board', talk: null, call: null, boardQuest: null, newDept: false, marketDraft: false, boardBy: 'anyone', execRoom: false, execModal: null, scheduleDept: null, questLog: false, floorSheet: null, skillLib: null },
   toasts: [], fx: [], log: [],
   hiring: null,
   requests: [], game: null, market: null, origins: {}, schedules: [], personas: {},

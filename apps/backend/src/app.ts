@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ZodError, type ZodType } from 'zod';
 import {
-  CompanyRenameSchema, CompanyViewSchema, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
+  CompanyRenameSchema, CompanyViewSchema, DEFAULT_CHAT_MODEL, DEPARTMENT_ID_RE, DepartmentCreateSchema, templateById, DepartmentUpdateSchema, DepartmentViewSchema,
   InventoryPatchSchema, InventorySchema, ChatSessionIdSchema, HERMES_TASK_ID_RE, TaskAnswerSchema, TaskStepsViewSchema,
 } from '@vibe-city/shared';
 import {
@@ -137,7 +137,7 @@ export function buildApp(db: DatabaseSync, hermes?: HermesRuntime): FastifyInsta
 }
 
 /** The Chief of Staff's model when neither the CEO nor the env chose one (the container's NEAR_AI_MODEL default). */
-export const DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
+export { DEFAULT_CHAT_MODEL };
 
 /** The game state as the Chief of Staff reads it: CEO quests, money and what waits on the CEO. Estimates stay labelled. */
 function companyStatus(g: Awaited<ReturnType<typeof gameState>>): string {

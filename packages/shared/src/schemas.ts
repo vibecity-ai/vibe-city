@@ -20,6 +20,9 @@ export const AGENT_EXCLUDED_TOOLSETS = ['delegation', 'cronjob'] as const;
     `terminal` runs the skills' curl calls and scripts and base64-encodes a file for kanban_attach (without it agents
     borrowed CoinGecko's remote `execute` sandbox, sending company work to a third party). */
 export const REQUIRED_TOOLSETS = ['kanban', 'skills', 'terminal'] as const;
+/** NEAR AI's private DeepSeek (Private TEE): the Chief of Staff's model when nobody chose one, and a template floor's
+    when the template names none. */
+export const DEFAULT_CHAT_MODEL = 'deepseek-ai/DeepSeek-V4.1-Flash-1017';
 
 /** Agents a department may have besides its lead. Every agent is its own Hermes profile. */
 export const MAX_TEAMMATES = 10;

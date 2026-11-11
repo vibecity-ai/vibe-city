@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { AGENT_EXCLUDED_TOOLSETS, TOOLSETS, type AgentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
-import { floorNum, useStore, type QuestItem } from '../store';
+import { AGENT_EXCLUDED_TOOLSETS, DEFAULT_CHAT_MODEL, TOOLSETS, type AgentView, type HermesDefaultsView, type HermesModelsView, type ModelChoice, type QuestStatus, type SyncCheck, type TaskNode, type Toolset } from '@vibe-city/shared';
+import { floorNum, useStore, type AgentTab, type QuestItem } from '../store';
 import type { Dept } from '../data/types';
 import {
   archiveDepartment, cancelQuest, createDepartment, createQuest, fireAgent, loadAgent, setAgentModel, loadDeptInfo, loadHermesDefaults, loadHermesModels, loadQuest, patchInventory, provisionDepartment,
@@ -21,7 +21,7 @@ import { AttachTray, ReferenceFiles } from './QuestFiles';
 import { DeptEnvTab } from './DeptEnv';
 import { isMuted, onMuted, play, setMuted } from '../sfx';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
-import { modelOption, useModelInfo } from './ModelBadge';
+import { ModelLogo, modelOption, privacyOf, useModelInfo } from './ModelBadge';
 import { DeskSheet } from './Desk';
 import { Mark } from './Device';
 import { Wordmark } from './Wordmark';
@@ -178,31 +178,29 @@ export function DeptPanel() {
               <section className="pane-sec">
                 <h3 className="sec-t">Chain of command</h3>
                 {!d.chief && <p className="muted">No lead yet: the first sync creates {d.teamSize === 1 ? 'the lead’s Hermes profile' : `a Hermes profile for each of the ${d.teamSize} agents`}.</p>}
-                {d.chief && <><button type="button" className={`chief-card${sel === 'chief' ? ' sel' : ''}`} aria-pressed={sel === 'chief'} onClick={() => s.openPanel('agent', { agent: 'chief' })}>
+                {d.chief && <><div className="cmd"><button type="button" className={`chief-card${sel === 'chief' ? ' sel' : ''}`} aria-pressed={sel === 'chief'} onClick={() => s.openPanel('agent', { agent: 'chief' })}>
                   <span className="chief-top">
                     <Portrait shirt="#fff" chief size={44} />
                     <span>
                       <span className="chief-badges"><span className="role">Lead</span><Chip k={d.chief.status} small /></span>
                       <span className="chief-name"><AgentName deptId={d.id} agentKey="chief" /> <SkillBadges names={d.view.agents.find((a) => a.lead)?.skills ?? []} max={4} size={11} /></span>
-                      {d.chief.model && <span className="mono muted small">model · {d.chief.model}</span>}
                     </span>
                   </span>
                   <span className="chief-act"><span>{d.chief.activity}</span><span className="mono muted">since {d.chief.since}</span></span>
-                </button>
+                </button><ModelChip d={d} agentKey="chief" /></div>
                 <div className="tree">
                   {d.workers.map((w) => (
-                    <button key={w.id} className={`wrow${sel === w.id ? ' sel' : ''}`} aria-pressed={sel === w.id} onClick={() => s.openPanel('agent', { agent: w.id })}>
+                    <div key={w.id} className="cmd"><button className={`wrow${sel === w.id ? ' sel' : ''}`} aria-pressed={sel === w.id} onClick={() => s.openPanel('agent', { agent: w.id })}>
                       <Portrait shirt={w.shirt} size={28} />
                       <span className="wrow-t"><span><b><AgentName deptId={d.id} agentKey={w.id} /></b> <SkillBadges names={d.view.agents.find((a) => a.key === w.id)?.skills ?? []} max={3} size={10} /> <span className="muted">{w.task || 'No task'}</span></span>
                         <small style={{ color: statusColor(w.status) }}><Glyph k={w.status} />{w.taskId ? WORKER_WORD[w.status] : 'Free'} <span className="muted">· {w.status === 'completed' ? 'done' : 'since'} {w.since}</span></small>
                       </span>
-                    </button>
+                    </button><ModelChip d={d} agentKey={w.id} /></div>
                   ))}
                   {d.workers.length === 0 && <div className="empty-w">No teammates: the lead does the work itself. Hire to add agents that work in parallel.</div>}
                 </div>
                 <p className="mono muted small">{running + (d.chief.status === 'running' ? 1 : 0)} of {d.teamSize} agent{d.teamSize === 1 ? '' : 's'} working{d.teamSize > d.workers.length + 1 ? ` · ${d.teamSize - d.workers.length - 1} not drawn (no free desk)` : ''}</p></>}
               </section>
-              {d.view.agents.length > 0 && <TeamModels d={d} />}
               <section className="pane-sec">
                 <h3 className="sec-t">Active jobs</h3>
                 {active.length === 0 && <p className="muted">No active jobs. Give the lead an objective.</p>}
@@ -278,24 +276,21 @@ function PendingSync({ d }: { d: Dept }) {
 
 const DEPT_TAB_LABEL = { overview: 'Overview', tools: 'Tools', skills: 'Skills', env: 'Env', quests: 'Jobs' } as const;
 
-/** Every agent's model at a glance, each changeable in place (no need to open the agent). */
-function TeamModels({ d }: { d: Dept }) {
+/** An agent's model as its vendor's logo, ringed by its privacy (mint = Private TEE). One click opens the agent's
+    loadout, where it is changed. A sibling of the agent's row, never inside it (a button cannot hold a button). */
+function ModelChip({ d, agentKey }: { d: Dept; agentKey: string }) {
   const s = useStore();
-  const hermesModels = useHermesModels();
-  useEffect(() => { void loadDeptInfo(d.id); }, [d.id]);
-  const inv = s.info[d.id]?.inventory ?? null;
-  const saving = !!s.busy[`inv:${d.id}`] || syncing(s.busy, d);
+  const info = useModelInfo();
+  const id = d.view.agents.find((a) => a.key === agentKey)?.model?.id ?? s.info[d.id]?.inventory?.model?.id
+    ?? s.info[d.id]?.profiles?.agents.find((p) => p.key === agentKey)?.model ?? null;
+  const m = id ? info.get(id) : undefined;
+  const who = agentLabel(agentKey, s.personas[`${d.id}:${agentKey}`]);
+  const label = id ? `${who} thinks with ${id}${m ? ` (${privacyOf(m).label})` : ''}. Change it in the loadout.` : `${who}'s model is not known yet. Choose one in the loadout.`;
   return (
-    <section className="pane-sec team-models">
-      <h3 className="sec-t">Models</h3>
-      <p className="fine">Each agent thinks with its own model. A change reaches Hermes when you sync the floor.</p>
-      {d.view.agents.map((a) => (
-        <ModelPicker key={a.key} label={`${agentLabel(a.key, s.personas[`${d.id}:${a.key}`])}${a.lead ? ' · lead' : ''}`}
-          hint={(() => { const now = s.info[d.id]?.profiles?.agents.find((p) => p.key === a.key)?.model; return now ? `Hermes reports ${now}.` : ''; })()}
-          models={hermesModels.models} error={hermesModels.error} onRetry={() => void hermesModels.reload()}
-          value={a.model} fallback={inv?.model ?? undefined} disabled={saving} onChange={(m) => void setAgentModel(d.id, a.key, m)} />
-      ))}
-    </section>
+    <button type="button" className={`mchip ${m ? privacyOf(m).cls : ''}`} title={label} aria-label={label}
+      onClick={() => s.openPanel('agent', { agent: agentKey, agentTab: 'loadout' })}>
+      {id ? <ModelLogo id={id} icon={m?.icon} /> : <i className="mlogo">?</i>}
+    </button>
   );
 }
 
@@ -639,7 +634,8 @@ export function AgentPanel() {
   const loadKey = sel === 'chief' ? 'chief' : worker?.id ?? null;
   useEffect(() => { if (id && loadKey) void loadAgent(id, loadKey); }, [id, loadKey, d?.provisioning]);
   useEffect(() => { if (id) void loadDeptInfo(id); }, [id]);
-  const [tab, setTab] = useState<'now' | 'chat' | 'loadout' | 'record' | 'schedule'>('now');
+  const tab = s.ui.agentTab;
+  const setTab = (agentTab: AgentTab) => s.ui$({ agentTab });
   const [firing, setFiring] = useState(false);
   const agentKey = loadKey;
   const hermesModels = useHermesModels();
@@ -1224,13 +1220,20 @@ export function CreateDeptModal() {
     if (t) { setName(t.name); setPurpose(t.purpose); setWorkers(t.seats.length - 1); fromTemplate(t); }
   };
   const applyDefaults = (v: HermesDefaultsView, cat: HermesModelsView | null = catalog) => {
-    if (tpl) { fromTemplate(tpl); return; }
-    setToolsets(v.toolsets.filter((t) => t.enabled && t.manageable).map((t) => t.name).filter(isToolset));
-    setSkills(v.skills.filter((x) => x.enabled).map((x) => x.name));
     // The default profile's current pair, when Hermes offers it.
     const cur = cat?.current;
     const offered = cur?.provider && cur.model && cat!.providers.some((p) => p.slug === cur.provider && p.models.includes(cur.model!));
-    setModel(offered ? { provider: cur!.provider!, id: cur!.model! } : null);
+    const current = offered ? { provider: cur!.provider!, id: cur!.model! } : null;
+    if (tpl) {
+      fromTemplate(tpl);
+      // a template that names no model gets NEAR AI's private default when Hermes offers it, else the current one
+      const priv = cat?.providers.find((p) => p.models.includes(DEFAULT_CHAT_MODEL));
+      if (!tpl.inventory.model) setModel(priv ? { provider: priv.slug, id: DEFAULT_CHAT_MODEL } : current);
+      return;
+    }
+    setToolsets(v.toolsets.filter((t) => t.enabled && t.manageable).map((t) => t.name).filter(isToolset));
+    setSkills(v.skills.filter((x) => x.enabled).map((x) => x.name));
+    setModel(current);
   };
   const load = async () => {
     setLoading(true); setLoadErr(null);
