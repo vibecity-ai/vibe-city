@@ -79,9 +79,10 @@ export function ClaimStep({ deptId, claimed }: { deptId: string; claimed: boolea
 
 /** Step 2: the listing as the market reports it (read with the agent's token, so a Draft is visible too). Re-read on
     each backend poll until it is live. */
-function LiveStep({ deptId, handle, poll }: { deptId: string; handle: string; poll: string | null }) {
+function LiveStep({ deptId, handle, poll, onLive }: { deptId: string; handle: string; poll: string | null; onLive: () => void }) {
   const [status, setStatus] = useState<string | null>(null);
   const live = status === 'live';
+  useEffect(() => { if (live) onLive(); }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { if (!live) api.marketProfile(deptId).then((p) => setStatus(p.listingStatus)).catch(() => undefined); }, [deptId, poll, live]);
   return (
     <li className={live ? 'done' : ''}>
@@ -101,6 +102,8 @@ function MarketQuest() {
   const [m, setM] = useState<MarketView | null>(null);
   const s = useStore.getState();
   const depts = useStore((st) => st.depts);
+  const [live, setLive] = useState<Record<string, true>>({});
+  const onLive = (id: string) => setLive((x) => (x[id] ? x : { ...x, [id]: true }));
   // the backend polls the market every 45 s; the card follows it (and the quest log, once a job is paid)
   useEffect(() => {
     const load = () => api.market().then((v) => { setM(v); useStore.setState({ market: v }); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
@@ -125,9 +128,11 @@ function MarketQuest() {
   const checked = m.lastPollAt ? new Date(m.lastPollAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
   const name = (id: string) => depts.find((d) => d.id === id)?.view.name ?? 'the listed floor';
   const unlisted = depts.some((d) => !isInternalOnly(d.view.templateId) && !m.agents.some((a) => a.departmentId === d.id));
+  // one floor set up (claimed, live, open for work) is all the quest needs: the others' checklists would only distract
+  const setUp = m.agents.filter((a) => a.adoptedAt && live[a.departmentId] && a.ready);
   return (
     <div className="mk">
-      {m.agents.map((a) => (
+      {(setUp.length ? setUp : m.agents).map((a) => (
         <div key={a.departmentId} className="mk-agent">
           <div className="mk-id">
             <span className="chip sm mk-handle">@{a.handle}</span>
@@ -135,7 +140,7 @@ function MarketQuest() {
           </div>
           <ol className="mk-steps">
             <ClaimStep deptId={a.departmentId} claimed={!!a.adoptedAt} />
-            <LiveStep deptId={a.departmentId} handle={a.handle} poll={m.lastPollAt} />
+            <LiveStep deptId={a.departmentId} handle={a.handle} poll={m.lastPollAt} onLive={() => onLive(a.departmentId)} />
             <li className={a.ready ? 'done' : ''}>
               <span className="mk-n">{a.ready ? <Icon n="sparkle" size={11} /> : 3}</span>
               <span className="mk-t">{a.ready ? `${name(a.departmentId)} is open for work.` : `${name(a.departmentId)} is not synced with Hermes yet.`}</span>
