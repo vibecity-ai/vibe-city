@@ -184,3 +184,21 @@ test('a brief for a floor that does not exist is not silently dropped: the Chief
   assert.match(said.text, /no "Security Audits" floor/);
   assert.match(said.text, /Research/, 'names the floors it can scout for');
 });
+
+test('calling to hire for a floor starts fresh over an old talk about another floor or a cold one; a search under way is kept', async () => {
+  const { app, db, readyDept } = questApp({ chatModel: arModel(), hiringScoutMs: 60_000 });
+  const a = await readyDept('Research'), b = await readyDept('Red Team');
+  const start = async (departmentId?: string) => (await app.inject({ method: 'POST', url: '/api/hiring/requests', payload: departmentId ? { departmentId } : {} })).json();
+  const first = await start(a.id);
+  assert.equal((await start(a.id)).id, first.id, 'the same floor picks up its own talk');
+  const forB = await start(b.id);
+  assert.notEqual(forB.id, first.id, 'another floor gets its own talk');
+  assert.equal(forB.trigger.departmentId, b.id);
+  // a talk left for over half an hour is not picked up again, even with no floor named
+  db.prepare('UPDATE hiring_request SET updated_at = ? WHERE id = ?').run(new Date(Date.now() - 31 * 60_000).toISOString(), forB.id);
+  const fresh = await start();
+  assert.notEqual(fresh.id, forB.id);
+  // once scouting, the search is what any call shows
+  await app.inject({ method: 'POST', url: `/api/hiring/requests/${fresh.id}/brief`, payload: { brief: { departmentId: a.id, focus: 'Reading', skills: [], budgetPerDay: 100, notes: '' } } });
+  assert.equal((await start(b.id)).id, fresh.id);
+});

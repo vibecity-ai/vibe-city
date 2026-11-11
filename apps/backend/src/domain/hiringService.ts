@@ -39,6 +39,8 @@ export interface HiringDeps {
 const ACTIVE = new Set(['queued', 'planning', 'running', 'awaiting_input', 'in_review']);
 /** Don't call again about the same floor and reason within this window. */
 const QUIET_MS = 6 * 3600_000;
+/** A hiring talk untouched this long is over: the next call starts fresh instead of picking up an old conversation. */
+const STALE_TALK_MS = 30 * 60_000;
 
 interface Row {
   id: string; state: HiringState; trigger_json: string; department_id: string | null; brief_json: string | null;
@@ -87,9 +89,15 @@ export class HiringService {
     return t ? this.view(this.insert(t, 'ringing')) : null;
   }
 
-  /** The CEO calls AR (from the Exec Office or a floor). Reuses an open request. */
+  /** The CEO calls AR (from the Exec Office or a floor). Reuses an open request, unless it is only a talk (ringing or
+      intake, no search yet) about another floor, or one left cold: that one is closed and a fresh one starts. */
   start(departmentId?: string): HiringRequestView {
-    const open = this.openRow();
+    let open = this.openRow();
+    if (open && (open.state === 'ringing' || open.state === 'intake')
+      && ((departmentId && open.department_id !== departmentId) || this.now().getTime() - Date.parse(open.updated_at) > STALE_TALK_MS)) {
+      this.setState(open.id, 'closed');
+      open = undefined;
+    }
     if (open) return this.view(open.state === 'ringing' ? this.setState(open.id, 'intake') : open);
     let reason = 'You asked the Chief of Staff to hire.';
     if (departmentId) { const dept = this.d.departments.get(departmentId); reason = `You asked the Chief of Staff to hire for ${dept.name}.`; }
