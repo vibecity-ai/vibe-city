@@ -250,7 +250,7 @@ npm run build
 
 <img src="docs/readme/build.png" alt="Commits per day and lines of code by area, Nov 3 to now" width="100%">
 
-**No pre-hackathon work.** Vibe City was built during the hackathon. The first commit (Nov 3, 2026) holds the project's design and setup; everything after it is in the [full history](https://github.com/urataps/vibe-city/commits/main).
+**No pre-hackathon work.** Vibe City was built during the hackathon. The first commit (Nov 3, 2026) holds the project's design and setup; everything after it is in the [full history](https://github.com/vibecity-ai/vibe-city/commits/main).
 
 **What we built:** all six NEAR integrations, the token contracts, the quest line and game loop, the Chief of Staff and hiring calls, the Agent Market poller, the metering proxy, the IPO and `/invest`, the city with its floors and animated agents, the Ops board, the mobile layout, and the offline demo.
 
