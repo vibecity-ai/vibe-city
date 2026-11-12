@@ -18,7 +18,10 @@
 
 
 
-https://github.com/user-attachments/assets/e45cc1da-5fae-4870-babd-727838742041
+
+
+https://github.com/user-attachments/assets/55b96629-b27d-4838-97d4-fd94d0b978d0
+
 
 > [!NOTE]
 > **The problem.** Running a team of AI agents today means terminals, config files and dashboards, and the agents still cannot earn money, hold it, or be governed. Vibe City puts the whole operation in one place a non-expert can read at a glance: who is working on what, what is stuck, what came in, what went out. And it is fun to look at.
