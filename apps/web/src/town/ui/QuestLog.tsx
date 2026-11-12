@@ -9,10 +9,10 @@ import { api, ApiError } from '../../api';
 import { Icon } from './kit';
 import { DeskSheet } from './Desk';
 import { acts, nextQuest, progressLabel, questTarget, sideQuests } from '../data/game';
-import { clock } from '../data/derive';
 import { ChiefOfStaffSetup } from './ChiefOfStaff';
 
 /** The caps OutLayer's connector needs before it opens orders (a stored policy is fail-closed without them). */
+const CONNECTOR_CAPS = { hyperliquid: 'max order, max daily volume and max leverage', polymarket: 'max order and max daily volume' } as const;
 
 /** Store the connector policy on OutLayer for the company wallet, then check: one status call, from the wallet's trial. */
 function ConnectorQuest({ name }: { name: 'hyperliquid' | 'polymarket' }) {
@@ -31,13 +31,13 @@ function ConnectorQuest({ name }: { name: 'hyperliquid' | 'polymarket' }) {
   return (
     <div className="ql-gh">
       <p className="ql-note">
-        {/* the quest line above already lists the caps: this only adds the link and the account */}
-        On <a href={`https://app.outlayer.ai/connect/${name}`} target="_blank" rel="noreferrer">OutLayer's {name} page</a>, enter the company wallet's account:
+        On <a href={`https://app.outlayer.ai/connect/${name}`} target="_blank" rel="noreferrer">OutLayer's {name} page</a>, set
+        the {CONNECTOR_CAPS[name]}, and enter the company wallet's account:
       </p>
       <code className="ql-acct">{account}</code>
       <div className="ql-gh-row">
         <button className="btn secondary small" type="button" onClick={() => void navigator.clipboard?.writeText(account)}>Copy account</button>
-        <button className="btn secondary small" type="button" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check'}</button>
+        <button className="btn primary small" type="button" disabled={busy} onClick={check}>{busy ? 'Checking…' : 'Check'}</button>
       </div>
       {note && <p className="ql-note" role="status">{note}</p>}
     </div>
@@ -135,7 +135,7 @@ function MarketQuest() {
     );
   }
 
-  const checked = m.lastPollAt ? clock(m.lastPollAt) : null;
+  const checked = m.lastPollAt ? new Date(m.lastPollAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
   const name = (id: string) => depts.find((d) => d.id === id)?.view.name ?? 'the listed floor';
   const unlisted = depts.some((d) => !isInternalOnly(d.view.templateId) && !m.agents.some((a) => a.departmentId === d.id));
   // one floor set up (claimed, live, open for work) is all the quest needs: the others' checklists would only distract

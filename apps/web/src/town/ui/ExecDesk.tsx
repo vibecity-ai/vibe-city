@@ -7,7 +7,7 @@
 import { useStore, floorNum } from '../store';
 import { Device, Screen } from './Device';
 import { deptStatus, statusColor } from './kit';
-import { blockedQuests, trayQuests } from '../data/company';
+import { blockedQuests } from '../data/company';
 import { KIND, openDecision } from './DecisionsList';
 import { useEffect, useState } from 'react';
 import type { AiUsageSummary } from '@vibe-city/shared';
@@ -42,7 +42,7 @@ export function InTray() {
   const name = (id: string | null | undefined) => depts.find((d) => d.id === id)?.name ?? 'A floor';
   const slips: { key: string; stamp: string; tone: 'bad' | 'warn'; title: string; sub: string; act: string; go: () => void }[] = [];
   for (const d of game?.decisions ?? []) slips.push({ key: d.id, stamp: KIND[d.kind].label, tone: d.kind === 'budget' ? 'bad' : 'warn', title: d.title, sub: name(d.departmentId), act: KIND[d.kind].label, go: () => openDecision(d.href) });
-  for (const q of trayQuests(quests, game?.decisions ?? [])) {
+  for (const q of blockedQuests(quests)) {
     const c = q.summary.counts;
     slips.push({ key: q.summary.id, stamp: c.failed ? 'Stuck' : 'Answer', tone: c.failed ? 'bad' : 'warn', title: q.summary.title,
       sub: `${name(q.deptId)} · ${c.blocked ? `${c.blocked} waiting for you` : ''}${c.blocked && c.failed ? ' · ' : ''}${c.failed ? `${c.failed} stuck after failing` : ''}`,

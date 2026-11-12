@@ -4,13 +4,12 @@ import type { QuestStatus } from '@vibe-city/shared';
 import type { AgentStatus, DeptState } from '../data/types';
 
 /* Status: shape + colour + word, never colour alone (design system rule). */
-export type StatusKey = AgentStatus | 'blocked' | 'todo' | 'connected' | 'attention';
+export type StatusKey = AgentStatus | 'blocked' | 'todo' | 'connected';
 const S: Record<StatusKey, { c: string; label: string; bg: string }> = {
   running: { c: '#2EE6F0', label: 'Running', bg: 'rgba(46,230,240,0.12)' },
   idle: { c: '#B3ACDD', label: 'Idle', bg: 'rgba(179,172,221,0.12)' },
   completed: { c: '#7CF5B4', label: 'Completed', bg: 'rgba(124,245,180,0.12)' },
   failed: { c: '#FF5C7A', label: 'Failed', bg: 'rgba(255,92,122,0.14)' },
-  attention: { c: '#FF5C7A', label: 'Needs attention', bg: 'rgba(255,92,122,0.14)' },
   disconnected: { c: '#9A94B8', label: 'Disconnected', bg: 'transparent' },
   awaiting: { c: '#FFB547', label: 'Awaiting config', bg: 'rgba(255,181,71,0.12)' },
   blocked: { c: '#FF9A55', label: 'Blocked', bg: 'rgba(255,138,61,0.14)' },
@@ -27,8 +26,6 @@ export function Glyph({ k, size = 10 }: { k: StatusKey; size?: number }) {
     completed: <path d="M1 5.2L4 8.2L9.2 1.8" stroke={c} strokeWidth="2.4" fill="none" strokeLinecap="square" />,
     connected: <path d="M1 5.2L4 8.2L9.2 1.8" stroke={c} strokeWidth="2.4" fill="none" strokeLinecap="square" />,
     failed: <path d="M1.5 1.5L8.5 8.5M8.5 1.5L1.5 8.5" stroke={c} strokeWidth="2.4" fill="none" strokeLinecap="square" />,
-    // "!", not the failed x: next to a button an x reads as close/remove
-    attention: <path d="M3.8 0H6.2V6.2H3.8ZM3.8 7.6H6.2V10H3.8Z" fill={c} />,
     disconnected: <path d="M1.5 1.5H8.5V8.5H1.5Z" stroke={c} strokeWidth="1.6" fill="none" />,
     awaiting: <path d="M5 0.6L9.6 9.4H0.4Z" fill={c} />,
     blocked: <path d="M2 1H4V9H2ZM6 1H8V9H6Z" fill={c} />,
@@ -52,7 +49,7 @@ export function Where({ n, tone, children }: { n: string; tone?: 'cyan' | 'gold'
 
 export const deptStatus = (s: DeptState): { k: StatusKey; label: string } => ({
   active: { k: 'running' as StatusKey, label: 'Active' }, idle: { k: 'idle' as StatusKey, label: 'Idle' },
-  attention: { k: 'attention' as StatusKey, label: 'Needs attention' }, offline: { k: 'disconnected' as StatusKey, label: 'Disconnected' },
+  attention: { k: 'failed' as StatusKey, label: 'Needs attention' }, offline: { k: 'disconnected' as StatusKey, label: 'Disconnected' },
   unconfigured: { k: 'awaiting' as StatusKey, label: 'Unconfigured' },
 })[s];
 export const questStatus = (s: QuestStatus): StatusKey => ({

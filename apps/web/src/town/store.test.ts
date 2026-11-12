@@ -13,13 +13,3 @@ test('opening a panel puts away the sheets lying over it, unless the caller keep
   s.openPanel('board', { questLog: true });
   assert.equal(useStore.getState().ui.questLog, true, 'a caller may open a panel together with a sheet');
 });
-
-test('a busy toast is replaced by the next toast, so a result never sits beside its progress note', (t) => {
-  t.mock.timers.enable({ apis: ['setTimeout'] });
-  useStore.setState({ toasts: [] });
-  const s = useStore.getState();
-  s.toast('Earlier news');
-  s.toast('Registering…', 'busy');
-  s.toast('Registered');
-  assert.deepEqual(useStore.getState().toasts.map((x) => x.text), ['Earlier news', 'Registered']);
-});

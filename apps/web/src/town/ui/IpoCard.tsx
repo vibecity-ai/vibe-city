@@ -138,8 +138,6 @@ function Prospectus({ ipo, ceo, company, busy, checking, err, onLaunch, onCheck 
             <label><span>Ticker symbol</span><input value={symbol} disabled={tokenFixed} maxLength={8} onChange={(e) => setSymbol(e.target.value.toUpperCase())} spellCheck={false} /></label>
           </form>
         )}
-        {/* a disabled bell says why */}
-        {!started && !ok && <p className="xb-fine">{!account.trim() ? 'Enter your NEAR account to ring the bell.' : 'Ticker: 2 to 8 letters or digits, starting with a letter.'}</p>}
       </>}
       {problem && <p className="xb-err" role="alert">{problem}</p>}
       <div className="xb-actions">
