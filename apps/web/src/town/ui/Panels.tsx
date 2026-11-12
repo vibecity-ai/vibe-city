@@ -172,7 +172,7 @@ export function DeptPanel() {
               <div className="banner bad"><Glyph k="disconnected" /><div><b>Hermes resources not verified</b><p>{d.attention}. Agents can’t receive new work until this floor is verified again.</p>
                 <Btn kind="destructive" busy={busyProv} disabled={busyProv} onClick={() => void provisionDepartment(d.id)}>{busyProv ? 'Syncing…' : 'Sync'}</Btn></div></div>
             )}
-            {d.state === 'attention' && d.attention && d.provisioning !== 'error' && <div className="banner bad"><Glyph k="failed" /><div><b>Needs attention</b><p>{d.attention}</p></div></div>}
+            {d.state === 'attention' && d.attention && d.provisioning !== 'error' && <div className="banner bad"><Glyph k="attention" /><div><b>Needs attention</b><p>{d.attention}</p></div></div>}
             {(d.provisioning === 'unconfigured' || d.provisioning === 'error' || busyProv) && <PendingSync d={d} />}
           </div>
           {tab === 'overview' && (
