@@ -28,7 +28,8 @@ test('characters are deterministic per seat and stored on first use', async () =
   const w = (await app.inject(`/api/departments/${json.id}/characters/W-01`)).json();
   assert.equal(w.role, 'worker');
   assert.notEqual(w.name, '');
-  assert.deepEqual(generateCharacter(json.id, 'Research', 'W-01'), w);
+  // the lead was stored first, so the teammate's name is picked with the lead's name taken (a rare hash collision re-picks)
+  assert.deepEqual(generateCharacter(json.id, 'Research', 'W-01', new Set([a.name])), w);
 });
 
 test('without a provisioned profile, history says so and sending is 503', async () => {
