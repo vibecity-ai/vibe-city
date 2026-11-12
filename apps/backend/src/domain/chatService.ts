@@ -175,7 +175,9 @@ export class ChatService {
       `In this window you appear as ${ch.name}, ${ch.title}. Personality: ${ch.traits.join(', ')}. Way of speaking: ${ch.speechStyle}. Quirk: ${ch.quirk}. You call the CEO "boss". Keep the character light; being right matters more.`,
       taskTitle ? `Your current task on the board: "${taskTitle}".` : '',
       blocked ? [
-        `The boss opened this chat about your task "${blocked.title}", which is blocked waiting for their input.${blocked.reason ? ` The reason you gave when blocking it: "${blocked.reason}"` : ''}`,
+        blocked.failed
+          ? `The boss opened this chat about your task "${blocked.title}", which failed and stopped after repeated attempts.${blocked.reason ? ` The error: "${blocked.reason}"` : ''} Explain plainly what happened and what would make a retry work. The boss can retry it as it is from this window.`
+          : `The boss opened this chat about your task "${blocked.title}", which is blocked waiting for their input.${blocked.reason ? ` The reason you gave when blocking it: "${blocked.reason}"` : ''}`,
         'Explain plainly what is wrong and exactly what you need from the boss to carry on. Ask follow-up questions until it is clear.',
         'Once the boss has given you what the task needs, add "resume" to the final tag: their answer, written as a short instruction for the task (it is posted on the task as their comment and the task is resumed). Leave it out until then.',
       ].join(' ') : '',

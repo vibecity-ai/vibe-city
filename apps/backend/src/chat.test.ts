@@ -211,6 +211,9 @@ test('a chat about a blocked task tells the agent why it is blocked, and its res
   assert.equal(r.json().agent.resume, 'Skip the install; document the 5 commands.');
   assert.match(agentChat.turns[0]!.system, /"Install skills", which is blocked .*No shell access/);
   assert.equal(parseAgentReply('Hi.\n<vc>{"mood":"happy","replies":[],"proposal":null}</vc>').resume, undefined);
+  // a failed task: the agent is told it failed, with the error, and that the boss can retry it
+  await app.inject({ method: 'POST', url: `/api/departments/${d.id}/characters/chief/chat`, payload: { message: 'What happened?', blockedTask: { title: 'Scrape A', reason: 'HTTP 403', failed: true } } });
+  assert.match(agentChat.turns[1]!.system, /"Scrape A", which failed .*The error: "HTTP 403".*retry it/);
 });
 
 test('a lead that phoned about a finished quest is told to report on it, reading the task files first', async () => {

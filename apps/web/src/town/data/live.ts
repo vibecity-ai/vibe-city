@@ -457,11 +457,14 @@ export async function cancelQuest(deptId: string, questId: string) {
   await refreshDept(deptId);
 }
 
+/** What the boss posts on a failed task to retry it as it is. */
+export const RETRY = 'Retry the task as it is.';
+
 /** Answers a blocked task (posted on the task as the boss's comment) and resumes it. */
 export async function answerTask(deptId: string, questId: string, taskId: string, message: string): Promise<boolean> {
   const out = await run(`answer:${taskId}`, 'Could not send your answer', () => api.answerTask(deptId, questId, taskId, message));
   if (!out) return false;
-  st().toast('Answer sent. The task is back in the queue.', 'good');
+  st().toast(message === RETRY ? 'Retrying. The task is back in the queue.' : 'Answer sent. The task is back in the queue.', 'good');
   await Promise.all([loadQuest(deptId, questId, true), refreshDept(deptId)]);
   return true;
 }

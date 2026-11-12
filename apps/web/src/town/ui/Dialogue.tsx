@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import type { Character, ChatMessage, ChatProgress, ChatProposal, Mood } from '@vibe-city/shared';
 import { useStore, type BlockedTalk } from '../store';
 import { api, ApiError } from '../../api';
-import { answerTask, createQuest } from '../data/live';
+import { answerTask, createQuest, RETRY } from '../data/live';
 import { agentLabel, farewellLine, nameProfiles } from '../data/views';
 import { lookFor, quirkProp, type Look } from '../world/sprites';
 import { portrait, type Gag } from '../world/portrait';
@@ -231,8 +231,10 @@ function AgentDialogue({ deptId, agentKey, session, blocked, report }: { deptId:
   const status = agentKey === 'chief' ? d?.chief?.status : worker?.status;
   const greeting = !ch ? '' : report
     ? `${ch.name} here. "${report}" is done, boss. Let me pull up what we got.`
+    : blocked?.failed
+    ? `${ch.name} here. "${blocked.title}" failed and I stopped${blocked.reason ? `: ${blocked.reason}` : '.'} Retry it as it is, or tell me what to do differently.`
     : blocked
-    ? `${ch.name} here. I'm stuck on "${blocked.title}" and need your input before I can carry on.`
+    ? `${ch.name} here. I'm stuck on "${blocked.title}"${blocked.reason ? `: ${blocked.reason}` : ''}. Tell me what to do and I'll carry on.`
     : agentKey === 'chief'
     ? `${ch.name}. ${d?.chief?.activity && d.chief.activity !== 'Waiting for a job' ? d.chief.activity + '.' : 'Nothing on my desk right now.'} What do you need, boss?`
     : `${ch.name} here. ${worker ? `Working on "${worker.task}".` : ''} What's up, boss?`;
@@ -242,7 +244,7 @@ function AgentDialogue({ deptId, agentKey, session, blocked, report }: { deptId:
     setError(null); setWaiting(true); setProgress(null);
     setMessages((xs) => [...xs, { id: 'pending', from: 'user', text: m, mood: null, replies: [], proposal: null, at: new Date().toISOString() }]);
     try {
-      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}), ...(blocked ? { blockedTask: { title: blocked.title, reason: blocked.reason } } : {}), ...(report ? { finishedQuest: { title: report } } : {}) }, (p) => setProgress(progressLabel(p)));
+      const r = await api.chatStream(deptId, agentKey, { message: m, ...(worker ? { taskTitle: worker.task } : {}), ...(sessionId ? { sessionId } : {}), ...(blocked ? { blockedTask: { title: blocked.title, reason: blocked.reason, failed: blocked.failed } } : {}), ...(report ? { finishedQuest: { title: report } } : {}) }, (p) => setProgress(progressLabel(p)));
       setMessages((xs) => [...xs.filter((x) => x.id !== 'pending'), r.user, r.agent]);
       return true;
     } catch (e) {
@@ -279,31 +281,33 @@ function AgentDialogue({ deptId, agentKey, session, blocked, report }: { deptId:
       who={ch} look={look} lines={lines} ready={ready} waiting={waiting} status={progress} error={error} greeting={greeting}
       notReady="I don't have a desk in Hermes yet. Sync this floor with Hermes first, then we can talk."
       baseMood={status === 'failed' ? 'worried' : status === 'running' ? 'focused' : 'neutral'}
-      defaultReplies={blocked ? ["What's the problem?", 'What do you need from me?'] : ['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
+      defaultReplies={blocked ? [blocked.failed ? 'What happened?' : "What's the problem?", 'What do you need from me?'] : ['What are you working on?', 'How is the floor doing?', 'I have a job for you']}
       onSend={onSend} onClose={close}
       {...(agentKey === 'chief' ? {} : { farewell: farewellLine({ task: worker?.status === 'running' ? worker.task : null, n: messages.length }) })}
       onNewChat={() => useStore.getState().ui$({ talk: { deptId, agentKey, session: 'new' } })}
       onProfile={() => { close(); useStore.getState().ui$({ agent: agentKey, panel: 'agent' }); }}
       cards={() => {
-        if (!last) return null;
-        if (blocked && resumed[last.id] === 'sent') return <p className="dlg-note">Sent. "{blocked.title}" is back in the queue.</p>;
-        if (blocked && last.resume && resumed[last.id] !== 'dismissed') {
-          const r = last.resume;
-          const go = async () => {
-            setResumed((x) => ({ ...x, [last.id]: 'sending' }));
-            const ok = await answerTask(deptId, blocked.questId, blocked.taskId, r);
-            setResumed((x) => (ok ? { ...x, [last.id]: 'sent' } : (({ [last.id]: _, ...rest }) => rest)(x)));
+        // the task this chat is about: resumed with the agent's suggestion once the boss answered, or (failed) retried as it is
+        if (blocked && resumed.task === 'sent') return <p className="dlg-note">Sent. "{blocked.title}" is back in the queue.</p>;
+        const suggestion = blocked && last?.resume && resumed[last.id] !== 'dismissed' ? last.resume : null;
+        if (blocked && (suggestion || blocked.failed)) {
+          const go = async (message: string) => {
+            setResumed((x) => ({ ...x, task: 'sending' }));
+            const ok = await answerTask(deptId, blocked.questId, blocked.taskId, message);
+            setResumed((x) => (ok ? { ...x, task: 'sent' } : (({ task: _, ...rest }) => rest)(x)));
           };
+          const sending = resumed.task === 'sending';
           return (
             <div className="dlg-prop">
-              <div><span className="dlg-tag">Resume the task</span><b>{blocked.title}</b><span>{r}</span></div>
+              <div><span className="dlg-tag">{suggestion ? 'Resume the task' : 'Failed task'}</span><b>{blocked.title}</b><span>{suggestion ?? blocked.reason ?? 'It stopped after failing.'}</span></div>
               <div className="dlg-prop-act">
-                <button className="btn primary small" disabled={resumed[last.id] === 'sending'} onClick={() => void go()}>{resumed[last.id] === 'sending' ? 'Sending…' : 'Resume with this'}</button>
-                <button className="btn small" onClick={() => setResumed((x) => ({ ...x, [last.id]: 'dismissed' }))}>Not yet</button>
+                <button className="btn primary small" disabled={sending} onClick={() => void go(suggestion ?? RETRY)}>{sending ? 'Sending…' : suggestion ? 'Resume with this' : 'Retry'}</button>
+                {suggestion && <button className="btn small" onClick={() => setResumed((x) => ({ ...x, [last!.id]: 'dismissed' }))}>Not yet</button>}
               </div>
             </div>
           );
         }
+        if (!last) return null;
         if (proposalDone[last.id] === 'started') return <p className="dlg-note">Job sent to the board. Watch the Ops board.</p>;
         if (!last.proposal || proposalDone[last.id]) return null;
         const p = last.proposal;

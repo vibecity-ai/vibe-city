@@ -455,6 +455,10 @@ select.input { cursor: pointer; }
 .input[aria-invalid="true"] { --sf: var(--sf-red); --sb: var(--sb-red); }
 fieldset.plain { border: 0; padding: 0; margin: 8px 0 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .banner.inline-b { margin: 10px 0; }
+.banner.needs-input { align-items: flex-start; padding: 12px; border: 1px solid rgba(240,165,60,.45); border-radius: 10px; }
+.banner.needs-input.bad { border: 1px solid rgba(255,92,122,.45); background: rgba(255,92,122,.07); }
+.banner.needs-input > div { min-width: 0; }
+.banner.needs-input p { overflow-wrap: anywhere; }
 .banner.good { border: 1px solid rgba(111,214,154,.45); background: rgba(111,214,154,.06); }
 .row.wrap { flex-wrap: wrap; }
 .prov-state { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 6px 0 10px; }
