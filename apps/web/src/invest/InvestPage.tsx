@@ -1,12 +1,13 @@
-/* The public subscription page (/invest), drawn as a stock certificate: anyone connects a NEAR wallet and calls `buy`
-   on the company's city token, which sends shares at the fixed offering price and forwards the NEAR to the company's
-   DAO. The wax seal is the subscribe button. */
+/* The public subscription page (/invest), the Vibe City Exchange: the city at night behind one glass card. Anyone
+   connects a NEAR wallet and calls `buy` on the company's city token, which sends shares at the fixed offering price
+   and forwards the NEAR to the company's DAO. */
 import { useEffect, useState, type ReactNode } from 'react';
 import { NearConnector } from '@hot-labs/near-connect';
 import type { IpoState } from '@vibe-city/shared';
 import { api, ApiError, DEMO } from '../api';
 import { fmtNear } from '../town/ui/IpoCard';
 import { estimateTokens, nearToYocto } from './buy';
+import { Wordmark } from '../town/ui/Wordmark';
 import '../town/fonts.css';
 import '../town/styles.css';
 
@@ -63,22 +64,22 @@ export function InvestPage() {
   }, [token, account, tx]);
 
   const paper = (body: ReactNode) => (
-    <main className="invest">
-      <article className="cert" aria-label={`${name || 'Vibe City company'} share certificate`}>
-        <div className="cert-inner">
-          <header className="cert-head">
-            <span className="cert-no">{ipo?.symbol ?? ''}</span>
-            <span className="cert-kicker">Vibe City · Certificate of shares</span>
-            <span className="cert-no">{ipo?.offer ? `${ipo.offer.supply.toLocaleString()} shares` : ''}</span>
-          </header>
-          <h1 className="cert-name">{name || 'A Vibe City company'}</h1>
-          {body}
-        </div>
+    <main className="vx">
+      <Skyline />
+      <header className="vx-top">
+        <a className="vx-brand" href="/" aria-label="Vibe City"><Wordmark height={22} /></a>
+        <span className="vx-ex">Exchange</span>
+        {ipo?.symbol && <span className="vx-sym">{ipo.symbol}</span>}
+      </header>
+      <article className="vx-card" aria-label={`${name || 'Vibe City company'} shares`}>
+        <span className="vx-kicker">City shares{ipo?.offer ? ` · ${ipo.offer.supply.toLocaleString()} shares` : ''}</span>
+        <h1 className="vx-name">{name || 'A Vibe City company'}</h1>
+        {body}
       </article>
     </main>
   );
-  if (!ipo) return paper(err ? <p className="cert-err" role="alert">{err}</p> : <p className="cert-text">Loading…</p>);
-  if (!token) return paper(<p className="cert-text">This company has not gone public yet. Its shares will be offered here when it rings the opening bell.</p>);
+  if (!ipo) return paper(err ? <p className="vx-err" role="alert">{err}</p> : <p className="vx-text">Loading…</p>);
+  if (!token) return paper(<p className="vx-text">This company has not gone public yet. Its shares will be offered here when it rings the opening bell.</p>);
 
   const sale = ipo.sale, offer = ipo.offer;
   const float = sale ? sale.sold + sale.remaining : 0;
@@ -109,48 +110,70 @@ export function InvestPage() {
 
   const connect = () => (DEMO ? setAccount(DEMO_ACCOUNT) : void near().connect().catch((e) => setErr(errText(e))));
   const disconnect = () => (DEMO ? (setAccount(null), setBalance(null)) : void near().disconnect());
-  const holder = account ?? '______________________';
+  const pct = sale && float ? (sale.sold / float) * 100 : 0;
   return paper(<>
-    <p className="cert-sub">City shares · <b>{ipo.symbol}</b> · offered at <b>{offer ? fmtNear(offer.priceNear) : '—'} NEAR</b> a share{offer && <> (≈ ${(offer.priceNear * offer.nearUsd).toFixed(4)})</>}</p>
-    <p className="cert-text">
-      This certifies that <span className="cert-fill">{holder}</span> is the registered holder of{' '}
-      <span className="cert-fill">{account ? (balance === null ? '…' : balance.toLocaleString(undefined, { maximumFractionDigits: 6 })) : '____'}</span> fully paid shares of{' '}
-      {name || 'the company'}, transferable on the NEAR blockchain at <a href={`${NB}/address/${token}`} target="_blank" rel="noreferrer">{token}</a>.
-    </p>
+    <dl className="vx-stats">
+      <div><dt>Offer price</dt><dd>{offer ? fmtNear(offer.priceNear) : '—'}<small>NEAR</small></dd>{offer && <span>≈ ${(offer.priceNear * offer.nearUsd).toFixed(4)} a share</span>}</div>
+      <div><dt>Raised</dt><dd>{sale ? fmtNear(sale.raisedNear) : '0'}<small>NEAR</small></dd><span>{sale ? `${sale.buyers} holder${sale.buyers === 1 ? '' : 's'}` : 'Not open yet'}</span></div>
+    </dl>
     {sale && (
-      <div className="cert-offering">
-        <span><b>{sale.sold.toLocaleString(undefined, { maximumFractionDigits: 2 })}</b> of {float.toLocaleString()} offered shares subscribed</span>
-        <span className="cert-meter" role="progressbar" aria-label="Offered shares subscribed" aria-valuenow={Math.round(float ? (sale.sold / float) * 100 : 0)} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.max(float ? (sale.sold / float) * 100 : 0, sale.sold > 0 ? 1 : 0)}%` }} /></span>
-        <span>{fmtNear(sale.raisedNear)} NEAR raised by the company · {sale.buyers} holder{sale.buyers === 1 ? '' : 's'}</span>
+      <div className="vx-offering">
+        <div className="vx-offering-h"><span>Offered shares subscribed</span><b>{sale.sold.toLocaleString(undefined, { maximumFractionDigits: 2 })} <small>/ {float.toLocaleString()}</small></b></div>
+        <span className="vx-meter" role="progressbar" aria-label="Offered shares subscribed" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}><i style={{ width: `${Math.max(pct, sale.sold > 0 ? 1 : 0)}%` }} /></span>
       </div>
     )}
 
     {sale?.open ? (
-      <form className="cert-sub-form" onSubmit={(e) => { e.preventDefault(); if (canBuy) void buy(); }}>
-        <label>
-          <span>Subscribe with</span>
-          <input inputMode="decimal" placeholder="0.00" aria-label="NEAR to invest" value={amount} disabled={!account} onChange={(e) => setAmount(e.target.value.trim())} />
-          <span>NEAR {deposit && offer ? <>for <b>≈ {estimate.toLocaleString(undefined, { maximumFractionDigits: 3 })}</b> shares</> : ''}</span>
+      <form className="vx-buy" onSubmit={(e) => { e.preventDefault(); if (canBuy) void buy(); }}>
+        <label className="vx-amount">
+          <span className="vx-lbl">You pay</span>
+          <span className="vx-field"><input inputMode="decimal" placeholder="0.00" aria-label="NEAR to invest" value={amount} disabled={!account} onChange={(e) => setAmount(e.target.value.trim())} /><b>NEAR</b></span>
+          <span className="vx-est">{deposit && offer ? <>You get <b>≈ {estimate.toLocaleString(undefined, { maximumFractionDigits: 3 })}</b> {ipo.symbol}</> : account ? 'Enter an amount' : 'Connect a wallet to subscribe'}</span>
         </label>
-        {deposit && !balance && <small>A first subscription keeps about 0.0033 NEAR to open your share account.</small>}
-        <div className="cert-seal-row">
-          {account
-            ? <button className="seal" type="submit" disabled={!canBuy} aria-label="Subscribe"><span>{busy ? 'Signing' : 'Subscribe'}</span></button>
-            : <button className="seal" type="button" onClick={connect} aria-label="Connect a NEAR wallet"><span>{DEMO ? 'Connect demo wallet' : 'Connect wallet'}</span></button>}
-          {account && <button className="cert-link" type="button" onClick={disconnect}>Not {short(account)}? Disconnect</button>}
-        </div>
+        {deposit && !balance && <small className="vx-note">A first subscription keeps about 0.0033 NEAR to open your share account.</small>}
+        {account
+          ? <button className="btn primary lg block" type="submit" disabled={!canBuy}>{busy ? 'Signing…' : `Subscribe to ${ipo.symbol}`}</button>
+          : <button className="btn primary lg block" type="button" onClick={connect}>{DEMO ? 'Connect demo wallet' : 'Connect a NEAR wallet'}</button>}
+        {account && <p className="vx-acct"><span>{short(account)} holds <b>{balance === null ? '…' : balance.toLocaleString(undefined, { maximumFractionDigits: 6 })}</b> {ipo.symbol}</span><button className="vx-link" type="button" onClick={disconnect}>Disconnect</button></p>}
       </form>
-    ) : sale && <p className="cert-text"><b>The offering is closed.</b> The company's books are shut; shares now move only between holders.</p>}
+    ) : sale && <p className="vx-text"><b>The offering is closed.</b> Shares now move only between holders.</p>}
 
-    {tx && <p className="cert-text" role="status">{tx.ok ? 'Subscribed. Your shares are on the register.' : 'The transaction failed.'} {tx.hash && <a href={`${NB}/txns/${tx.hash}`} target="_blank" rel="noreferrer">View the transaction</a>}</p>}
-    {err && <p className="cert-err" role="alert">{err}</p>}
+    {tx && <p className={`vx-tx${tx.ok ? '' : ' bad'}`} role="status">{tx.ok ? 'Subscribed. Your shares are on the register.' : 'The transaction failed.'} {tx.hash && <a href={`${NB}/txns/${tx.hash}`} target="_blank" rel="noreferrer">View the transaction</a>}</p>}
+    {err && <p className="vx-err" role="alert">{err}</p>}
 
-    <footer className="cert-foot">
-      <span className="cert-sign"><i>{ipo.ceoAccountId ?? ''}</i>Chair of the board</span>
-      <span className="cert-sign"><i>tokens.vibecity.near</i>Registrar</span>
-    </footer>
-    <p className="cert-fine">Your NEAR goes to the company's DAO ({ipo.daoAccountId}). Dividends are decided by DAO vote; nothing is promised.</p>
+    <dl className="vx-reg">
+      <div><dt>Token</dt><dd><a href={`${NB}/address/${token}`} target="_blank" rel="noreferrer">{token}</a></dd></div>
+      <div><dt>Company DAO</dt><dd><a href={`${NB}/address/${ipo.daoAccountId}`} target="_blank" rel="noreferrer">{ipo.daoAccountId}</a></dd></div>
+      {ipo.ceoAccountId && <div><dt>Chair</dt><dd>{ipo.ceoAccountId}</dd></div>}
+    </dl>
+    <p className="vx-fine">Your NEAR goes straight to the company's DAO. Dividends are decided by DAO vote; nothing is promised.</p>
   </>);
+}
+
+/** The city at night behind the card: a sliced sun and two rows of towers with lit windows, drawn once from a seed. */
+function Skyline() {
+  const rows = [0, 1].map((r) => {
+    let seed = 7 + r * 31; const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+    const out: { x: number; w: number; h: number; lit: [number, number][] }[] = [];
+    for (let x = -4; x < 480;) {
+      const w = 14 + Math.floor(rnd() * 22), h = (r ? 40 : 70) + Math.floor(rnd() * (r ? 60 : 110));
+      const lit: [number, number][] = [];
+      for (let wy = 6; wy < h - 4; wy += 6) for (let wx = 3; wx < w - 3; wx += 5) if (rnd() < (r ? .32 : .18)) lit.push([wx, wy]);
+      out.push({ x, w, h, lit }); x += w + (rnd() < .3 ? 3 : 1);
+    }
+    return out;
+  });
+  return (
+    <div className="vx-sky" aria-hidden="true">
+      <i className="vx-sun" />
+      <svg viewBox="0 0 480 240" preserveAspectRatio="xMidYMax slice" shapeRendering="crispEdges">
+        {rows.map((row, r) => <g key={r} fill={r ? '#120A1D' : '#1E1230'}>{row.map((b, i) => <g key={i}>
+          <rect x={b.x} y={240 - b.h} width={b.w} height={b.h} />
+          {b.lit.map(([wx, wy], k) => <rect key={k} x={b.x + wx} y={240 - b.h + wy} width="2" height="2" fill={k % 7 === 0 ? '#2EE6F0' : k % 5 === 0 ? '#FF3EA5' : '#FFC75A'} opacity={r ? .85 : .45} />)}
+        </g>)}</g>)}
+      </svg>
+    </div>
+  );
 }
 
 const short = (a: string) => (a.length > 24 ? `${a.slice(0, 10)}…${a.slice(-8)}` : a);
