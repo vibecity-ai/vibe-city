@@ -23,7 +23,6 @@ import { isMuted, onMuted, play, setMuted } from '../sfx';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { ModelLogo, modelOption, privacyOf, useModelInfo } from './ModelBadge';
 import { DeskSheet } from './Desk';
-import { Mark } from './Device';
 import { Wordmark } from './Wordmark';
 import { Directory, InTray, StatusBoard } from './ExecDesk';
 import { ChiefOfStaffCard } from './ChiefOfStaff';
@@ -814,7 +813,6 @@ export function QuestBoard() {
       <div className="pane-scroll">
         <section className="qb-head">
           <div className="qb-title">
-            <span className="dsp-badge" aria-hidden="true"><i className={`dev-led ${attentionCount(s.quests) ? 'amber' : 'green'}`} /><Mark /><b>Vibe City</b>DISPATCH-1 · order rail</span>
             <h1 className="display" tabIndex={-1}>Ops board</h1>
             <p className="sync" aria-live="polite"><Icon n="refresh" size={12} />{withBoards.length === 0
               ? 'No floor has a Hermes board yet. Sync a floor to give it jobs.'
@@ -904,7 +902,7 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
   };
   return (
     <form className="composer printer" onSubmit={submit} aria-busy={busy} aria-labelledby="qc-h">
-      <div className="printer-top" aria-hidden="true"><span className="dsp-badge"><i className={`dev-led ${busy ? 'amber' : 'green'}`} /><Mark /><b>Vibe City</b>PRINT-1 · job printer</span><span className="printer-slot" /></div>
+      <div className="printer-top" aria-hidden="true"><span className="dev-badge"><i className={`dev-led ${busy ? 'amber' : 'green'}`} /><b>job printer</b><span>PRINT-1</span></span><span className="printer-slot" /></div>
       <div className="printer-paper">
       <h3 className="paper-h" id="qc-h">New job</h3>
       <Field label="Floor" hint="The job goes to this floor’s lead, who plans it and hands parts to teammates on the floor’s own board.">

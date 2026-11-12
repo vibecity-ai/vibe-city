@@ -1226,11 +1226,12 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .dev.graphite { background: linear-gradient(170deg, #473860 0%, #322843 55%, #251E32 100%);
   box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 -4px 0 rgba(0,0,0,.35), 0 28px 50px rgba(0,0,0,.6), 0 6px 14px rgba(0,0,0,.5); }
 .dev.graphite::before { opacity: .16; }
-.dev-badge { display: flex; align-items: center; gap: 8px; margin: 0 0 12px 4px; font: 400 11px var(--f-mono); letter-spacing: .16em; text-transform: uppercase; white-space: nowrap; overflow: hidden; }
-.dev-badge b { font-weight: 700; }
-.dev.beige .dev-badge { color: #4D3D68; } .dev.beige .dev-badge span { color: #776B94; }
-.dev.graphite .dev-badge { color: #A69EB9; } .dev.graphite .dev-badge span { color: #7B6F96; }
-.dev-badge span { overflow: hidden; text-overflow: ellipsis; }
+/* the device's name, engraved into the shell: no maker's logo, only the LED is lit */
+.dev-badge { display: flex; align-items: center; gap: 9px; margin: 0 6px 12px; font: 600 10px var(--f-mono); letter-spacing: .22em; text-transform: uppercase; white-space: nowrap; min-width: 0;
+  color: rgba(255,255,255,.36); text-shadow: 0 -1px 0 rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.07); }
+.dev-badge b { font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.dev-badge span { margin-left: auto; font-weight: 500; letter-spacing: .14em; opacity: .7; }
+.dev.beige .dev-badge { color: rgba(45,32,70,.5); text-shadow: 0 1px 0 rgba(255,255,255,.7), 0 -1px 0 rgba(0,0,0,.08); }
 .dev-led { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #392E4D; }
 .dev-led.green { background: #6BFF8E; box-shadow: 0 0 8px #6BFF8E; } .dev-led.amber { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
 .dev-led.pink { background: var(--pink); box-shadow: 0 0 8px var(--pink); }
@@ -1434,8 +1435,6 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
    stamp says what the CEO must do or how the quest ended. New quests come out of PRINT-1, the quest printer. */
 .qb.dispatch { --paper: #ECE5D6; --paper2: #DDD5C3; --pink-ink: #C2185B; --ink-p: #1D1727; --ink-p2: #50406C; }
 .qb.dispatch .qb-head { padding: 16px 24px 14px; border-bottom: 1px solid var(--line); background: linear-gradient(180deg, #181320, #110C19); }
-.dsp-badge { flex-basis: 100%; display: flex; align-items: center; gap: 8px; font: 500 10px var(--f-mono); letter-spacing: .16em; text-transform: uppercase; color: #7B6F96; white-space: nowrap; }
-.dsp-badge b { color: #A69EB9; font-weight: 600; }
 .qb.dispatch .qb-title .display { font-size: 26px; }
 .qb.dispatch .head-actions { display: flex; align-items: center; gap: 10px; }
 .qb.dispatch .head-actions .dev-key { min-width: 0; padding: 0 16px; height: 40px; font-size: 13px; }
@@ -1529,7 +1528,6 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .qb.dispatch .composer.printer { --sf: transparent; --sb: transparent; margin: 16px 24px 0; padding: 14px 16px 16px; border-radius: 18px; max-width: 620px; display: flex; flex-direction: column; gap: 0; animation: deskIn .2s cubic-bezier(.2,.8,.2,1);
   background: linear-gradient(170deg, #473860 0%, #322843 55%, #251E32 100%); box-shadow: inset 0 1px 0 rgba(255,255,255,.16), inset 0 -4px 0 rgba(0,0,0,.35), 0 20px 40px rgba(0,0,0,.55); }
 .printer-top { display: flex; flex-direction: column; gap: 10px; }
-.printer-top .dsp-badge { color: #7B6F96; }
 .printer-slot { height: 10px; margin: 0 6px; border-radius: 5px; background: #0A080F; box-shadow: inset 0 2px 3px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.12); }
 .printer-paper { position: relative; margin: -5px 18px 0; padding: 18px 16px 22px; display: flex; flex-direction: column; gap: 8px; color: var(--ink-p);
   background: linear-gradient(180deg, #CFC8B8 0, var(--paper) 14px, var(--paper2) 100%);
