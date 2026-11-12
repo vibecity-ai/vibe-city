@@ -1,5 +1,6 @@
 /* What changed between two refreshes, as city events (world/City.ts draws them, ui/Moments.tsx celebrates them).
    Pure: tested in fx.test.ts. */
+import type { GameState } from '@vibe-city/shared';
 import type { Fx, QuestItem } from '../store.ts';
 import { isLiveQuest } from './derive.ts';
 import type { Dept } from './types.ts';
@@ -36,6 +37,14 @@ export function fxBetween(prev: Dept[], next: Dept[], pq: QuestItem[], nq: Quest
   }
   return out;
 }
+
+/** Quest-log quests that turned done between two game states. The first load is history, not news, and the IPO
+    quest is left out: the opening bell already celebrates it. */
+export const questsCompleted = (prev: GameState | null, next: GameState | null): Fx[] => {
+  if (!prev || !next) return [];
+  const was = new Set(prev.quests.filter((q) => q.done).map((q) => q.id));
+  return next.quests.filter((q) => q.done && !was.has(q.id) && q.id !== 'ipo').map((q) => ({ k: 'questComplete', title: q.title, unlocks: q.unlocks }));
+};
 
 /* The opening bell (IPO): the ceremony's clock, shared by the city (the bell swings, world/City.ts) and the sound (it
    strikes, sfx.ts). */

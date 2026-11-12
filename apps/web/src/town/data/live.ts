@@ -14,7 +14,7 @@ import { CHIEF_OF_STAFF, KANBAN_EVENT_LABELS, KANBAN_EVENT_NOISE } from '@vibe-c
 import { api, ApiError, openLive } from '../../api.ts';
 import { emptyExtra, useStore, type DeptInfo, type LogLine, type QuestExtra, type QuestItem } from '../store.ts';
 import { clock, deriveDept, isLiveQuest } from './derive.ts';
-import { fxBetween } from './fx.ts';
+import { fxBetween, questsCompleted } from './fx.ts';
 import { backoffDelays, createCoalescer, createGate } from './sched.ts';
 import { archivedNotice, inventorySavedNotice, newerCancellation } from './views.ts';
 import type { Dept } from './types.ts';
@@ -250,7 +250,11 @@ async function toolTick() {
   }));
 }
 
+let unwatchGame = () => {};
+
 export function startLive() {
+  // game state is written from many places (polls, quest checks, setup): one watcher celebrates every finished quest
+  unwatchGame = useStore.subscribe((s, p) => { if (s.game !== p.game) for (const f of questsCompleted(p.game, s.game)) s.emit(f); });
   void refreshAll();
   toolPoll = setInterval(() => void toolTick(), TOOL_POLL_MS);
   poll = setInterval(() => void refreshAll(), 30_000);
@@ -259,7 +263,7 @@ export function startLive() {
 }
 
 export function stopLive() {
-  clearInterval(poll); clearInterval(healthPoll); clearInterval(toolPoll);
+  clearInterval(poll); clearInterval(healthPoll); clearInterval(toolPoll); unwatchGame();
   for (const c of sockets.values()) c();
   sockets.clear(); link.clear();
   hints.cancelAll();

@@ -6,100 +6,86 @@ task tree on the department's Hermes Kanban board. The company thinks with NEAR 
 OutLayer custody wallet, earns on the NEAR AI Agent Market, and ends with an IPO: a Sputnik DAO and its own token on
 NEAR.
 
-## Run it
+## Run it (judges start here)
 
-The only requirement is Docker with Compose v2. No `.env`, no keys, no Node.
-
-```
-git clone https://github.com/urataps/vibe-city.git
-cd vibe-city
-docker compose up -d --build
-```
-
-Then open <http://127.0.0.1:4100>.
-
-What to expect:
-
-- The first build downloads the Hermes base image (about 3 GB). Later builds take under a minute.
-- The container is ready about a minute after it starts. Check it:
-
-  ```
-  curl http://127.0.0.1:4100/api/runtime/health
-  ```
-
-  ```
-  {"checkedAt":"...","hermes":{"dashboard":"up","auth":"ok","gateway":"running","version":"0.22.6","detail":"running"}}
-  ```
-
-- The browser shows the tower with the Executive Office and a quest log. The first quest is "Set up your Chief of
-  Staff".
-- Port 4100 taken? `VIBE_CITY_PORT=4300 docker compose up -d --build`, then open port 4300.
-- Stop it with `docker compose down`. Add `-v` to also delete the company (the `hermes_data` volume).
-
-## Play it
-
-The quest log leads through the game. Each step needs an account of yours, because the agents, the wallet and the
-market are real services and not mocks:
-
-| Quest | What you do | What you need |
-|---|---|---|
-| Set up your Chief of Staff | Paste a NEAR AI Cloud API key and pick a model | A key from <https://cloud.near.ai> |
-| Set up the treasury | Create a wallet and paste its agent key (`wk_...`) in the safe | A wallet from <https://app.outlayer.ai/wallet/new> |
-| Hire your first department | Open the Chief of Staff, choose Add a new floor, then Design a custom floor: describe the team, and Looks good builds it in Hermes. The templates (Treasury Ops, Trading Desk, Prediction Desk) open with the treasury and connector quests | The key from the first quest |
-| List on the Agent Market, Win your first job | Ask the Chief of Staff to list a floor: it drafts the listing, and Register as draft puts the floor on market.near.ai. Claim it into your account, set a price and go live there; a buyer hires it | An account on <https://market.near.ai> to claim and go live |
-| Fund the IPO, IPO | Hold 4 NEAR in the company wallet and press IPO in the safe | 4 NEAR on mainnet |
-
-Without a NEAR AI key the city, the quest log and the Executive Office work; hiring stays locked and agents cannot
-run. The key works as soon as it is pasted, with no restart. Building a floor takes about a minute for two agents: each
-agent is a real Hermes profile, created and read back before the floor is marked ready. Give a floor's lead a quest and the work shows on the desks as the lead hands tasks to
-teammates.
-
-Two side quests, Connect Hyperliquid and Connect Polymarket, open the Trading Desk and the Prediction Desk.
-
-The key can also be set before the first start: copy `.env.example` to `.env` and fill `NEAR_AI_API_KEY`.
-
-## See it without Docker or keys
-
-The same backend and web app, with in-memory fakes for everything outside it: Hermes and its Kanban, NEAR AI Cloud,
-OutLayer, NEAR mainnet and market.near.ai. The company starts with three floors and quests queued, running, failed,
-done and waiting on you. Needs Node 24 or newer.
+Needs Node 24 or newer (CI uses Node 26). No Docker, no API keys, no `.env`.
 
 ```
-npm ci
+npm install
 npm run demo
 ```
 
-Then open <http://127.0.0.1:4199>. Nothing in the demo talks to a real service, and every quest in the log can be
-finished:
+Then open <http://127.0.0.1:4199>. Port taken? `PORT=4300 npm run demo`.
 
-| Quest | What you do in the demo |
-|---|---|
-| Set up your Chief of Staff | The key comes prefilled: pick a model and save (the prices are sample figures). The agents start working their boards once the key is in |
-| Set up the treasury | The `wk_` key comes prefilled: press Enter in the safe. The wallet holds 6 NEAR and 1,250 USDC |
-| Hire your first department | Already done: the seeded floors count. Template floors build like custom ones |
-| List on the Agent Market, Win your first job | Ask the Chief of Staff, press Register as draft, then Claim it and Check claimed. The listing goes live and a buyer hires the floor within seconds; the floor delivers and is paid in under half a minute |
-| Fund the IPO, IPO | The wallet already holds the NEAR. Press IPO in the safe with any NEAR account as CEO; investors start buying shares. Click the bell on the roof to open `/invest`, connect the demo wallet and subscribe |
-| Connect Hyperliquid, Connect Polymarket | Press Check |
+`npm run demo` builds the web app and serves it from the real backend, with in-memory fakes for everything outside
+it: Hermes and its Kanban, the chat model, NEAR AI Cloud, OutLayer, NEAR RPC and market.near.ai. The agents are
+simulated by a fake Hermes and the chat is scripted. Nothing talks to a real service and nothing is saved: the
+company starts again on every run.
 
-Each agent step goes through the metering proxy, so the burn, the floor budgets and the runway count real numbers
-over fake work: Growth has a 10 cent daily budget and stops when it reaches it. The `/invest` page uses a demo wallet
-on the fake chain; only its token link opens nearblocks.io, where the demo token does not exist.
+## What to try
 
-## Check it
+The company starts with three floors and jobs already queued, running, failed, done and waiting on you.
+
+1. **The tour.** A 6-step tour opens over the tower. Click through it or close it.
+2. **The tower.** Floors F1 Research, F2 Growth and F3 Support, plus PH, the Executive office. A red "!" on a floor
+   label means the floor needs attention. Click a floor (or its lift button) to walk in; Esc or "Tower" goes back.
+3. **The Executive office** (right panel). It shows the current quest with a pink primary button, the money stats,
+   and the "In tray": the things waiting for you (answers, approvals, stuck jobs).
+4. **Quest 1, Set up your Chief of Staff.** Click "Set it up". The demo prefills a key: pick a model, then "Save and
+   continue". This unlocks hiring, and the agents start working their boards.
+5. **Quest 2, Set up the treasury.** Click "Open the safe", then "Connect". The wallet pager shows a linked wallet
+   and a portfolio.
+6. **Quest 3, Hire your first department,** is already done: the seeded floors count.
+7. **Quest 4, List on the Agent Market.** The quest opens a chat with the Chief of Staff. Ask, for example, "List the
+   Research floor on the Agent Market". A Gazette listing card appears: click "Register as draft". You land on the
+   Research floor's Marketplace board: click "Claim it", then "Check claimed".
+8. **Act 2, Win your first job.** The simulated buyer hires the listed floor and pays within about a minute. Fund the
+   IPO then completes from the wallet balance.
+9. **Act 3, IPO.** Click "Open the safe", type any NEAR account (for example `boss.near`) in "Chair · your NEAR
+   account", then "Ring the opening bell". The bell goes up on the roof and the panel says "The company is public."
+10. **Invest.** Click the bell on the roof: the public `/invest` page opens in a new tab as a share certificate.
+    Press the "Connect demo wallet" seal, enter an amount of NEAR, then press "Subscribe". The purchase runs on the
+    demo's fake chain and the page says "Subscribed. Your shares are on the register." Only the token link leaves the demo: it opens
+    nearblocks.io, where the demo token does not exist.
+
+11. **Side quests, Connect Hyperliquid and Connect Polymarket** (optional, at the bottom of the quest log, once the
+    wallet is connected). Press "Check" on each: the demo's OutLayer answers that the connector is set, and the quest
+    unlocks a new floor template to hire, Trading Desk and Prediction Desk.
+
+Also worth a look:
+
+- "Quests" in the top bar: the quest log, grouped in acts.
+- "Ops board" in the top bar: every job in the company as a paper ticket, in columns.
+- The phone: when it rings, "Answer" opens a conversation with a character.
+
+## Full stack (optional, the real experience)
+
+Not needed to judge the project. Here the agents are real Hermes profiles and the model, the wallet, the market and
+the IPO are real services. It needs Docker with Compose v2 and a NEAR AI Cloud key (<https://cloud.near.ai>), which
+you paste in the first quest or set as `NEAR_AI_API_KEY` in `.env`. The first build downloads the Hermes base image
+(about 3 GB).
+
+- **Everything in one container:** `docker compose up -d --build`, then open <http://127.0.0.1:4100>. No `.env`
+  needed.
+- **Development, with hot reload (Linux only):** `cp .env.example .env`, set `HERMES_DASHBOARD_SESSION_TOKEN`, then
+  `npm run dev`. It runs Hermes in Docker, the backend on <http://127.0.0.1:4100> and Vite on
+  <http://localhost:4200>.
+
+The later quests need accounts of your own: an OutLayer wallet, an account on market.near.ai, and 4 NEAR on mainnet
+for the IPO. [DEPLOYMENT.md](DEPLOYMENT.md) has the setup, the models, the wallet and the market.
+
+## Develop
 
 ```
-npm ci
 npm run typecheck
 npm test
 npm run build
 ```
 
 `npm test` runs the backend against the fakes plus the web unit tests: no Docker, no network, no keys. CI
-(`.github/workflows/ci.yml`) runs these four on every pull request, on Node 26.
-
-`./scripts/docker-smoke.sh` builds the container, starts it under its own compose project on port 4190, checks the web
-app and the Hermes dashboard, and creates a department through Hermes. It needs `curl` and `jq`, and takes about three
-minutes.
+(`.github/workflows/ci.yml`) runs all three on every pull request, on Node 26. Read
+[ARCHITECTURE.md](ARCHITECTURE.md) before touching code; the hackathon plan, one brief per workstream, is in
+[docs/briefs/](docs/briefs/).
 
 ## What is in the repo
 
@@ -118,6 +104,8 @@ docs/briefs/         the hackathon plan, one brief per workstream
 - [contracts/README.md](contracts/README.md): the two contracts, how they are built and deployed.
 
 ## Limits you should know
+
+These apply to the full stack; the demo holds no real keys or funds.
 
 - The API has no login. The container publishes it on `127.0.0.1` only; do not expose the port.
 - Agents run inside the container, as the same user as the backend and on the same volume. Keys are handed only to

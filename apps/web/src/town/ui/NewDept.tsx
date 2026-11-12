@@ -8,7 +8,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { isInternalOnly, type AssistantView, type Candidate, type ChatBriefing, type ChatProposal, type DeptDraft, type HiringBrief, type HiringRequestView, type MarketDraft, type MarketRegister } from '@vibe-city/shared';
 import { useStore } from '../store';
 import { api, ApiError } from '../../api';
-import { createDepartment, createQuest, loadDeptInfo, refreshDept } from '../data/live';
+import { createDepartment, createQuest, refreshOne } from '../data/live';
 import { COS_LOOK } from '../world/sprites';
 import { DialogueFrame, progressLabel, type Line } from './Dialogue';
 import { CandidateCards } from './Hiring';
@@ -143,7 +143,7 @@ function NewDept() {
       setHiring({ ...hiring, h });
       setLines((xs) => [...xs, { id: crypto.randomUUID(), from: 'agent', text: `Done. ${c.character.name} joins ${h.brief?.departmentName}. Good call.`, mood: 'happy', replies: [], draft: null }]);
       // The floor re-provisions in the background: refresh it now and once more when that is likely done.
-      const dep = h.brief!.departmentId, again = () => { void refreshDept(dep); void loadDeptInfo(dep); };
+      const dep = h.brief!.departmentId, again = () => void refreshOne(dep); // refreshOne refetches the floor's agents; refreshDept only reloads its quests
       again(); window.setTimeout(again, 4000);
     } catch (e) { useStore.getState().toast(e instanceof ApiError ? e.message : 'Something went wrong.', 'bad'); }
     finally { setWaiting(false); }

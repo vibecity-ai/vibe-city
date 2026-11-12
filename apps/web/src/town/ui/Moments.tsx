@@ -1,5 +1,5 @@
 /* The big moments of the company, celebrated: a neon banner drops in at the top of the screen with a sound when a floor
-   is built, a job starts or finishes, someone is hired, or a job
+   is built, a quest is finished, a job starts or finishes, someone is hired, or a job
    needs the CEO. Small things (a task done or failed) only get a sound. Banners queue, one at a time; the city draws
    its own effect for each (world/City.ts play). */
 import { useEffect, useRef, useState } from 'react';
@@ -19,6 +19,7 @@ function momentOf(fx: Fx, key: number): { m: Moment | null; sfx: Sfx | null } {
   const m = (kicker: string, title: string, sub: string | null, col: string, icon: string, big = false): Moment => ({ key, kicker, title, sub, col, icon, big });
   switch (fx.k) {
     case 'floorAdded': return { m: m('New floor', floor(fx.dept), 'Built and opening now', 'var(--cyan)', 'building', true), sfx: 'floor' };
+    case 'questComplete': return { m: m('Quest complete', fx.title, fx.unlocks ? `Unlocked: ${fx.unlocks}` : null, 'var(--gold)', 'check', true), sfx: 'floor' };
     case 'questStarted': return { m: m('New job', fx.title, `for ${floor(fx.dept)}`, 'var(--gold)', 'file'), sfx: 'job' };
     case 'questDone': return { m: m('Job done', fx.title, floor(fx.dept), 'var(--mint, #7CF5B4)', 'check', true), sfx: 'done' };
     case 'needsYou': return { m: m('Needs you', fx.title, `${floor(fx.dept)} is waiting on your answer`, 'var(--amber, #FFB547)', 'bell'), sfx: 'input' };
