@@ -212,9 +212,11 @@ button { font: inherit; color: inherit; }
 .mchip { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; display: grid; place-items: center; padding: 0; cursor: pointer; background: #1D1629; border: 2px solid #3A2F4F; border-radius: 6px; transition: transform .1s, border-color .1s; }
 .cmd > .wrow + .mchip { top: 50%; transform: translateY(-50%); }
 .mchip.private { border-color: var(--mint); box-shadow: 0 0 6px rgba(124,245,180,.35); }
-.mchip:hover, .mchip:focus-visible { border-color: var(--gold); }
+.mchip:hover, .mchip:focus-visible { border-color: var(--gold); z-index: 5; }
 .cmd > .chief-card + .mchip:hover { transform: translateY(-1px); }
 .mchip .mlogo { width: 18px; height: 18px; }
+/* the chip's hover note, drawn here because the browser's own title tooltip comes with a light frame */
+.mchip[data-tip]:is(:hover, :focus-visible)::after { content: attr(data-tip); position: absolute; top: calc(100% + 6px); right: 0; z-index: 5; width: max-content; max-width: 260px; padding: 6px 9px; border-radius: 7px; background: #0E0A15; color: var(--ink); font: 500 11.5px/1.35 var(--f-ui); text-align: left; pointer-events: none; }
 .wrow-t small { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; font-size: 12px; }
 .empty-w { color: var(--ink-mute); font-size: 13px; padding: 10px 0; }
 .qmini { --sf: var(--sf-raised); --sb: var(--sb-raised); display: flex; flex-direction: column; gap: 8px; text-align: left; padding: 10px 12px; cursor: pointer; }
@@ -641,8 +643,8 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .hud-phone { display: flex; align-items: center; gap: 8px; flex: none; min-width: 0; }
 .hud-phone:empty { display: none; }
 /* the Chief of Staff's call: a small phone in the top bar; it shakes three times with the ring, then waits */
-.ring { position: relative; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 4px; border-radius: 10px; background: #0F1A14; border: 1px solid #7CF5B4;
-  box-shadow: 0 0 14px rgba(111,214,154,.3); animation: ringIn .25s cubic-bezier(.2,.8,.2,1) both, ringShake 2.2s cubic-bezier(.2,.8,.2,1) .3s 3; }
+.ring { position: relative; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 4px 0 4px; border-radius: 10px; background: #0F1A14;
+  animation: ringIn .25s cubic-bezier(.2,.8,.2,1) both, ringShake 2.2s cubic-bezier(.2,.8,.2,1) .3s 3; }
 @keyframes ringIn { from { transform: translateY(-8px); opacity: 0; } }
 @keyframes ringShake { 0%, 12% { transform: translateX(-2px) rotate(-2deg); } 6%, 18% { transform: translateX(2px) rotate(2deg); } 24%, 100% { transform: none; } }
 .ring-face { flex: none; width: 32px; height: 32px; border-radius: 7px; background: linear-gradient(160deg, #7CF5B4, #2E8F6A 60%, #12301F); overflow: hidden; }

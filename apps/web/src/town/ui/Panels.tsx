@@ -289,7 +289,7 @@ function ModelChip({ d, agentKey }: { d: Dept; agentKey: string }) {
   const who = agentLabel(agentKey, s.personas[`${d.id}:${agentKey}`]);
   const label = id ? `${who} thinks with ${id}${m ? ` (${privacyOf(m).label})` : ''}. Change it in the loadout.` : `${who}'s model is not known yet. Choose one in the loadout.`;
   return (
-    <button type="button" className={`mchip ${m ? privacyOf(m).cls : ''}`} title={label} aria-label={label}
+    <button type="button" className={`mchip ${m ? privacyOf(m).cls : ''}`} data-tip={label} aria-label={label}
       onClick={() => s.openPanel('agent', { agent: agentKey, agentTab: 'loadout' })}>
       {id ? <ModelLogo id={id} icon={m?.icon} /> : <i className="mlogo">?</i>}
     </button>
