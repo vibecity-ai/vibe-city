@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react';
 import type { WalletState } from '@vibe-city/shared';
 import { useStore } from '../store';
-import { api, ApiError } from '../../api';
+import { api, ApiError, DEMO } from '../../api';
 import { Device, Digits, Grille, Key, Screen } from './Device';
 import { IpoCard } from './IpoCard';
 
@@ -53,7 +53,7 @@ function SafeDial() {
     funding the wallet, or pasting an agent key. */
 function WalletPager({ w, loadError, onChange, onRefresh }: { w: WalletState; loadError: string | null; onChange: (w: WalletState) => void; onRefresh: () => void }) {
   const [mode, setMode] = useState<'view' | 'fund' | 'key'>(w.registered ? 'view' : 'key');
-  const [key, setKey] = useState('');
+  const [key, setKey] = useState(DEMO ? 'wk_demo0000000000000000' : '');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [amount, setAmount] = useState('');

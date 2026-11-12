@@ -84,6 +84,9 @@ async function request<T>(method: string, path: string, schema: z.ZodType<T>, bo
   return parsed.data;
 }
 
+/** The offline demo build (npm run demo, VITE_DEMO=1): keys come prefilled and /invest uses a fake wallet. */
+export const DEMO = import.meta.env?.VITE_DEMO === '1'; // ?.: tests import this under plain Node
+
 const d = (id: string) => `/api/departments/${encodeURIComponent(id)}`;
 const h = (id: string) => `/api/hiring/requests/${encodeURIComponent(id)}`;
 const q = (dept: string, quest: string) => `${d(dept)}/quests/${encodeURIComponent(quest)}`;

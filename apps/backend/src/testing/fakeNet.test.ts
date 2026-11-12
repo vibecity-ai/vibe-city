@@ -48,6 +48,11 @@ test('the offline demo plays the whole game: wallet, connectors, a market job, t
   const after = (await app.inject('/api/ipo')).json();
   assert.equal(after.holders.length, 1);
   assert.ok(after.sale.sold > 0);
+  // the /invest page's demo wallet buys 1 NEAR of shares at the offering price
+  const token = after.tokenAccountId as string, shares = Number((10n ** 30n) / BigInt(after.offer.priceYocto)) / 1e6;
+  assert.ok(net.buy(token, 'me.near', 10n ** 24n));
+  assert.ok(Math.abs((await app.inject('/api/ipo')).json().sale.sold - (after.sale.sold + shares)) < 1e-6);
+  assert.equal(net.buy(token, 'me.near', 10n ** 40n), null, 'cannot buy more than the float');
   const div = await app.inject({ method: 'POST', url: '/api/ipo/dividend', payload: { token: 'USDC', amount: 10 } });
   assert.equal(div.statusCode, 200, div.body);
   assert.equal(div.json().proposals.length, 1);

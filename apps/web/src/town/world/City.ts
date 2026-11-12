@@ -516,8 +516,8 @@ export class City {
     if (phA > 0.01) penthouse(px, L, this.t, this.ph.y, phA, (s.company?.name ?? 'VIBE CITY'), s.ui.panel === 'exec' && s.ui.view === 'tower', this.bk);
     // a listed company keeps its bell on the roof; it swings, with the ticker and the CEO on the rope, while the IPO is rung in
     const bT = this.t - this.bell.at;
-    if (phA > 0.01 && (bT < 1e8 || s.game?.quests.some((q) => q.id === 'ipo' && q.done))) {
-      roofBell(px, L, this.t, this.ph.y, phA * Math.min(1, bT / 0.5), { swing: this.reduced ? 0 : bellSwing(bT), show: clamp(Math.min(bT / 0.6, (BELL_S - bT) / 0.8), 0, 1), symbol: this.bell.symbol });
+    if (phA > 0.01 && this.hasBell()) {
+      roofBell(px, L, this.t, this.ph.y, phA * Math.min(1, bT / 0.5), { swing: this.reduced ? 0 : bellSwing(bT), show: clamp(Math.min(bT / 0.6, (BELL_S - bT) / 0.8), 0, 1), symbol: this.bell.symbol, hover: this.hover === 'bell' });
     }
     anchors.push({ id: 'ph', kind: 'ph', x: 382, y: this.ph.y + 72, visible: (1 - openA) * clamp(1 - Math.abs(this.ph.vy) / 160, 0, 1), z: 0 });
     towerPower(false);
@@ -784,8 +784,11 @@ export class City {
     this.rings = this.rings.filter((r) => r.r < r.max);
   }
 
+  /** A listed company (or one ringing its IPO in) has a bell on the roof. */
+  private hasBell() { return this.t - this.bell.at < 1e8 || !!useStore.getState().game?.quests.some((q) => q.id === 'ipo' && q.done); }
+
   /* ---------- input ---------- */
-  private hit(sx: number, sy: number): { kind: 'floor' | 'ph' | 'ghost' | 'agent' | 'obj'; id: string } | null {
+  private hit(sx: number, sy: number): { kind: 'floor' | 'ph' | 'ghost' | 'agent' | 'obj' | 'bell'; id: string } | null {
     const s = useStore.getState();
     const [x, y] = this.toWorld(sx, sy);
     if (s.ui.execRoom) {
@@ -808,6 +811,8 @@ export class City {
     }
 
     const inHex = (T: number, h: number) => pointInPoly([x, y], [[0, T], [140, T - 70], [380, T + 50], [380, T + 50 + h], [240, T + 120 + h], [0, T + h]]);
+    // the bell and its post on the roof (roofBell: pin at world (100, T - 35), post foot at (100, T + 20))
+    if (!open && this.hasBell() && x > 80 && x < 122 && y > this.ph.y - 42 && y < this.ph.y + 22) return { kind: 'bell', id: 'bell' };
     if (!open) { if (inHex(this.ph.y, PH_H)) return { kind: 'ph', id: 'ph' }; if (inHex(this.ph.y + PH_H, FH)) return { kind: 'ghost', id: 'ghost' }; }
     for (const d of s.depts) { const fa = this.floors.get(d.id); if (!fa || fa.alpha < 0.5) continue; if (pointInPoly([x, y], HEX(fa.y))) return { kind: 'floor', id: d.id }; }
     return null;
@@ -879,6 +884,7 @@ export class City {
       if (!h) { if (s.ui.view === 'floor') s.ui$({ agent: null, ...(s.ui.panel === 'agent' && { panel: 'dept' as const }) }); return; }
       if (h.kind === 'floor') { if (s.ui.view === 'floor' && s.ui.floorId === h.id) return; s.openFloor(h.id); this.fit(); }
       else if (h.kind === 'ph') { s.openExec(); this.fit(); }
+      else if (h.kind === 'bell') window.open('/invest', '_blank', 'noopener');
       else if (h.kind === 'obj') { if (s.ui.execRoom) execAction(h.id as ExecObjectId); else if (s.ui.floorId) floorAction(h.id as FloorObjectId, s.ui.floorId); }
       else if (h.kind === 'ghost') s.ui$({ modal: 'create' });
       else if (h.kind === 'agent') { if (s.ui.floorId) this.greet(s.ui.floorId, h.id); s.openPanel('agent', { agent: h.id }); }

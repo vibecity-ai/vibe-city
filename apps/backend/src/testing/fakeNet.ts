@@ -68,18 +68,21 @@ export class FakeNet {
       else if (!open && a.jobs.length < JOBS.length) a.jobs.push({ id: `as-${a.id}-${a.jobs.length + 1}`, n: a.jobs.length, status: 'in_progress', startedAt: null });
     }
     // investors subscribe from the /invest page, a few at a time
-    for (const [token, s] of this.sales) if (s.open && s.buyers.length < 5) this.buy(token, `investor${s.buyers.length + 1}.near`, 2_000 * (s.buyers.length + 1));
+    for (const [token, s] of this.sales) if (s.open && s.buyers.length < 5) this.buy(token, `investor${s.buyers.length + 1}.near`, BigInt(2_000 * (s.buyers.length + 1)) * s.price);
   }
 
   private bal(c: string, a: string) { return this.ft.get(c)?.get(a) ?? 0n; }
   private setBal(c: string, a: string, n: bigint) { if (!this.ft.has(c)) this.ft.set(c, new Map()); this.ft.get(c)!.set(a, n); }
 
-  private buy(token: string, who: string, whole: number) {
-    const s = this.sales.get(token)!, u = BigInt(whole) * 10n ** 6n;
-    if (this.bal(token, token) < u) return;
+  /** `buy` on the city token: shares (6 decimals) for the attached yoctoNEAR at the offering price. The tx hash, or null if it cannot sell. */
+  buy(token: string, who: string, deposit: bigint): string | null {
+    const s = this.sales.get(token), u = s ? (deposit * 10n ** 6n) / s.price : 0n;
+    if (!s?.open || u <= 0n || this.bal(token, token) < u) return null;
     this.setBal(token, token, this.bal(token, token) - u);
     this.setBal(token, who, this.bal(token, who) + u);
-    s.sold += u; s.raised += BigInt(whole) * s.price; s.buyers.push(who);
+    s.sold += u; s.raised += deposit;
+    if (!s.buyers.includes(who)) s.buyers.push(who);
+    return `demo${++this.txs}`;
   }
 
   // ---- NEAR RPC ----

@@ -51,16 +51,19 @@ const MARKET_AGENTS = 'https://market.near.ai/building/agents';
 /** Self-registration puts the agent under a fresh market account, so the boss sees nothing on market.near.ai until
     they claim it: a one-time link (opened in a tab made on the click, so no popup blocker) moves it into their account. */
 export function ClaimStep({ deptId, claimed }: { deptId: string; claimed: boolean }) {
-  const [st, setSt] = useState<{ k: 'idle' | 'busy' | 'done' } | { k: 'code'; code: string; url: string | null } | { k: 'err'; msg: string }>(claimed ? { k: 'done' } : { k: 'idle' });
+  type Code = { k: 'code'; code: string; url: string | null; checked: boolean; checking?: boolean };
+  const [st, setSt] = useState<{ k: 'idle' | 'busy' | 'done' } | Code | { k: 'err'; msg: string }>(claimed ? { k: 'done' } : { k: 'idle' });
+  const [copied, setCopied] = useState(false);
   useEffect(() => { if (claimed) setSt({ k: 'done' }); }, [claimed]);
   const claim = async () => {
-    const tab = window.open('', '_blank');
-    setSt({ k: 'busy' });
+    // a check (the code is already on screen) asks the market again without opening another tab
+    const checking = st.k === 'code', tab = checking ? null : window.open('', '_blank');
+    setSt(checking ? { ...st, checking: true } : { k: 'busy' });
     try {
       const a = await api.marketAdoption(deptId);
       if (a.adopted) { tab?.close(); setSt({ k: 'done' }); void api.market().then((market) => useStore.setState({ market })).catch(() => undefined); return; }
       if (a.url && tab) tab.location.href = a.url; else tab?.close();
-      setSt({ k: 'code', code: a.code ?? '', url: a.url });
+      setSt({ k: 'code', code: a.code ?? '', url: a.url, checked: checking });
     } catch (e) { tab?.close(); setSt({ k: 'err', msg: e instanceof ApiError ? e.message : 'Could not reach the market.' }); }
   };
   return (
@@ -69,10 +72,17 @@ export function ClaimStep({ deptId, claimed }: { deptId: string; claimed: boolea
       <span className="mk-t">
         {st.k === 'done' ? 'The agent is in your market.near.ai account.'
           : <>Claim the agent into <b>your</b> market.near.ai account (log in there first): it was registered on its own, so you can't see it yet.</>}
-        {st.k === 'code' && <><br />Claim code <b className="mono">{st.code}</b>{st.url && <> · <a href={st.url} target="_blank" rel="noreferrer">open the claim page</a></>}. Claimed? Press the button to check.</>}
+        {st.k === 'code' && <span className="mk-code">
+          <span>Paste this claim code on {st.url ? <a href={st.url} target="_blank" rel="noreferrer">the claim page</a> : 'market.near.ai'}, then check:</span>
+          <span className="ql-gh-row">
+            <code className="ql-acct">{st.code}</code>
+            <button className="btn secondary small" type="button" onClick={() => void navigator.clipboard?.writeText(st.code).then(() => { setCopied(true); window.setTimeout(() => setCopied(false), 1500); })}>{copied ? 'Copied' : 'Copy'}</button>
+          </span>
+          {st.checked && !st.checking && <span className="ql-note" role="status">Not claimed yet: paste the code, then check again.</span>}
+        </span>}
         {st.k === 'err' && <><br /><span className="err-t" role="alert">{st.msg}</span></>}
       </span>
-      {st.k === 'done' ? <span className="chip sm mk-claimed"><Icon n="check" size={11} /> Claimed</span> : <button className="btn secondary small" type="button" disabled={st.k === 'busy'} onClick={() => void claim()}>{st.k === 'busy' ? 'Checking…' : st.k === 'code' ? 'I claimed it' : 'Claim it'}</button>}
+      {st.k === 'done' ? <span className="chip sm mk-claimed"><Icon n="check" size={11} /> Claimed</span> : <button className={`btn ${st.k === 'code' ? 'primary' : 'secondary'} small`} type="button" disabled={st.k === 'busy' || (st.k === 'code' && st.checking)} onClick={() => void claim()}>{st.k === 'busy' || (st.k === 'code' && st.checking) ? 'Checking…' : st.k === 'code' ? 'Check claimed' : 'Claim it'}</button>}
     </li>
   );
 }
@@ -108,7 +118,7 @@ function MarketQuest() {
   useEffect(() => {
     const load = () => api.market().then((v) => { setM(v); useStore.setState({ market: v }); void api.game().then((game) => useStore.setState({ game })).catch(() => undefined); }).catch(() => undefined);
     void load();
-    const t = setInterval(load, 15_000);
+    const t = setInterval(load, 5_000);
     return () => clearInterval(t);
   }, []);
   if (!m) return <span className="ql-note">Loading…</span>;

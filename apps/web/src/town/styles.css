@@ -926,6 +926,9 @@ details.more > summary { cursor: pointer; color: var(--ink-dim); margin: 8px 0; 
 .mk-n { flex: none; width: 20px; height: 20px; display: grid; place-items: center; font: 400 16px/1 var(--f-px); color: #120A1E; background: var(--gold); }
 .mk-steps li.done .mk-n { background: var(--mint); }
 .mk-t { flex: 1; min-width: 0; line-height: 1.4; }
+.mk-code { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.mk-code a { color: var(--cyan); }
+.mk-code code { padding: 4px 8px; border: 1px dashed #4A3A78; background: #160D26; user-select: all; }
 .mk-steps .btn { flex: none; }
 .mk-jobs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .mk-tally { display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 0 0 8px; font-size: 12px; color: var(--ink-dim); } .mk-tally b { color: var(--ink); font-size: 14px; margin-right: 3px; } .mk-tally .mk-earned b { color: var(--mint); } .mk-tally small { color: var(--ink-mute); }
