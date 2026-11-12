@@ -28,9 +28,9 @@ interface Raw {
   live: Record<string, QuestDetail[]>;
   sync: Record<string, QuestSync>;
   health: HealthView | null;
-  companyName: string | null;
+  company: { id: string; name: string } | null;
 }
-const raw: Raw = { depts: [], prov: {}, inv: {}, quests: {}, live: {}, sync: {}, health: null, companyName: null };
+const raw: Raw = { depts: [], prov: {}, inv: {}, quests: {}, live: {}, sync: {}, health: null, company: null };
 /** Per-department state of the backend's own Hermes event stream. */
 const link = new Map<string, 'connected' | 'reconnecting' | 'dashboard_offline' | 'gateway_unavailable'>();
 const sockets = new Map<string, () => void>();
@@ -71,7 +71,7 @@ function commit() {
 
   if (s.loaded) emitFx(s.depts, depts, s.quests, quests);
   useStore.setState({
-    company: raw.companyName ? { name: raw.companyName } : s.company, depts, chiefOfStaff: cos ? derive(cos) : null, quests, questSync, details, info,
+    company: raw.company ?? s.company, depts, chiefOfStaff: cos ? derive(cos) : null, quests, questSync, details, info,
     conn: connState(), loaded: true, stale: staleDepts.size > 0,
   });
 }
@@ -170,7 +170,7 @@ function pushLog(deptId: string, taskId: string, kind: string, at: string) {
 export async function renameCompany(name: string): Promise<string | null> {
   try {
     const c = await api.renameCompany(name);
-    raw.companyName = c.name; useStore.setState({ company: { name: c.name } });
+    raw.company = { id: c.id, name: c.name }; useStore.setState({ company: raw.company });
     return null;
   } catch (e) { return e instanceof ApiError ? (e.issues[0]?.message ?? e.message) : 'Could not rename the company.'; }
 }
@@ -216,7 +216,7 @@ export async function refreshAll() {
     if (!gate.current('all', t)) return;
     if (game) useStore.setState({ game });
     if (market) useStore.setState({ market });
-    raw.health = health; raw.companyName = company.name; raw.depts = depts;
+    raw.health = health; raw.company = { id: company.id, name: company.name }; raw.depts = depts;
     forgetGone();
     await Promise.all(depts.filter((d) => !d.archivedAt).map(async (v) => { await loadLocal(v); await loadQuests(v); }));
     if (!gate.current('all', t)) return;
@@ -457,11 +457,14 @@ export async function cancelQuest(deptId: string, questId: string) {
   await refreshDept(deptId);
 }
 
+/** What the boss posts on a failed task to retry it as it is. */
+export const RETRY = 'Retry the task as it is.';
+
 /** Answers a blocked task (posted on the task as the boss's comment) and resumes it. */
 export async function answerTask(deptId: string, questId: string, taskId: string, message: string): Promise<boolean> {
   const out = await run(`answer:${taskId}`, 'Could not send your answer', () => api.answerTask(deptId, questId, taskId, message));
   if (!out) return false;
-  st().toast('Answer sent. The task is back in the queue.', 'good');
+  st().toast(message === RETRY ? 'Retrying. The task is back in the queue.' : 'Answer sent. The task is back in the queue.', 'good');
   await Promise.all([loadQuest(deptId, questId, true), refreshDept(deptId)]);
   return true;
 }

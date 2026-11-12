@@ -80,6 +80,15 @@ const agentChat = new FakeAgentChat(hermes, (t, history) => {
   // an answered call opens with its reason in brackets: the boss's own words follow
   const last = t.message.toLowerCase().replace(/^\(you called me about hiring:[^)]*\)\s*/, '');
   const name = /appear as ([^,]+),/.exec(t.system)?.[1] ?? 'me';
+  // a chat about a stuck task: explain it from its error, then resume it with whatever the boss says to do
+  const stuck = /your task "[^"]+", which (failed|is blocked)/.exec(t.system);
+  if (stuck) {
+    const failed = stuck[1] === 'failed', why = /(?:The error|The reason you gave when blocking it): "([^"]*)"/.exec(t.system)?.[1];
+    if (/what happened|problem|need from me|why/.test(last)) {
+      return `${why ? `It hit this: ${why}` : 'It stopped without a clear error.'} ${failed ? 'Could be a one-off: retry it as it is, or tell me another way in, like the browser instead of plain HTTP.' : 'Tell me which way to go and I will pick it back up.'}${meta({ mood: 'worried', replies: [failed ? 'Use the browser instead' : 'Go with the first three'], proposal: null })}`;
+    }
+    return `Clear, boss. I'll carry on that way.${meta({ mood: 'happy', replies: [], proposal: null, resume: t.message.slice(0, 500) })}`;
+  }
   // the Chief of Staff answers from its company briefing and proposes jobs for a floor by name
   if (/the Chief of Staff:/.test(t.system)) {
     // hiring: questions about the candidates on screen, then the talk that ends in a brief
@@ -216,8 +225,8 @@ function quest(dept: string, title: string, kind: Kind, tasks: string[] = [], la
   });
 }
 
-async function seed(name: string, purpose: string, tasks: string[], teammates = 3, dailyBudgetCredits: number | null = null) {
-  const res = await app.inject({ method: 'POST', url: '/api/departments', payload: { name, purpose, teammates, inventory: { limits: { dailyBudgetCredits } } } });
+async function seed(name: string, purpose: string, tasks: string[], teammates = 3) {
+  const res = await app.inject({ method: 'POST', url: '/api/departments', payload: { name, purpose, teammates } });
   const dept = res.json() as { id: string; hermesBoardSlug: string };
   const prov = (await app.inject({ method: 'POST', url: `/api/departments/${dept.id}/provision` })).json() as { agents: { ref: string }[] };
   const r = refs[name] = { board: dept.hermesBoardSlug, agents: prov.agents.map((a) => a.ref) };
@@ -233,8 +242,8 @@ async function seed(name: string, purpose: string, tasks: string[], teammates = 
   tasks.forEach((t, i) => { const k = kanban.seedTask(dept.hermesBoardSlug, { title: t, assignee: pickAgent(r, i), parents: [root.id] }); kanban.startRun(dept.hermesBoardSlug, k.id, pickAgent(r, i)); });
 }
 await seed('Research', 'Track competitors, vendors and the AI tooling landscape; turn findings into decision-ready briefs.', ['Scrape vendor pricing pages', 'Summarise analyst notes']);
-// a tight daily budget: once the metering proxy has counted 10 cents, Growth's agents are refused and the CEO decides
-await seed('Growth', 'Run growth experiments and write launch copy.', ['Draft launch thread'], 3, 10);
+// Research holds the demo's one failed quest; Growth keeps working, so it has no budget cap to stop it
+await seed('Growth', 'Run growth experiments and write launch copy.', ['Draft launch thread']);
 quest('Research', 'Vendor landscape: vector databases', 'done', ['Collect vendor list', 'Compare pricing', 'Write summary']);
 quest('Research', 'Analyst report digest, October', 'done', ['Read the three reports', 'Pull key numbers']);
 quest('Research', 'Competitor pricing snapshot', 'failed', ['Scrape competitor A', 'Scrape competitor B', 'Scrape competitor C']);
@@ -247,7 +256,7 @@ quest('Growth', 'Launch post for the NEAR hackathon', 'done', ['Draft post', 'Ma
 quest('Growth', 'A/B test landing headline', 'running', ['Variant copy', 'Set up the test']);
 quest('Growth', 'Newsletter #12', 'planning');
 quest('Growth', 'Influencer shortlist', 'queued');
-quest('Growth', 'Referral programme copy', 'failed', ['Write emails', 'Write in-app copy']);
+quest('Growth', 'Referral programme copy', 'done', ['Write emails', 'Write in-app copy']);
 quest('Growth', 'SEO audit of the docs site', 'done', ['Crawl docs', 'List fixes']);
 quest('Growth', 'Weekly metrics recap', 'done', ['Pull numbers']);
 await seed('Support', 'Answer customer tickets and keep the help centre current.', ['Refund backlog', 'Login issues FAQ'], 0);

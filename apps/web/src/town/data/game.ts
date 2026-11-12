@@ -49,7 +49,15 @@ export function acts(g: GameState) {
   return out;
 }
 
-export const sideQuests = (g: GameState) => g.quests.filter((q) => q.side);
+/** The side quests trade from the company wallet, so they open once the treasury is set up. */
+export const sideQuests = (g: GameState) => (g.quests.some((q) => q.id === 'treasury' && q.done) ? g.quests.filter((q) => q.side) : []);
+
+/** The progress pips: the main line in order, lit only along the path up to the next quest (one done out of order,
+    e.g. a floor hired before the treasury, stays dark until the path reaches it). */
+export const pips = (g: GameState): Array<'done' | 'now' | ''> => {
+  const main = g.quests.filter((q) => !q.side), at = main.findIndex((q) => !q.done);
+  return main.map((_, i) => (at === -1 || i < at ? 'done' : i === at ? 'now' : ''));
+};
 
 /** The phrase a progress counter shows, e.g. "2 of 7 done": the main line only (quests can be done out of order, so no position). */
 export const progressLabel = (g: GameState) => {

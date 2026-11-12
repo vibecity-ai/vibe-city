@@ -740,8 +740,9 @@ export const ChatSendSchema = z.object({
   taskTitle: z.string().trim().max(300).optional(),
   /** The chat to continue (from the history); omitted = the agent's last chat. */
   sessionId: ChatSessionIdSchema.optional(),
-  /** The chat is about this blocked task of the agent's: it explains what it needs and can suggest resuming it. */
-  blockedTask: z.object({ title: z.string().trim().max(300), reason: z.string().trim().max(2000).nullable() }).strict().optional(),
+  /** The chat is about this blocked task of the agent's: it explains what it needs (or, `failed`, what went wrong) and
+      can suggest resuming it. */
+  blockedTask: z.object({ title: z.string().trim().max(300), reason: z.string().trim().max(2000).nullable(), failed: z.boolean().optional() }).strict().optional(),
   /** The lead called the boss about this finished quest of its floor: it reports on it. */
   finishedQuest: z.object({ title: z.string().trim().min(1).max(300) }).strict().optional(),
 }).strict();

@@ -40,7 +40,7 @@ export type DeptTab = 'overview' | 'tools' | 'skills' | 'env' | 'quests';
 export type AgentTab = 'now' | 'chat' | 'loadout' | 'record' | 'schedule';
 
 /** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
-export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
+export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null; failed: boolean }
 
 export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
 export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string; taskId?: string }
@@ -93,7 +93,7 @@ interface UI {
 const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, modal: null } satisfies Partial<UI>;
 
 export interface State {
-  company: { name: string } | null;
+  company: { id: string; name: string } | null;
   depts: Dept[];
   /** The Chief of Staff's department: a Hermes profile in the Executive Office, not a floor of the tower. */
   chiefOfStaff: Dept | null;

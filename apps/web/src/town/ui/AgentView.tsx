@@ -6,7 +6,7 @@ import type { AgentSession, Character, ChatHistory, ChatMessage, TaskNode, TaskS
 import { useStore } from '../store';
 import type { Dept, AgentStatus } from '../data/types';
 import { api, ApiError } from '../../api';
-import { answerTask, loadAgent } from '../data/live';
+import { answerTask, loadAgent, RETRY } from '../data/live';
 import { lookFor, quirkProp } from '../world/sprites';
 import { PortraitCanvas } from './Dialogue';
 import { formatTime } from './format';
@@ -35,28 +35,24 @@ export function usePersona(deptId: string, agentKey: string) {
 }
 
 
-/** A blocked task waiting for the boss: why, a chat with the agent about it, or an answer that resumes it right away. */
+/** A blocked task: why it stopped, and one button into the chat with its agent, who explains and retries or resumes
+    it from there. A task outside the floor (no agent to talk to) is retried here directly. */
 export function NeedsInput({ deptId, questId, node }: { deptId: string; questId: string; node: Pick<TaskNode, 'id' | 'title' | 'agentKey' | 'blockReason' | 'summary' | 'error' | 'failed'> }) {
   const ch = useStore((s) => (node.agentKey ? s.personas[`${deptId}:${node.agentKey}`] ?? null : null));
   useEffect(() => { if (node.agentKey) loadPersonas(deptId, [node.agentKey]); }, [deptId, node.agentKey]);
   const busy = useStore((s) => !!s.busy[`answer:${node.id}`]);
-  const [text, setText] = useState('');
   const name = node.agentKey ? agentLabel(node.agentKey, ch) : 'The agent';
   const reason = node.blockReason ?? node.error ?? node.summary;
-  const talk = () => useStore.getState().ui$({ talk: { deptId, agentKey: node.agentKey!, session: 'new', blocked: { questId, taskId: node.id, title: node.title, reason } } });
-  const send = async () => { if (await answerTask(deptId, questId, node.id, text.trim())) setText(''); };
+  const talk = () => useStore.getState().ui$({ talk: { deptId, agentKey: node.agentKey!, session: 'new', blocked: { questId, taskId: node.id, title: node.title, reason, failed: node.failed } } });
   return (
-    <div className="banner warn needs-input" role="group" aria-label={`${node.title} needs your input`}>
-      <Glyph k="blocked" />
+    <div className={`banner inline-b needs-input ${node.failed ? 'bad' : 'warn'}`} role="group" aria-label={`${node.title} needs you`}>
+      <Glyph k={node.failed ? 'failed' : 'blocked'} />
       <div>
         <b>{node.failed ? `${name} got stuck and stopped` : `${name} needs your input`}</b>
-        {reason && <p className="box-p">{reason}</p>}
-        {node.agentKey && <p><button className="btn primary small" onClick={talk}>Talk to {name}</button> <span className="muted small">They explain what is wrong and resume the task once you agree.</span></p>}
-        <form onSubmit={(e) => { e.preventDefault(); void send(); }}>
-          <label className="field"><span className="lbl">Or answer directly</span>
-            <textarea className="input" rows={2} maxLength={4000} value={text} onChange={(e) => setText(e.target.value)} placeholder="What should they do?" /></label>
-          <Btn kind="secondary" type="submit" busy={busy} disabled={busy || !text.trim()}>{busy ? 'Sending…' : 'Send and resume'}</Btn>
-        </form>
+        {reason && <p>{reason}</p>}
+        {node.agentKey
+          ? <button className="btn primary small" onClick={talk}>{node.failed ? `Talk to ${name} and retry` : `Answer ${name}`}</button>
+          : <Btn kind="primary" busy={busy} disabled={busy} onClick={() => void answerTask(deptId, questId, node.id, RETRY)}>{busy ? 'Sending…' : 'Retry'}</Btn>}
       </div>
     </div>
   );
