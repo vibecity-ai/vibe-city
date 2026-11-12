@@ -1,21 +1,11 @@
 /* The device kit (docs: Vibe City — Brand & UI Study, "Devices"): every tool the CEO opens is a physical device the
    company owns, a plastic shell with keys and a glowing screen. Presentation only; each device gets its data and
    actions from its own screen component.
-   - Device: the shell (beige for the CEO's things, graphite for the floors' tools) with the maker's badge.
+   - Device: the shell (beige for the CEO's things, graphite for the floors' tools) with its name engraved on top.
    - Screen: amber CRT (the company), green CRT (markets), reflective LCD (the wallet), LED (code).
    - Key: a physical key; `hot` is the device's one main action (pink, lit). Renders a link when given `href`.
    - Grille: a speaker grille. */
 import type { ReactNode } from 'react';
-
-export function Mark({ size = 16 }: { size?: number }) {
-  return (
-    <svg className="dev-mark" width={size * 1.375} height={size} viewBox="0 0 22 16" aria-hidden="true">
-      <rect x="0" y="8" width="3" height="8" fill="#2EB8C0" /><rect x="4.5" y="5" width="3" height="11" fill="#2EB8C0" />
-      <rect x="9" y="0" width="3" height="16" fill="#E0368F" /><rect x="13.5" y="4" width="3" height="12" fill="#2EB8C0" />
-      <rect x="18" y="7" width="3" height="9" fill="#4FBF7A" />
-    </svg>
-  );
-}
 
 export function Device({ model, name, shell = 'graphite', led, className = '', children }: {
   model: string; name: string; shell?: 'beige' | 'graphite'; led?: 'green' | 'amber' | 'pink' | 'off'; className?: string; children: ReactNode;
@@ -24,7 +14,7 @@ export function Device({ model, name, shell = 'graphite', led, className = '', c
     <div className={`dev ${shell} ${className}`}>
       <div className="dev-badge">
         {led && <i className={`dev-led ${led}`} aria-hidden="true" />}
-        <Mark /><b>Vibe City</b><span>{model} · {name}</span>
+        <b>{name}</b><span>{model}</span>
       </div>
       {children}
     </div>

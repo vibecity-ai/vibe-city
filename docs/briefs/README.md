@@ -15,13 +15,12 @@ set of files; two agents never edit the same file at once. Order:
 
 ## Step 0 (Nov 8 morning, before any brief)
 
-The repo has no `README.md`, no `LICENSE` and no git tags, and its history starts 2026-11-03 although the code
-predates the hackathon. Missing any of these is a disqualification, not a lower score.
+The repo has no `README.md` and no `LICENSE`. Its history starts 2026-11-03: the first commit holds the design and
+setup, and there was no pre-hackathon work. Missing a README or a license is a disqualification, not a lower score.
 
-1. `LICENSE` (MIT) and a `README.md` written as "do X, see Y" steps for a machine reader, with one paragraph
-   disclosing which parts predate 2026-10-19. No marketing.
-2. Tag `pre-hackathon` on the cut commit and push it.
-3. `docker compose up` on a machine that has never seen the repo; fix whatever breaks before any feature.
+1. `LICENSE` and a `README.md` written as "do X, see Y" steps for a machine reader, saying what the first commit
+   holds. No marketing.
+2. `docker compose up` on a machine that has never seen the repo; fix whatever breaks before any feature.
 
 ## Schedule (decided 2026-11-07)
 

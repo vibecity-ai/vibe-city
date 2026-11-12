@@ -4,7 +4,7 @@
    Steps whose target is not on screen are skipped, so the tour fits the tower, a floor and phones alike. On later loads
    keyboard focus lands on the next quest's action. Uses driver.js for the spotlight. */
 import { useEffect } from 'react';
-import { driver, type DriveStep } from 'driver.js';
+import { driver, type DriveStep, type PopoverDOM, type Config, type State } from 'driver.js';
 import 'driver.js/dist/driver.css';
 import { useStore } from '../store';
 import { renameCompany } from '../data/live';
@@ -21,6 +21,18 @@ const STEPS: DriveStep[] = [
   { element: '#hud-phone', popover: { title: 'Your phone', description: 'When your Chief of Staff needs you, or a floor finishes a job and its lead wants to report, the phone rings up here. It rings three times, then waits.' } },
 ];
 
+/** Every step's popover, dressed the same way: progress as pips (the text stays for screen readers), and the first
+    focus on the main key rather than the close cross, so Enter moves on and no ring sits on the corner. */
+function dress(p: PopoverDOM, { config, state }: { config: Config; state: State }) {
+  const n = config.steps?.length ?? 0, at = state.activeIndex ?? 0;
+  const pips = document.createElement('span');
+  pips.className = 'vc-pips'; pips.setAttribute('aria-hidden', 'true');
+  for (let i = 0; i < n; i++) { const d = document.createElement('i'); if (i === at) d.className = 'on'; else if (i < at) d.className = 'done'; pips.appendChild(d); }
+  p.progress.classList.add('vc-sr'); p.progress.before(pips);
+  if (at === 0) p.previousButton.style.display = 'none';
+  setTimeout(() => { if (!p.wrapper.contains(document.activeElement) || document.activeElement === p.closeButton) p.nextButton.focus({ focusVisible: false } as FocusOptions); }, 0);
+}
+
 /** The last step: an input on the popover, saved through the same rename as the top bar (server validates). */
 function nameStep(): DriveStep {
   let input: HTMLInputElement | null = null;
@@ -29,7 +41,8 @@ function nameStep(): DriveStep {
   return {
     popover: {
       title: 'Name your company', description: 'It goes on the rooftop sign. You can change it later from the top bar.', doneBtnText: 'Open for business',
-      onPopoverRender: (p) => {
+      onPopoverRender: (p, opts) => {
+        dress(p, opts);
         btn = p.nextButton;
         input = document.createElement('input');
         input.className = 'vc-tour-name'; input.maxLength = 24; input.setAttribute('aria-label', 'Company name');
@@ -63,11 +76,11 @@ export function Tour() {
     if (!loaded || !game || !company) return;
     // ponytail: one frame-ish wait so the tower DOM has laid out; raise it if steps get skipped on slow devices
     const id = window.setTimeout(() => {
-      if (seen(company)) { document.querySelector<HTMLElement>('.ceo-act button')?.focus({ preventScroll: true }); return; }
+      if (seen(company)) { document.querySelector<HTMLElement>('.ceo-act button')?.focus({ preventScroll: true, focusVisible: false } as FocusOptions); return; } // focusVisible: no ring until the keyboard is used
       const steps = [...STEPS.filter((s) => typeof s.element === 'string' && visible(s.element)), nameStep()];
       const d = driver({
         steps, showProgress: true, progressText: '{{current}} of {{total}}', popoverClass: 'vc-tour',
-        nextBtnText: 'Next', prevBtnText: 'Back', overlayOpacity: 0.62, stagePadding: 6, stageRadius: 10,
+        nextBtnText: 'Next', prevBtnText: 'Back', overlayColor: '#07040C', overlayOpacity: 0.72, stagePadding: 8, stageRadius: 12, onPopoverRender: dress,
         onDestroyed: () => remember(company),
       });
       d.drive();

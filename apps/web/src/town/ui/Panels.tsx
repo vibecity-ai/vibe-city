@@ -23,7 +23,6 @@ import { isMuted, onMuted, play, setMuted } from '../sfx';
 import { Btn, Chip, Field, FloorKey, Glyph, Icon, KV, PixelSelect, Portrait, Tabs, Where, deptStatus, questStatus, statusColor, useDialog, type StatusKey } from './kit';
 import { ModelLogo, modelOption, privacyOf, useModelInfo } from './ModelBadge';
 import { DeskSheet } from './Desk';
-import { Mark } from './Device';
 import { Wordmark } from './Wordmark';
 import { Directory, InTray, StatusBoard } from './ExecDesk';
 import { ChiefOfStaffCard } from './ChiefOfStaff';
@@ -802,7 +801,7 @@ export function QuestBoard() {
     const mine = list.filter((q) => c.has(q.summary.status));
     const color = statusColor(COL_GLYPH[c.key]);
     return (
-      <section key={c.key} className={`col${mine.length ? '' : ' is-empty'}${lane ? ' in-lane' : ''}`} aria-label={`${c.title}: ${mine.length}`} style={{ ['--col' as string]: color }}>
+      <section key={c.key} className={`col col-${c.key}${mine.length ? '' : ' is-empty'}${lane ? ' in-lane' : ''}`} aria-label={`${c.title}: ${mine.length}`} style={{ ['--col' as string]: color }}>
         {!lane && <h2 className="col-h"><span className="rail-plate"><Glyph k={COL_GLYPH[c.key]} /><b>{RAIL_NAME[c.key]}</b><span className="col-n">{mine.length}</span></span><small className="col-hint">{c.title} · {COLUMN_HINT[c.key]}</small></h2>}
         <div className="col-list">{mine.map((q) => <QuestCard key={q.summary.id} q={q} open={open === q.summary.id} />)}</div>
         {mine.length === 0 && <div className="col-empty">{query ? 'No match' : lane ? '·' : 'Nothing here'}</div>}
@@ -814,7 +813,6 @@ export function QuestBoard() {
       <div className="pane-scroll">
         <section className="qb-head">
           <div className="qb-title">
-            <span className="dsp-badge" aria-hidden="true"><i className={`dev-led ${attentionCount(s.quests) ? 'amber' : 'green'}`} /><Mark /><b>Vibe City</b>DISPATCH-1 · order rail</span>
             <h1 className="display" tabIndex={-1}>Ops board</h1>
             <p className="sync" aria-live="polite"><Icon n="refresh" size={12} />{withBoards.length === 0
               ? 'No floor has a Hermes board yet. Sync a floor to give it jobs.'
@@ -823,7 +821,7 @@ export function QuestBoard() {
               <button aria-pressed={layout === 'columns'} className={layout === 'columns' ? 'on' : ''} onClick={() => setLayout('columns')}>Columns</button>
               <button aria-pressed={layout === 'lanes'} className={layout === 'lanes' ? 'on' : ''} onClick={() => setLayout('lanes')}>By floor</button>
             </div>
-            <div className="head-actions"><button className="dev-key hot" disabled={!canCreate} title={canCreate ? '' : 'No floor can take a job right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}>Print a job</button><button className="x boxed" onClick={leave} aria-label="Close the Ops board"><Icon n="x" /></button></div>
+            <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No floor can take a job right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}>Print a job</button><button className="x boxed" onClick={leave} aria-label="Close the Ops board"><Icon n="x" /></button></div>
           </div>
           <div className="qb-floors" role="group" aria-label="Floor">
             <button aria-pressed={!dept} className={!dept ? 'on' : ''} onClick={() => s.ui$({ boardDept: null })}><Icon n="building" size={13} />All floors<span className="count">{onFloor(null).length}</span></button>
@@ -904,7 +902,7 @@ function QuestComposer({ targets }: { targets: DeptOption[] }) {
   };
   return (
     <form className="composer printer" onSubmit={submit} aria-busy={busy} aria-labelledby="qc-h">
-      <div className="printer-top" aria-hidden="true"><span className="dsp-badge"><i className={`dev-led ${busy ? 'amber' : 'green'}`} /><Mark /><b>Vibe City</b>PRINT-1 · job printer</span><span className="printer-slot" /></div>
+      <div className="printer-top" aria-hidden="true"><span className="dev-badge"><i className={`dev-led ${busy ? 'amber' : 'green'}`} /><b>job printer</b><span>PRINT-1</span></span><span className="printer-slot" /></div>
       <div className="printer-paper">
       <h3 className="paper-h" id="qc-h">New job</h3>
       <Field label="Floor" hint="The job goes to this floor’s lead, who plans it and hands parts to teammates on the floor’s own board.">
@@ -939,13 +937,12 @@ function QuestCard({ q, open }: { q: BoardQuest; open: boolean }) {
   const pct = x.counts.tasks ? Math.round((x.counts.done / x.counts.tasks) * 100) : 0;
   const cooking = x.status === 'running' || x.status === 'planning';
   return (
-    <button className={`qcard ticket ${x.status}${open ? ' sel' : ''}${why ? ' attn-card' : ''}${stamp ? ' stamped' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
+    <button className={`qcard ticket ${x.status}${open ? ' sel' : ''}${why ? ' attn-card' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
       onClick={() => ui$({ boardQuest: x.id })} aria-label={`${x.title}, ${STATUS[x.status].label}, ${q.deptName}${why ? `: ${why}` : ''}`}>
-      <span className="tk-clip" aria-hidden="true" />
       <span className="tk-top">
         <span className="tk-no">#{x.id.slice(-4).toUpperCase()}</span>
         <span className="tk-dept">{q.floor} · {q.deptName}</span>
-        <span className="tk-age" title={formatTime(x.createdAt)}>{age(x.createdAt)}</span>
+        {stamp ? <span className={`tk-pill ${stamp.tone}`} aria-hidden="true">{stamp.text}</span> : <span className="tk-age" title={formatTime(x.createdAt)}>{age(x.createdAt)}</span>}
       </span>
       <b className="tk-title">{x.title}</b>
       {(why || cooking || origin?.origin === 'agent' || origin?.origin === 'schedule') && <span className="tk-tags">
@@ -969,7 +966,6 @@ function QuestCard({ q, open }: { q: BoardQuest; open: boolean }) {
         {!lines.plan && !lines.latest && <span className="qcard-line muted">Open for the task tree and activity.</span>}
         {x.flags.unauthorizedAssignees && <span className="qcard-line failed"><Glyph k="awaiting" size={8} />Task outside this floor</span>}
       </span>
-      {stamp && <span className={`tk-stamp ${stamp.tone}`} aria-hidden="true">{stamp.text}</span>}
     </button>
   );
 }
