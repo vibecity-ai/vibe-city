@@ -253,7 +253,7 @@ export function StageOverlay({ city }: { city: City | null }) {
       {!loaded && conn.backend && <div className="stage-alert"><Glyph k="running" /><span>Loading the tower from the backend…</span></div>}
 
       <div className="toasts" aria-live="polite">
-        {toasts.map((t) => <div key={t.id} className={`toast ${t.tone}`}><Glyph k={t.tone === 'bad' ? 'failed' : t.tone === 'warn' ? 'awaiting' : 'completed'} />{t.text}</div>)}
+        {toasts.map((t) => <div key={t.id} className={`toast ${t.tone}`}><Glyph k={t.tone === 'bad' ? 'failed' : t.tone === 'warn' ? 'awaiting' : t.tone === 'busy' ? 'running' : 'completed'} />{t.text}</div>)}
       </div>
     </div>
   );

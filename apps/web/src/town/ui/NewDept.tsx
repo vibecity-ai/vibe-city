@@ -153,7 +153,7 @@ function NewDept() {
   const register = (d: MarketDraft) => {
     const s = useStore.getState();
     close(); s.openFloor(d.departmentId);
-    s.toast(`Registering ${d.floorName} on market.near.ai as a draft…`);
+    s.toast(`Registering ${d.floorName} on market.near.ai as a draft…`, 'busy');
     const onFloor = () => { const u = useStore.getState().ui; return u.view === 'floor' && u.floorId === d.departmentId; };
     void (async () => {
       try {

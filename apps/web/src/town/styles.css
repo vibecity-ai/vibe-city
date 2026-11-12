@@ -149,7 +149,7 @@ button { font: inherit; color: inherit; }
 .stage-alert .btn { flex: none; }
 .toasts { position: absolute; left: 50%; bottom: 96px; transform: translateX(-50%); width: max-content; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; z-index: 40; max-width: min(460px, calc(100% - 32px)); }
 .toast { --sf: var(--sf-mint); --sb: var(--sb-mint); display: flex; align-items: center; gap: 10px; padding: 7px 14px; font-weight: 600; font-size: 13px; animation: toastIn .35s cubic-bezier(.2,.8,.2,1); filter: drop-shadow(0 10px 24px rgba(0,0,0,.45)); max-width: 100%; }
-.toast.bad { --sf: var(--sf-red); --sb: var(--sb-red); } .toast.warn { --sf: var(--sf-amber); --sb: var(--sb-amber); }
+.toast.bad { --sf: var(--sf-red); --sb: var(--sb-red); } .toast.busy { --sf: var(--sf-cyan); --sb: var(--sb-cyan); } .toast.warn { --sf: var(--sf-amber); --sb: var(--sb-amber); }
 @keyframes toastIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
 
 /* ---------- panes ---------- */

@@ -40,7 +40,8 @@ export type AgentTab = 'now' | 'chat' | 'loadout' | 'record' | 'schedule';
 /** A dialogue opened about a blocked task: the agent explains what it needs and can suggest resuming it. */
 export interface BlockedTalk { questId: string; taskId: string; title: string; reason: string | null }
 
-export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' }
+/** busy: work under way; the next toast replaces it, so a result never sits beside its own progress note. */
+export interface Toast { id: number; text: string; tone: 'good' | 'warn' | 'bad' | 'busy' }
 export interface LogLine { t: string; dept: string; kind: AgentStatus | 'chief'; text: string; taskId?: string }
 export interface QuestItem { deptId: string; summary: QuestSummary }
 /** `poll` tracks the explicit cancellation polling after a cancel request (see live.ts pollCancellation). */
@@ -171,7 +172,7 @@ export const useStore = create<State>((set) => ({
   openPanel: (panel, extra) => set((s) => ({ ui: { ...s.ui, ...SHEETS_CLOSED, panel, ...extra } })),
   toast: (text, tone = 'good') => {
     const id = ++toastSeq;
-    set((s) => ({ toasts: [...s.toasts, { id, text, tone }] }));
+    set((s) => ({ toasts: [...s.toasts.filter((t) => t.tone !== 'busy'), { id, text, tone }] }));
     setTimeout(() => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })), tone === 'bad' ? 7000 : 4200);
   },
   emit: (fx) => set((s) => ({ fx: [...s.fx.slice(-40), { seq: ++fxSeq, fx }] })),
