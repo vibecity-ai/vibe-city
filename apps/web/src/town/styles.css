@@ -154,7 +154,7 @@ button { font: inherit; color: inherit; }
 
 /* ---------- panes ---------- */
 .pane { display: flex; flex-direction: column; flex: 1; min-width: 0; min-height: 0; }
-.pane-scroll { flex: 1; overflow: auto; min-height: 0; }
+.pane-scroll { position: relative; flex: 1; overflow: auto; min-height: 0; }
 .pane-head { padding: 30px 24px 0; }
 .pane-head .tabs { margin-top: 22px; }
 .head-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -1372,7 +1372,7 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .desk-crumbs li + li::before { content: "/"; margin: 0 8px; color: #403356; }
 .desk-crumbs li[aria-current] { color: var(--ink); font-weight: 600; }
 .desk-esc { font: 500 11px var(--f-mono); color: var(--ink-mute); border: 1px solid var(--line2); border-radius: 5px; padding: 1px 6px; flex: none; }
-.desk-body { flex: 1; min-height: 0; overflow: auto; padding: 20px 22px 28px; }
+.desk-body { position: relative; flex: 1; min-height: 0; overflow: auto; padding: 20px 22px 28px; }
 @media (min-width: 901px) { .main:has(.desk-sheet.wide) { --panel-w: min(1180px, calc(100vw - 360px)); } }
 @media (max-width: 900px) and (min-height: 521px) {
   .desk-sheet, .desk-sheet ~ .desk-sheet, .desk-sheet ~ .desk-sheet ~ .desk-sheet { position: fixed; inset: var(--top-h) 0 0 0; margin: 0; z-index: calc(40 + var(--z, 0)); border-left: 0; box-shadow: none; }
