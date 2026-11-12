@@ -16,7 +16,9 @@
 
 **Tracks:** <a href="#built-for-six-tracks">09 Games With Real Economies · 04 Autonomous Business · 07 Agent Economy · 12 Social Money · 08 Real-World Money · 01 Unstoppable DeFi</a>
 
-<p align="center"><img src="docs/readme/floor.gif" alt="The Research floor at work: agents at their desks, walking, and posting what they are doing in thought bubbles" width="100%"></p>
+
+
+https://github.com/user-attachments/assets/e45cc1da-5fae-4870-babd-727838742041
 
 > [!NOTE]
 > **The problem.** Running a team of AI agents today means terminals, config files and dashboards, and the agents still cannot earn money, hold it, or be governed. Vibe City puts the whole operation in one place a non-expert can read at a glance: who is working on what, what is stuck, what came in, what went out. And it is fun to look at.
