@@ -43,8 +43,12 @@ The company starts with three floors and jobs already queued, running, failed, d
    IPO then completes from the wallet balance.
 9. **Act 3, IPO.** Click "Open the safe", type any NEAR account (for example `boss.near`) in "Chair · your NEAR
    account", then "Ring the opening bell". The bell goes up on the roof and the panel says "The company is public."
+10. **Invest.** Click the bell on the roof: the public `/invest` page opens in a new tab as a share certificate.
+    Press the "Connect demo wallet" seal, enter an amount of NEAR, then press "Subscribe". The purchase runs on the
+    demo's fake chain and the page says "Subscribed. Your shares are on the register." Only the token link leaves the demo: it opens
+    nearblocks.io, where the demo token does not exist.
 
-10. **Side quests, Connect Hyperliquid and Connect Polymarket** (optional, at the bottom of the quest log, once the
+11. **Side quests, Connect Hyperliquid and Connect Polymarket** (optional, at the bottom of the quest log, once the
     wallet is connected). Press "Check" on each: the demo's OutLayer answers that the connector is set, and the quest
     unlocks a new floor template to hire, Trading Desk and Prediction Desk.
 
