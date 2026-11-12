@@ -6,6 +6,7 @@
 import type { QuestStatus, TaskNode } from '@vibe-city/shared';
 import type { Dept } from './types.ts';
 import type { QuestItem } from '../store.ts';
+import { decisionTarget } from './game.ts';
 
 /** Per department: how much of its quest list the browser actually has. */
 export type QuestSync = 'ok' | 'out_of_date' | 'not_loaded' | 'no_board';
@@ -122,6 +123,13 @@ export function cardLines(tasks: readonly TaskNode[] | undefined): CardLines {
 
 /** Quests with a blocked task (waiting for the boss's input, or stuck after failures), even while other tasks run. */
 export const blockedQuests = (quests: QuestItem[]) => quests.filter((q) => q.summary.status !== 'cancelling' && q.summary.counts.blocked + q.summary.counts.failed > 0);
+
+/** The in tray's quest slips: blocked quests, minus one whose only blocker is a question already on the tray as a decision
+    (the same "Pick competitors…" would otherwise sit there twice). */
+export const trayQuests = (quests: QuestItem[], decisions: { href: string }[]) => {
+  const asked = new Set(decisions.map((d) => { const t = decisionTarget(d.href); return t?.kind === 'quest' ? t.questId : null; }));
+  return blockedQuests(quests).filter((q) => q.summary.counts.failed > 0 || !asked.has(q.summary.id));
+};
 
 /** What a column means to the player, under its title. */
 export const COLUMN_HINT: Record<ColumnKey, string> = { queued: 'Waiting for a lead to pick up', active: 'Agents at work', attention: 'Your move', finished: 'Done or stopped' };

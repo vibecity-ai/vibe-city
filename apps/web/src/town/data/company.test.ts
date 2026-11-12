@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { TaskNode } from '@vibe-city/shared';
-import { COLUMNS, RAIL_NAME, age, attentionReason, cardLines, crewOf, lanes, objectiveText, searchSort, tickerItems, ticketStamp, type BoardQuest } from './company.ts';
+import { COLUMNS, RAIL_NAME, age, attentionReason, cardLines, crewOf, lanes, objectiveText, searchSort, tickerItems, ticketStamp, trayQuests, type BoardQuest } from './company.ts';
 import type { Dept } from './types.ts';
 
 const q = (title: string, dept: string, createdAt: string): BoardQuest => ({
@@ -94,4 +94,12 @@ test('an objective drops a heading that only repeats the title', () => {
   assert.equal(objectiveText('## Referral programme copy', 'Referral programme copy'), '');
   assert.equal(objectiveText('# Plan the launch\nThen ship it.', 'Something else'), 'Plan the launch\nThen ship it.');
   assert.equal(objectiveText('Plain text.', 'T'), 'Plain text.');
+});
+
+test('the in tray drops a quest whose only blocker is a question already there as a decision', () => {
+  const waiting = q('t_asked', 'd1', '2026-11-03T10:00:00Z'); waiting.summary.counts.blocked = 1;
+  const stuck = q('t_stuck', 'd1', '2026-11-03T10:00:00Z'); stuck.summary.counts.blocked = 1; stuck.summary.counts.failed = 1;
+  const other = q('t_other', 'd1', '2026-11-03T10:00:00Z'); other.summary.counts.blocked = 1;
+  const decisions = [{ href: 'quest/d1/t_asked' }, { href: 'quest/d1/t_stuck' }];
+  assert.deepEqual(trayQuests([waiting, stuck, other], decisions).map((x) => x.summary.id), ['t_stuck', 't_other']);
 });
