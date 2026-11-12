@@ -2051,19 +2051,39 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 }
 
 /* the first-run tour (ui/Tour.tsx, driver.js): the HUD's own colours */
-.driver-popover.vc-tour { background: #150E26; color: var(--ink); border: 1px solid #3A2D5C; border-radius: 12px; box-shadow: 0 18px 50px rgba(0,0,0,.6), 0 0 0 1px rgba(255,62,165,.15); padding: 16px 18px 14px; max-width: 320px; font-family: var(--f-ui); }
-.driver-popover.vc-tour .driver-popover-title { font: 400 26px/1 var(--f-px); letter-spacing: .02em; color: #fff; }
-.driver-popover.vc-tour .driver-popover-description { font-size: 14px; line-height: 1.5; color: var(--ink-dim); margin-top: 6px; }
-.driver-popover.vc-tour .driver-popover-progress-text { font: 500 12px var(--f-mono); color: var(--ink-mute); }
-.driver-popover.vc-tour .driver-popover-navigation-btns button { text-shadow: none; border: 1px solid #3A2D5C; background: #231A3D; color: var(--ink); border-radius: 8px; padding: 6px 12px; font: 600 13px var(--f-ui); }
-.driver-popover.vc-tour .driver-popover-navigation-btns .driver-popover-next-btn { background: #FF3EA5; border-color: #FF3EA5; color: #2A0016; }
-.driver-popover.vc-tour .driver-popover-close-btn { color: var(--ink-mute); }
-.driver-popover.vc-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: #150E26; }
-.driver-popover.vc-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: #150E26; }
-.driver-popover.vc-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: #150E26; }
-.driver-popover.vc-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: #150E26; }
-.driver-popover.vc-tour .vc-tour-name { display: block; width: 100%; box-sizing: border-box; margin-top: 12px; padding: 8px 10px; border: 1px solid #3A2D5C; border-radius: 8px; background: #231A3D; color: #fff; font: 600 16px var(--f-ui); }
-.driver-popover.vc-tour .vc-tour-name:focus { outline: 2px solid #FF3EA5; outline-offset: 1px; }
+/* the first-run tour: a dark card with a neon edge, pips for progress, one pink key */
+.driver-popover.vc-tour { background: linear-gradient(180deg, #1B1330 0%, #130D20 100%); color: var(--ink); border: 1px solid rgba(255,255,255,.09); border-radius: 14px;
+  box-shadow: 0 24px 60px rgba(0,0,0,.65), 0 0 0 1px rgba(0,0,0,.4), 0 0 40px rgba(255,62,165,.10); padding: 20px 20px 16px; max-width: 330px; font-family: var(--f-ui); overflow: visible; }
+.driver-popover.vc-tour::before { content: ""; position: absolute; left: 18px; right: 18px; top: -1px; height: 2px; border-radius: 2px; background: linear-gradient(90deg, transparent, #FF3EA5 30%, #2EE6F0 70%, transparent); opacity: .8; }
+.driver-popover.vc-tour .driver-popover-title { font: 400 28px/1 var(--f-px); letter-spacing: .02em; color: #fff; padding-right: 28px; }
+.driver-popover.vc-tour .driver-popover-description { font-size: 14px; line-height: 1.55; color: var(--ink-dim); margin-top: 8px; }
+.driver-popover.vc-tour .driver-popover-footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.07); align-items: center; }
+.driver-popover.vc-tour .vc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.driver-popover.vc-tour .vc-pips { display: flex; gap: 5px; align-items: center; }
+.driver-popover.vc-tour .vc-pips i { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); transition: width .25s ease, background .25s ease; }
+.driver-popover.vc-tour .vc-pips i.done { background: rgba(255,62,165,.45); }
+.driver-popover.vc-tour .vc-pips i.on { width: 18px; background: #FF3EA5; box-shadow: 0 0 8px rgba(255,62,165,.6); }
+.driver-popover.vc-tour .driver-popover-navigation-btns { gap: 8px; }
+.driver-popover.vc-tour .driver-popover-navigation-btns button { text-shadow: none; margin: 0; height: 34px; padding: 0 14px; border-radius: 9px; font: 600 13.5px var(--f-ui); cursor: pointer;
+  border: 1px solid rgba(255,255,255,.12); background: transparent; color: var(--ink-dim); transition: background .15s ease, color .15s ease, box-shadow .15s ease, transform .1s ease; }
+.driver-popover.vc-tour .driver-popover-navigation-btns button:hover { background: rgba(255,255,255,.06); color: var(--ink); }
+.driver-popover.vc-tour .driver-popover-navigation-btns button:active { transform: translateY(1px); }
+.driver-popover.vc-tour .driver-popover-navigation-btns .driver-popover-btn-disabled { display: none; }
+.driver-popover.vc-tour .driver-popover-navigation-btns .driver-popover-next-btn { background: #FF3EA5; border-color: #FF3EA5; color: #2A0016; box-shadow: 0 6px 18px rgba(255,62,165,.35), inset 0 1px 0 rgba(255,255,255,.35); }
+.driver-popover.vc-tour .driver-popover-navigation-btns .driver-popover-next-btn:hover { background: #FF5AB3; color: #2A0016; }
+.driver-popover.vc-tour .driver-popover-navigation-btns button:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(46,230,240,.45); }
+.driver-popover.vc-tour .driver-popover-navigation-btns .driver-popover-next-btn:focus-visible { box-shadow: 0 0 0 3px rgba(255,62,165,.35), 0 6px 18px rgba(255,62,165,.35), inset 0 1px 0 rgba(255,255,255,.35); }
+.driver-popover.vc-tour .driver-popover-navigation-btns button:disabled { opacity: .6; cursor: progress; }
+.driver-popover.vc-tour .driver-popover-close-btn { top: 12px; right: 12px; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; padding: 0; font: 400 20px/1 var(--f-ui); color: var(--ink-mute); transition: background .15s ease, color .15s ease; }
+.driver-popover.vc-tour .driver-popover-close-btn:hover { background: rgba(255,255,255,.07); color: var(--ink); }
+.driver-popover.vc-tour .driver-popover-close-btn:focus-visible { outline: none; box-shadow: 0 0 0 2px rgba(46,230,240,.55); }
+.driver-popover.vc-tour .driver-popover-arrow-side-left.driver-popover-arrow { border-left-color: #170F28; }
+.driver-popover.vc-tour .driver-popover-arrow-side-right.driver-popover-arrow { border-right-color: #170F28; }
+.driver-popover.vc-tour .driver-popover-arrow-side-top.driver-popover-arrow { border-top-color: #130D20; }
+.driver-popover.vc-tour .driver-popover-arrow-side-bottom.driver-popover-arrow { border-bottom-color: #1B1330; }
+.driver-popover.vc-tour .vc-tour-name { display: block; width: 100%; box-sizing: border-box; margin-top: 14px; height: 40px; padding: 0 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 9px; background: rgba(0,0,0,.25); color: #fff; font: 600 16px var(--f-ui); transition: border-color .15s ease, box-shadow .15s ease; }
+.driver-popover.vc-tour .vc-tour-name::selection { background: rgba(255,62,165,.5); color: #fff; }
+.driver-popover.vc-tour .vc-tour-name:focus { outline: none; border-color: #FF3EA5; box-shadow: 0 0 0 3px rgba(255,62,165,.18); }
 .driver-popover.vc-tour .vc-tour-err { margin: 6px 0 0; min-height: 1em; font-size: 12.5px; color: #FF7A9A; }
 .ql-cos { display: inline-flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .ql-keylink { font: 500 12.5px var(--f-ui); color: var(--scr-hi, var(--cyan)); text-underline-offset: 3px; }
