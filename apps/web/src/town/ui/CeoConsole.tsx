@@ -7,7 +7,7 @@ import { useStore } from '../store';
 import { api } from '../../api';
 import { Icon } from './kit';
 import { Pips, QuestAction } from './QuestLog';
-import { nextQuest, progressLabel } from '../data/game';
+import { nextQuest, progressLabel, sideQuests } from '../data/game';
 import { play } from '../sfx';
 
 const usd = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -72,7 +72,14 @@ export function CeoConsole() {
             <h2 className="ceo-q">{next.title}</h2>
             <p className="ceo-hint">{next.hint}</p>
             <div className="ceo-act"><QuestAction q={next} compact />{next.unlocks && <span className="ceo-unl"><Icon n="lock" size={11} />Unlocks {next.unlocks}</span>}</div>
-          </> : <h2 className="ceo-q">The company is public.</h2>}
+          </> : <>
+            <h2 className="ceo-q">The company is public.</h2>
+            {/* the main line is over: point at what is left instead of ending on a dead screen */}
+            {sideQuests(game).some((q) => !q.done) && <>
+              <p className="ceo-hint">Side quests are still open: each one opens another floor.</p>
+              <div className="ceo-act"><button className="btn primary small" onClick={() => s.ui$({ questLog: true })}>See side quests</button></div>
+            </>}
+          </>}
         </section>
       )}
       {r && (
