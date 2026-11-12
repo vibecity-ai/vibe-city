@@ -14,12 +14,23 @@
 
 **Vibe City is a company-building game where the company is real.** You are the CEO of an AI company drawn as a pixel-art tower. A department is a floor, an agent is a [Hermes](https://github.com/NousResearch/hermes-agent) profile at a desk (Nous Research's agent runtime), and a job is a task tree on the department's Hermes Kanban board. The company thinks with **NEAR AI Cloud**, sells its floors' work on the **NEAR AI Agent Market**, keeps its money in an **OutLayer** custody wallet, and ends with an IPO: a **Sputnik DAO** governed in **Trezu** and its own **NEP-141 city token**, sold to the public on a share page.
 
-<!-- TRACKS: fill in once confirmed, e.g. "Submitted to NEAR Hackathon tracks 09 Games With Real Economies and 04 Autonomous Business." -->
+**Tracks:** <a href="#built-for-six-tracks">09 Games With Real Economies · 04 Autonomous Business · 07 Agent Economy · 12 Social Money · 08 Real-World Money · 01 Unstoppable DeFi</a>
 
 <p align="center"><img src="docs/readme/floor.gif" alt="The Research floor at work: agents at their desks, walking, and posting what they are doing in thought bubbles" width="100%"></p>
 
 > [!NOTE]
 > **The problem.** Running a team of AI agents today means terminals, config files and dashboards, and the agents still cannot earn money, hold it, or be governed. Vibe City puts the whole operation in one place a non-expert can read at a glance: who is working on what, what is stuck, what came in, what went out. And it is fun to look at.
+
+### Built for six tracks
+
+| Track | What in Vibe City answers it |
+|---|---|
+| **09 · Games With Real Economies** | The game loop is running a company, and its economy is real: floors of AI agents (agent NPCs) take paid jobs on the NEAR AI Agent Market, the money lands in the company wallet, and the IPO sells the company to players as a city token. You play a tower, not a wallet: the chain only shows when you approve a payout. |
+| **04 · Autonomous Business** | An AI-native company with a treasury (OutLayer), sales (Agent Market listings and paid jobs), operations (agents planning and splitting work on Hermes Kanban), cross-chain moves through NEAR Intents (the Treasury Ops floor) and revenue sharing (DAO dividends). You set the constraints: the wallet's spending policy, each floor's daily model budget, and the approvals in Trezu. |
+| **07 · Agent Economy** | Each floor is an agent on the Agent Market that earns: a paid assignment becomes a job, the result is submitted back, and an accepted delivery is revenue. Agents spend under a budget (a metered NEAR AI key per floor), and the Chief of Staff hires new agents onto floors. |
+| **12 · Social Money** | The IPO turns the company into a Sputnik DAO governed in Trezu, with named accounts (`<company>.sputnik-dao.near`, `<symbol>.tokens.vibecity.near`). Anyone can buy shares on `/invest`; the NEAR goes to the DAO, and revenue goes back to holders, pro rata, by DAO proposal. |
+| **08 · Real-World Money** | The company is paid in USDC escrow on the Agent Market, keeps a treasury, and pays its shareholders dividends in USDC or wNEAR by proposal; the DAO is registered on USDC when it is created. Getting paid, holding money and paying out, for a small company run by its agents. |
+| **01 · Unstoppable DeFi** | Unlockable floors trade with the company wallet, and Vibe City never holds its key: a Trading Desk on Hyperliquid perps, a Prediction Desk on Polymarket, and Treasury Ops swapping and rebalancing across chains through NEAR Intents. Each works inside the owner's OutLayer policy and reports its P&L into the company's earnings. |
 
 ---
 
@@ -123,7 +134,7 @@ A floor is a team: one **lead** who plans and up to ten **teammates**. Give a fl
 | **NEAR AI Cloud** | Every agent, the Chief of Staff and the hiring calls think with a model you pick (OpenAI-compatible, `cloud-api.near.ai/v1`). Floors call it through our metering proxy with their own key and a daily budget; the company key stays on the server. Model prices come from `/v1/model/list`. | [`routes/ai.ts`](apps/backend/src/routes/ai.ts), [`model/chatModel.ts`](apps/backend/src/model/chatModel.ts), [`model/nearPrices.ts`](apps/backend/src/model/nearPrices.ts) |
 | **NEAR AI Agent Market** | A floor registers as an agent. A poller turns each paid assignment into a quest on that floor, submits the finished result as the deliverable, and opens a follow-up quest when the buyer asks for changes. Accepted jobs are the company's revenue. | [`domain/marketService.ts`](apps/backend/src/domain/marketService.ts) |
 | **OutLayer custody wallet** | The company treasury. Its keys live in OutLayer's TEE; Vibe City holds only the agent API key, server-side. It signs every IPO call, and trading floors use its connectors under the owner's caps. | [`domain/walletService.ts`](apps/backend/src/domain/walletService.ts) |
-| **NEAR Intents** | The treasury shows every Intents balance with one `mt_batch_balance_of` view call on `intents.near`; the 1Click token list prices NEAR for the offering. | [`domain/walletService.ts`](apps/backend/src/domain/walletService.ts) |
+| **NEAR Intents** | The treasury shows every Intents balance with one `mt_batch_balance_of` view call on `intents.near`; the 1Click token list prices NEAR for the offering. The Treasury Ops floor, unlocked by the treasury quest, swaps and rebalances the company's funds across chains through OutLayer's Intents endpoints. | [`domain/walletService.ts`](apps/backend/src/domain/walletService.ts), [`templates/treasury-ops.ts`](packages/shared/src/templates/treasury-ops.ts) |
 | **Sputnik DAO + Trezu** | The IPO creates `<company>.sputnik-dao.near` with a Trezu-shaped policy. The DAO holds 60% of the shares and the money raised; dividends and the end of the sale are proposals you approve in Trezu. | [`domain/ipoService.ts`](apps/backend/src/domain/ipoService.ts) |
 | **City token (NEP-141)** | Our own factory, `tokens.vibecity.near`, creates `<symbol>.tokens.vibecity.near`: 1,000,000 shares, 40% sold by the token itself at a fixed price on the public `/invest` page (any NEAR wallet via near-connect). | [`contracts/`](contracts), [`apps/web/src/invest`](apps/web/src/invest) |
 
