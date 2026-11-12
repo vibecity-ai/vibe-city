@@ -9,6 +9,7 @@ import { api, ApiError } from '../../api';
 import { Icon } from './kit';
 import { DeskSheet } from './Desk';
 import { acts, nextQuest, progressLabel, questTarget, sideQuests } from '../data/game';
+import { clock } from '../data/derive';
 import { ChiefOfStaffSetup } from './ChiefOfStaff';
 
 /** The caps OutLayer's connector needs before it opens orders (a stored policy is fail-closed without them). */
@@ -135,7 +136,7 @@ function MarketQuest() {
     );
   }
 
-  const checked = m.lastPollAt ? new Date(m.lastPollAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+  const checked = m.lastPollAt ? clock(m.lastPollAt) : null;
   const name = (id: string) => depts.find((d) => d.id === id)?.view.name ?? 'the listed floor';
   const unlisted = depts.some((d) => !isInternalOnly(d.view.templateId) && !m.agents.some((a) => a.departmentId === d.id));
   // one floor set up (claimed, live, open for work) is all the quest needs: the others' checklists would only distract
