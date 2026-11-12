@@ -44,8 +44,9 @@ The company starts with three floors and jobs already queued, running, failed, d
 9. **Act 3, IPO.** Click "Open the safe", type any NEAR account (for example `boss.near`) in "Chair · your NEAR
    account", then "Ring the opening bell". The bell goes up on the roof and the panel says "The company is public."
 
-The side quests, Connect Hyperliquid and Connect Polymarket, are optional: they ask for connectors set up on real
-OutLayer accounts, so skip them in the demo.
+10. **Side quests, Connect Hyperliquid and Connect Polymarket** (optional, at the bottom of the quest log, once the
+    wallet is connected). Press "Check" on each: the demo's OutLayer answers that the connector is set, and the quest
+    unlocks a new floor template to hire, Trading Desk and Prediction Desk.
 
 Also worth a look:
 
