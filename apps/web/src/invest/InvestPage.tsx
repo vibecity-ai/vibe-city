@@ -4,13 +4,15 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { NearConnector } from '@hot-labs/near-connect';
 import type { IpoState } from '@vibe-city/shared';
-import { api, ApiError } from '../api';
+import { api, ApiError, DEMO } from '../api';
 import { fmtNear } from '../town/ui/IpoCard';
 import { estimateTokens, nearToYocto } from './buy';
 import '../town/fonts.css';
 import '../town/styles.css';
 
-const RPC = 'https://rpc.mainnet.fastnear.com';
+/** In the demo build, a fake wallet that reads and buys on the demo server's fake chain. */
+const DEMO_ACCOUNT = 'demo-investor.near';
+const RPC = DEMO ? '/demo/rpc' : 'https://rpc.mainnet.fastnear.com';
 const BUY_GAS = '50000000000000';
 const NB = 'https://nearblocks.io';
 const errText = (e: unknown) => (e instanceof ApiError || e instanceof Error ? e.message : 'Something went wrong.');
@@ -49,6 +51,7 @@ export function InvestPage() {
   useEffect(() => {
     void load();
     api.company().then((c) => setName(c.name), () => {});
+    if (DEMO) return;
     const c = near();
     c.getConnectedWallet().then(({ accounts }) => setAccount(accounts[0]?.accountId ?? null), () => {});
     c.on('wallet:signIn', (t) => setAccount(t.accounts[0]?.accountId ?? null));
@@ -87,6 +90,12 @@ export function InvestPage() {
     if (!deposit) return;
     setBusy(true); setErr(null); setTx(null);
     try {
+      if (DEMO) {
+        const r = await fetch('/demo/buy', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token, accountId: account, deposit }) });
+        if (!r.ok) throw new Error(((await r.json()) as { message: string }).message);
+        setTx({ hash: null, ok: true }); setAmount('');
+        return;
+      }
       const wallet = await near().wallet();
       const out = await wallet.signAndSendTransaction({
         receiverId: token,
@@ -98,7 +107,8 @@ export function InvestPage() {
     finally { setBusy(false); void load(); }
   };
 
-  const connect = () => void near().connect().catch((e) => setErr(errText(e)));
+  const connect = () => (DEMO ? setAccount(DEMO_ACCOUNT) : void near().connect().catch((e) => setErr(errText(e))));
+  const disconnect = () => (DEMO ? (setAccount(null), setBalance(null)) : void near().disconnect());
   const holder = account ?? '______________________';
   return paper(<>
     <p className="cert-sub">City shares · <b>{ipo.symbol}</b> · offered at <b>{offer ? fmtNear(offer.priceNear) : '—'} NEAR</b> a share{offer && <> (≈ ${(offer.priceNear * offer.nearUsd).toFixed(4)})</>}</p>
@@ -126,8 +136,8 @@ export function InvestPage() {
         <div className="cert-seal-row">
           {account
             ? <button className="seal" type="submit" disabled={!canBuy} aria-label="Subscribe"><span>{busy ? 'Signing' : 'Subscribe'}</span></button>
-            : <button className="seal" type="button" onClick={connect} aria-label="Connect a NEAR wallet"><span>Connect wallet</span></button>}
-          {account && <button className="cert-link" type="button" onClick={() => void near().disconnect()}>Not {short(account)}? Disconnect</button>}
+            : <button className="seal" type="button" onClick={connect} aria-label="Connect a NEAR wallet"><span>{DEMO ? 'Connect demo wallet' : 'Connect wallet'}</span></button>}
+          {account && <button className="cert-link" type="button" onClick={disconnect}>Not {short(account)}? Disconnect</button>}
         </div>
       </form>
     ) : sale && <p className="cert-text"><b>The offering is closed.</b> The company's books are shut; shares now move only between holders.</p>}

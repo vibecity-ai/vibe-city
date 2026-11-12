@@ -15,6 +15,7 @@ import { buildServices } from '../src/app.ts';
 import { FAKE_MODELS, FAKE_SKILLS, FakeHermes } from '../src/testing/fakeHermes.ts';
 import { FakeKanban } from '../src/testing/fakeKanban.ts';
 import { FakeNet } from '../src/testing/fakeNet.ts';
+import { DEFAULT_RPC } from '../src/near/rpc.ts';
 import { FakeChatModel, OpenAiCompatModel } from '../src/model/chatModel.ts';
 import type { ModelPrice } from '../src/model/nearPrices.ts';
 import { aiKeyFor } from '../src/routes/ai.ts';
@@ -176,6 +177,14 @@ const { app, schedules, chiefOfStaffId, market, departments } = buildServices(db
   allowedOrigins: [origin, `http://localhost:${cfg.port}`],
 });
 
+// The /invest page's wallet in the demo build (VITE_DEMO): it reads balances and buys shares on the fake chain.
+app.post('/demo/rpc', async (req) => (await net.fetch(DEFAULT_RPC.mainnet, { method: 'POST', body: JSON.stringify(req.body) })).json());
+app.post('/demo/buy', async (req, reply) => {
+  const b = req.body as { token?: string; accountId?: string; deposit?: string };
+  const hash = /^\d+$/.test(b.deposit ?? '') && b.token && b.accountId ? net.buy(b.token, b.accountId, BigInt(b.deposit!)) : null;
+  return hash ? { hash } : reply.code(400).send({ error: 'buy_failed', message: 'The offering cannot sell that many shares.' });
+});
+
 // the real server syncs the Chief of Staff's Hermes profile at start; the demo does the same with the fake
 await app.inject({ method: 'POST', url: `/api/departments/${chiefOfStaffId}/provision` });
 
@@ -274,7 +283,7 @@ await seed('Support', 'Answer customer tickets and keep the help centre current.
     'Found a better source, switching', 'Halfway there: two of four parts done', 'Double-checking the figures', 'Writing it up for the boss'];
   const TOOLS: [string, (title: string) => object][] = [['web_search', (t) => ({ query: t })], ['web_extract', () => ({ url: 'https://example.com/report' })],
     ['read_file', () => ({ path: 'notes.md' })], ['write_file', () => ({ path: 'draft.md' })], ['execute_code', () => ({ code: 'tabulate(prices)' })]];
-  const RUN_S = Number(process.env.DEMO_RUN_S ?? 25);
+  const RUN_S = Number(process.env.DEMO_RUN_S ?? 25), MARKET_RUN_S = Number(process.env.DEMO_MARKET_RUN_S ?? 6);
   let k = 0;
   const slug = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60);
   /** One assistant turn with one tool call in the session of the task's run on its agent's profile (opened on first use). */
@@ -300,8 +309,10 @@ await seed('Support', 'Answer customer tickets and keep the help centre current.
       const tasks = [...b.tasks.values()], now = Date.now() / 1000;
       const running = tasks.filter((t) => t.status === 'running');
       const since = (id: string) => b.runs.filter((r) => r.task_id === id && r.ended_at === null).at(-1)?.started_at ?? now;
-      const finish = running.find((t) => now - since(t.id) >= RUN_S);
-      const start = tasks.find((t) => t.status === 'ready' && t.assignee && !running.some((x) => x.assignee === t.assignee));
+      // a market job is the quest standing between the player and the next ones: its lead delivers it alone, quickly
+      const job = (t: { title: string }) => t.title.startsWith('Market job');
+      const finish = running.find((t) => now - since(t.id) >= (job(t) ? MARKET_RUN_S : RUN_S));
+      const start = tasks.find((t) => t.status === 'ready' && t.assignee && job(t)) ?? tasks.find((t) => t.status === 'ready' && t.assignee && !running.some((x) => x.assignee === t.assignee));
       const busy = running[k % Math.max(1, running.length)];
       if (!finish && !start && !busy) continue;
       const res = await app.inject({ method: 'POST', url: '/ai/v1/chat/completions', headers: { authorization: `Bearer ${aiKeyFor(db, d.id)}` },
@@ -310,7 +321,7 @@ await seed('Support', 'Answer customer tickets and keep the help centre current.
       k++;
       if (finish) {
         Object.assign(step(finish.assignee!, finish, 'Done. Writing up the result.', 'kanban_complete', { summary: finish.title }), { active: false, endedAt: Math.floor(now), endReason: 'completed' });
-        if (finish.parents.length === 0 && finish.assignee === lead && team.length && !tasks.some((t) => t.parents.includes(finish.id))) {
+        if (!job(finish) && finish.parents.length === 0 && finish.assignee === lead && team.length && !tasks.some((t) => t.parents.includes(finish.id))) {
           kanban.complete(board, finish.id, 'Plan: the sources first, then the brief.');
           ['Gather the sources', 'Write the brief'].forEach((t, i) => kanban.seedTask(board, { title: `${t}: ${finish.title}`.slice(0, 200), assignee: team[i % team.length]!, parents: [finish.id] }));
         } else {
@@ -331,7 +342,7 @@ await seed('Support', 'Answer customer tickets and keep the help centre current.
 }
 // The rest of the world (fakeNet.ts): a claimed listing goes live, buyers hire and accept, investors subscribe. The
 // backend polls the market as the real server does, only faster.
-setInterval(() => { net.tick(); void market.tick(); }, Number(process.env.DEMO_WORLD_MS ?? 10_000)).unref();
+setInterval(() => { net.tick(); void market.tick(); }, Number(process.env.DEMO_WORLD_MS ?? 3_000)).unref();
 
 await app.listen({ host: '127.0.0.1', port: cfg.port });
 console.log(`Vibe City demo (fake Hermes, ${cfg.chat.apiKey ? 'real' : 'scripted'} chat) on http://127.0.0.1:${cfg.port}`);

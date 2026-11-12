@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react';
 import type { ChiefOfStaffModels, CompanySettings } from '@vibe-city/shared';
 import { useStore } from '../store';
-import { api, ApiError } from '../../api';
+import { api, ApiError, DEMO } from '../../api';
 import { Icon, PixelSelect } from './kit';
 import { ModelLogo, PrivacyTag, modelOption, per1M, privacyOf } from './ModelBadge';
 
@@ -14,7 +14,7 @@ const KEYS_URL = 'https://cloud.near.ai';
 export function ChiefOfStaffSetup({ onDone }: { onDone?: () => void }) {
   const [settings, setSettings] = useState<CompanySettings | null>(null);
   const [models, setModels] = useState<ChiefOfStaffModels | null>(null);
-  const [key, setKey] = useState('');
+  const [key, setKey] = useState(DEMO ? 'demo-near-ai-key' : '');
   const [replacing, setReplacing] = useState(false);
   const [model, setModel] = useState('');
   const [credits, setCredits] = useState('');

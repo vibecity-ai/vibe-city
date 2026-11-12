@@ -17,7 +17,7 @@
     "dev:backend": "npm run dev:docker -w @vibe-city/backend",
     "dev:web": "npm run dev -w @vibe-city/web",
     "build": "npm run build -w @vibe-city/web",
-    "demo": "npm run build && WEB_DIST=../web/dist PORT=${PORT:-4199} npm run demo -w @vibe-city/backend",
+    "demo": "VITE_DEMO=1 npm run build && WEB_DIST=../web/dist PORT=${PORT:-4199} npm run demo -w @vibe-city/backend",
     "dev:hermes": "mkdir -p .dev/hermes && DOCKER_CONTEXT=${DOCKER_CONTEXT:-default} docker compose -f docker-compose.dev.yml up -d --build",
     "dev:hermes:down": "DOCKER_CONTEXT=${DOCKER_CONTEXT:-default} docker compose -f docker-compose.dev.yml down"
   }

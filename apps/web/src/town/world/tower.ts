@@ -407,7 +407,7 @@ const CEO_LOOK = lookFor('ceo', '#3A2A5E', true);
 /** The exchange bell on the roof of a listed company: a timber frame beside the helipad with a brass bell hung in it.
  *  `swing` is the bell's angle (radians, 0 at rest). `show` (0..1) brings in what only the ceremony has: the CEO on
  *  the rope and the LISTED ticker running along the parapet. */
-export function roofBell(px: Pix, L: Lights, t: number, T: number, alpha: number, o: { swing: number; show: number; symbol: string }) {
+export function roofBell(px: Pix, L: Lights, t: number, T: number, alpha: number, o: { swing: number; show: number; symbol: string; hover: boolean }) {
   const H = PH_H;
   const P: PFn = (u, v, h = 0) => [u + v, T + H + 0.5 * u - 0.5 * v - h];
   const R = (u: number, v: number, h = 0) => P(u, v, H + h);
@@ -436,6 +436,10 @@ export function roofBell(px: Pix, L: Lights, t: number, T: number, alpha: number
   px.poly(oval(18, 4, 33), '#B8782A', 0.4);
   px.line(B(-4, 6), B(-9, 25), '#FFF1B0', 1, 1);
   px.poly([B(-3, -2), B(3, -2), B(3, 3), B(-3, 3)], '#8A6048');
+  // the bell is a button (it opens /invest): a rim that breathes at rest, bright cyan under the pointer like a floor
+  const rim = [...side.map(([x, y]) => B(-x, y)), ...side.map(([x, y]) => B(x, y)).reverse()];
+  const rimA = o.hover ? 1 : 0.45 + 0.3 * Math.sin(t * 2.4);
+  rim.forEach((p, i) => px.line(p, rim[(i + 1) % rim.length]!, o.hover ? C.cyan : '#FFE7A0', o.hover ? 2 : 1, rimA));
   box(c, 41, 29, H + 56, 57, 3, 4, '#7A5440', { top: '#9A6E50' });
   box(c, 92, 29, H, 3, 3, 56, '#6B4A3A', { top: '#8A6048' });
   if (o.show > 0.01) {
