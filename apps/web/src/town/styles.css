@@ -1565,6 +1565,7 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 }
 @media (prefers-reduced-motion: reduce) { .printer-paper { animation: none; } .tk-live::before { animation: none; } }
 .qb.dispatch .qcard.ticket.stamped .tk-title { padding-right: 78px; }
+.qb.dispatch .qcard.ticket.stamped.awaiting_input .tk-title { padding-right: 112px; } /* "Needs you" is the widest stamp */
 .qb.dispatch .qcard.ticket.stamped .tk-stamp { top: 34px; }
 /* keys outside a device shell (the board's and the printer's) */
 .dispatch .dev-key { color: #C8B9E1; background: linear-gradient(#4F3F6B, #392E4D); box-shadow: inset 0 1px 0 rgba(255,255,255,.16), 0 3px 0 #161021, 0 7px 12px rgba(0,0,0,.45); font: 400 19px/1 var(--f-px); }
