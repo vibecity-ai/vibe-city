@@ -93,7 +93,7 @@ interface UI {
 const SHEETS_CLOSED = { questLog: false, floorSheet: null, skillLib: null, execModal: null, newDept: false, cosCall: null, modal: null } satisfies Partial<UI>;
 
 export interface State {
-  company: { name: string } | null;
+  company: { id: string; name: string } | null;
   depts: Dept[];
   /** The Chief of Staff's department: a Hermes profile in the Executive Office, not a floor of the tower. */
   chiefOfStaff: Dept | null;

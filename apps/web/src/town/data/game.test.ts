@@ -44,8 +44,17 @@ test('the quest log groups quests into three acts in order, and counts progress'
   assert.deepEqual(a.map((x) => x.title), ['Set up the company', 'Earn', 'Go public']);
   assert.deepEqual(a[0]!.quests.map((q) => q.id), ['connect-ai', 'treasury', 'hire', 'new-quest']);
   assert.deepEqual(a[2]!.quests.map((q) => q.id), ['ipo']);
-  assert.deepEqual(sideQuests(g).map((q) => q.id), ['connect-hyperliquid']);
+  assert.deepEqual(sideQuests(g), [], 'side quests wait for the treasury');
+  const t = { ...g, quests: g.quests.map((q) => (q.id === 'treasury' ? { ...q, done: true } : q)) };
+  assert.deepEqual(sideQuests(t).map((q) => q.id), ['connect-hyperliquid']);
   assert.equal(progressLabel(g), '1 of 5 done', 'side quests do not count');
+});
+
+test('the pips light the path up to the next quest only', async () => {
+  const { pips } = await import('./game.ts');
+  const q = (id: string, done: boolean) => ({ id, title: id, done, hint: '', unlocks: null, side: false });
+  assert.deepEqual(pips({ ...fixture, quests: [q('a', true), q('b', false), q('c', true), q('d', false)] }), ['done', 'now', '', '']);
+  assert.deepEqual(pips({ ...fixture, quests: [q('a', true), q('b', true)] }), ['done', 'done']);
 });
 
 test('the IPO symbol is the company initials, 2 to 8 capitals, always a valid symbol', () => {

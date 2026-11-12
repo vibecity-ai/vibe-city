@@ -8,7 +8,7 @@ import { useStore } from '../store';
 import { api, ApiError } from '../../api';
 import { Icon } from './kit';
 import { DeskSheet } from './Desk';
-import { acts, nextQuest, progressLabel, questTarget, sideQuests } from '../data/game';
+import { acts, nextQuest, pips, progressLabel, questTarget, sideQuests } from '../data/game';
 import { ChiefOfStaffSetup } from './ChiefOfStaff';
 
 /** The caps OutLayer's connector needs before it opens orders (a stored policy is fail-closed without them). */
@@ -200,12 +200,7 @@ export function QuestAction({ q, onGo, compact }: { q: CeoQuest; onGo?: () => vo
 }
 
 export function Pips({ g }: { g: GameState }) {
-  const next = nextQuest(g);
-  return (
-    <span className="ql-pips" aria-hidden="true">
-      {g.quests.filter((q) => !q.side).map((q) => <i key={q.id} className={q.done ? 'done' : q === next ? 'now' : ''} />)}
-    </span>
-  );
+  return <span className="ql-pips" aria-hidden="true">{pips(g).map((c, i) => <i key={i} className={c} />)}</span>;
 }
 
 /* ---------------- the Executive Office panel ---------------- */

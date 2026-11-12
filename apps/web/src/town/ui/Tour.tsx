@@ -1,5 +1,6 @@
 /* The first-run tour: short steps that point at the lift, the quest, the job keys, the Ops board and the phone, then
-   a last step that names the company. Once per browser (remembered in localStorage), as soon as the company has loaded.
+   a last step that names the company. Once per company (remembered in localStorage by its id, so the demo's fresh
+   company on every start gets the tour again), as soon as the company has loaded.
    Steps whose target is not on screen are skipped, so the tour fits the tower, a floor and phones alike. On later loads
    keyboard focus lands on the next quest's action. Uses driver.js for the spotlight. */
 import { useEffect } from 'react';
@@ -9,8 +10,8 @@ import { useStore } from '../store';
 import { renameCompany } from '../data/live';
 
 const KEY = 'vc-tour';
-const seen = () => { try { return localStorage.getItem(KEY) === 'done'; } catch { return true; } };
-const remember = () => { try { localStorage.setItem(KEY, 'done'); } catch { /* private window: show it again next time */ } };
+const seen = (id: string) => { try { return localStorage.getItem(KEY) === id; } catch { return true; } };
+const remember = (id: string) => { try { localStorage.setItem(KEY, id); } catch { /* private window: show it again next time */ } };
 
 const STEPS: DriveStep[] = [
   { element: '.rail', popover: { title: 'Your tower', description: 'Every floor is a team of AI agents working for you. Take the lift, or click a floor, to walk in. PH is your office.' } },
@@ -57,20 +58,21 @@ const visible = (sel: string) => { const el = document.querySelector<HTMLElement
 export function Tour() {
   const loaded = useStore((s) => s.loaded);
   const game = useStore((s) => s.game);
+  const company = useStore((s) => s.company?.id);
   useEffect(() => {
-    if (!loaded || !game) return;
+    if (!loaded || !game || !company) return;
     // ponytail: one frame-ish wait so the tower DOM has laid out; raise it if steps get skipped on slow devices
     const id = window.setTimeout(() => {
-      if (seen()) { document.querySelector<HTMLElement>('.ceo-act button')?.focus({ preventScroll: true }); return; }
+      if (seen(company)) { document.querySelector<HTMLElement>('.ceo-act button')?.focus({ preventScroll: true }); return; }
       const steps = [...STEPS.filter((s) => typeof s.element === 'string' && visible(s.element)), nameStep()];
       const d = driver({
         steps, showProgress: true, progressText: '{{current}} of {{total}}', popoverClass: 'vc-tour',
         nextBtnText: 'Next', prevBtnText: 'Back', overlayOpacity: 0.62, stagePadding: 6, stageRadius: 10,
-        onDestroyed: remember,
+        onDestroyed: () => remember(company),
       });
       d.drive();
     }, 300);
     return () => window.clearTimeout(id);
-  }, [loaded, !!game]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [loaded, !!game, company]); // eslint-disable-line react-hooks/exhaustive-deps
   return null;
 }
