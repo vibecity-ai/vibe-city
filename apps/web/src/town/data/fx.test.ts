@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { QuestSummary } from '@vibe-city/shared';
-import { BELL_S, BELL_STRIKES, bellStrike, bellSwing, fxBetween } from './fx.ts';
+import type { GameState, QuestSummary } from '@vibe-city/shared';
+import { BELL_S, BELL_STRIKES, bellStrike, bellSwing, fxBetween, questsCompleted } from './fx.ts';
 import type { Dept } from './types.ts';
 
 const dept = (id: string, workers: { id: string; status: string; taskId?: string }[] = []) =>
@@ -35,4 +35,12 @@ test('the opening bell hangs still at both ends and is at full swing, on alterna
     assert.ok(bellStrike(k) < BELL_S);
     assert.ok(Math.abs(bellSwing(bellStrike(k)) - (k % 2 ? -0.42 : 0.42)) < 1e-9, `strike ${k}`);
   }
+});
+
+test('a quest-log quest turning done is a moment; the first load and the IPO are not', () => {
+  const g = (done: string[]) => ({ quests: ['connect-ai', 'treasury', 'ipo'].map((id) => ({ id, title: id, done: done.includes(id), hint: '', unlocks: id === 'connect-ai' ? 'Hiring' : null, side: false })) }) as unknown as GameState;
+  assert.deepEqual(questsCompleted(g([]), g(['connect-ai'])), [{ k: 'questComplete', title: 'connect-ai', unlocks: 'Hiring' }]);
+  assert.deepEqual(questsCompleted(null, g(['connect-ai'])), [], 'already done on load: history');
+  assert.deepEqual(questsCompleted(g(['connect-ai']), g(['connect-ai'])), [], 'nothing changed');
+  assert.deepEqual(questsCompleted(g(['treasury']), g(['treasury', 'ipo'])), [], 'the opening bell has its own banner');
 });

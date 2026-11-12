@@ -21,6 +21,8 @@ export type Fx =
   /** A job now waits on the CEO. */
   | { k: 'needsYou'; dept: string; title: string }
   | { k: 'floorAdded'; dept: string }
+  /** A quest in the quest log was just finished (the game, not a floor's job). */
+  | { k: 'questComplete'; title: string; unlocks: string | null }
   | { k: 'chiefArrived'; dept: string }
   | { k: 'workerJoined'; dept: string; worker: string }
   /** A chief handed work to another department: a packet flies from floor to floor. */
