@@ -51,7 +51,11 @@ body { margin: 0; background: var(--n900); color: var(--ink); font: 14px/1.5 var
 button { font: inherit; color: inherit; }
 *, *::before, *::after { font-variant-ligatures: none !important; }
 * { scrollbar-width: thin; scrollbar-color: #322844 transparent; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* screen-reader text: pinned to its containing block's corner, so a long list of it inside a scrolling pane can never
+   make the page itself taller than the window */
+.sr { position: absolute; top: 0; left: 0; width: 1px; height: 1px; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; }
+/* the game fills the window and scrolls only inside its panes; the page under it never scrolls (/invest still does) */
+html:has(.app), html:has(.app) body { overflow: hidden; }
 .mono { font-family: var(--f-mono); font-size: 12px; }
 .muted { color: var(--ink-mute); } .small { font-size: 12px; } .grow { flex: 1; }
 .gold-n { color: var(--gold); font-weight: 700; }
@@ -2062,7 +2066,7 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .driver-popover.vc-tour .driver-popover-title { font: 400 28px/1 var(--f-px); letter-spacing: .02em; color: #fff; padding-right: 28px; }
 .driver-popover.vc-tour .driver-popover-description { font-size: 14px; line-height: 1.55; color: var(--ink-dim); margin-top: 8px; }
 .driver-popover.vc-tour .driver-popover-footer { margin-top: 18px; padding-top: 14px; border-top: 1px solid rgba(255,255,255,.07); align-items: center; }
-.driver-popover.vc-tour .vc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.driver-popover.vc-tour .vc-sr { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .driver-popover.vc-tour .vc-pips { display: flex; gap: 5px; align-items: center; }
 .driver-popover.vc-tour .vc-pips i { width: 6px; height: 6px; border-radius: 3px; background: rgba(255,255,255,.14); transition: width .25s ease, background .25s ease; }
 .driver-popover.vc-tour .vc-pips i.done { background: rgba(255,62,165,.45); }
