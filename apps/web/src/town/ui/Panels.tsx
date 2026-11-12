@@ -801,7 +801,7 @@ export function QuestBoard() {
     const mine = list.filter((q) => c.has(q.summary.status));
     const color = statusColor(COL_GLYPH[c.key]);
     return (
-      <section key={c.key} className={`col${mine.length ? '' : ' is-empty'}${lane ? ' in-lane' : ''}`} aria-label={`${c.title}: ${mine.length}`} style={{ ['--col' as string]: color }}>
+      <section key={c.key} className={`col col-${c.key}${mine.length ? '' : ' is-empty'}${lane ? ' in-lane' : ''}`} aria-label={`${c.title}: ${mine.length}`} style={{ ['--col' as string]: color }}>
         {!lane && <h2 className="col-h"><span className="rail-plate"><Glyph k={COL_GLYPH[c.key]} /><b>{RAIL_NAME[c.key]}</b><span className="col-n">{mine.length}</span></span><small className="col-hint">{c.title} · {COLUMN_HINT[c.key]}</small></h2>}
         <div className="col-list">{mine.map((q) => <QuestCard key={q.summary.id} q={q} open={open === q.summary.id} />)}</div>
         {mine.length === 0 && <div className="col-empty">{query ? 'No match' : lane ? '·' : 'Nothing here'}</div>}
@@ -821,7 +821,7 @@ export function QuestBoard() {
               <button aria-pressed={layout === 'columns'} className={layout === 'columns' ? 'on' : ''} onClick={() => setLayout('columns')}>Columns</button>
               <button aria-pressed={layout === 'lanes'} className={layout === 'lanes' ? 'on' : ''} onClick={() => setLayout('lanes')}>By floor</button>
             </div>
-            <div className="head-actions"><button className="dev-key hot" disabled={!canCreate} title={canCreate ? '' : 'No floor can take a job right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}>Print a job</button><button className="x boxed" onClick={leave} aria-label="Close the Ops board"><Icon n="x" /></button></div>
+            <div className="head-actions"><button className="btn primary" disabled={!canCreate} title={canCreate ? '' : 'No floor can take a job right now'} onClick={() => s.ui$({ composer: true, composerDept: dept })}>Print a job</button><button className="x boxed" onClick={leave} aria-label="Close the Ops board"><Icon n="x" /></button></div>
           </div>
           <div className="qb-floors" role="group" aria-label="Floor">
             <button aria-pressed={!dept} className={!dept ? 'on' : ''} onClick={() => s.ui$({ boardDept: null })}><Icon n="building" size={13} />All floors<span className="count">{onFloor(null).length}</span></button>
@@ -937,13 +937,12 @@ function QuestCard({ q, open }: { q: BoardQuest; open: boolean }) {
   const pct = x.counts.tasks ? Math.round((x.counts.done / x.counts.tasks) * 100) : 0;
   const cooking = x.status === 'running' || x.status === 'planning';
   return (
-    <button className={`qcard ticket ${x.status}${open ? ' sel' : ''}${why ? ' attn-card' : ''}${stamp ? ' stamped' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
+    <button className={`qcard ticket ${x.status}${open ? ' sel' : ''}${why ? ' attn-card' : ''}`} style={{ ['--st' as string]: statusColor(k) }} aria-expanded={open}
       onClick={() => ui$({ boardQuest: x.id })} aria-label={`${x.title}, ${STATUS[x.status].label}, ${q.deptName}${why ? `: ${why}` : ''}`}>
-      <span className="tk-clip" aria-hidden="true" />
       <span className="tk-top">
         <span className="tk-no">#{x.id.slice(-4).toUpperCase()}</span>
         <span className="tk-dept">{q.floor} · {q.deptName}</span>
-        <span className="tk-age" title={formatTime(x.createdAt)}>{age(x.createdAt)}</span>
+        {stamp ? <span className={`tk-pill ${stamp.tone}`} aria-hidden="true">{stamp.text}</span> : <span className="tk-age" title={formatTime(x.createdAt)}>{age(x.createdAt)}</span>}
       </span>
       <b className="tk-title">{x.title}</b>
       {(why || cooking || origin?.origin === 'agent' || origin?.origin === 'schedule') && <span className="tk-tags">
@@ -967,7 +966,6 @@ function QuestCard({ q, open }: { q: BoardQuest; open: boolean }) {
         {!lines.plan && !lines.latest && <span className="qcard-line muted">Open for the task tree and activity.</span>}
         {x.flags.unauthorizedAssignees && <span className="qcard-line failed"><Glyph k="awaiting" size={8} />Task outside this floor</span>}
       </span>
-      {stamp && <span className={`tk-stamp ${stamp.tone}`} aria-hidden="true">{stamp.text}</span>}
     </button>
   );
 }

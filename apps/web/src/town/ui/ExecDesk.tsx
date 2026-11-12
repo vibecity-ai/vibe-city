@@ -1,6 +1,6 @@
 /* The Executive Office below CEO-1: three more things on the CEO's desk, in the device kit's language.
-   - InTray: what waits for the CEO (decisions, stuck quests, floors that need attention or set-up) as paper slips in
-     a tray, each with a stamp and one key. An empty tray says so.
+   - InTray: what waits for the CEO (decisions, stuck quests, floors that need attention or set-up) as cards in
+     a tray, each with its kind and one key. An empty tray says so.
    - StatusBoard (BOARD-2): an LED board with the company's four counters and today's burn per floor as segment
      meters.
    - Directory: the lobby's felt letter board, one line per floor, with a status light; a line opens the floor. */
@@ -58,11 +58,10 @@ export function InTray() {
       <div className={`tray${slips.length ? '' : ' empty'}`}>
         {slips.length === 0
           ? <p className="tray-clear"><b>Your desk is clear.</b><span>Decisions, stuck jobs and floors that need you land here.</span></p>
-          : slips.map((x, i) => (
-            <button key={x.key} className={`slip ${x.tone}`} style={{ ['--tilt' as string]: `${(i % 2 ? 0.5 : -0.4)}deg` }} onClick={x.go}>
-              <span className="slip-t"><b>{x.title}</b><small>{x.sub}</small></span>
+          : slips.map((x) => (
+            <button key={x.key} className={`slip ${x.tone}`} onClick={x.go}>
+              <span className="slip-t"><b>{x.title}</b><small>{x.sub}{x.stamp !== x.act && <i className={`slip-pill ${x.tone}`}>{x.stamp}</i>}</small></span>
               <span className="slip-act">{x.act}</span>
-              <span className="slip-stamp" aria-hidden="true">{x.stamp}</span>
             </button>
           ))}
       </div>
