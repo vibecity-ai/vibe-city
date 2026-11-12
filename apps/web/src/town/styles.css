@@ -1755,7 +1755,7 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .ql-progress .ql-pips i:not(.done, .now) { background: #281F36; } /* a plain background here outranked .done/.now and hid all progress */
 .ql-pips i { border-radius: 2px; }
 .ql-act { gap: 8px; }
-.ql-act.future { opacity: .5; }
+.ql-act.future .ql-row { color: var(--ink-mute); } /* not opacity: at .5 the muted text fell to ~1.9:1; lock chips already mark it locked */
 .ql-act.past .ql-list { background: none; }
 .ql-act-n { font: 600 11px var(--f-mono); letter-spacing: .12em; text-transform: uppercase; color: var(--amber); }
 .ql-act-c { font: 500 12px var(--f-mono); }
