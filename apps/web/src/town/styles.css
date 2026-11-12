@@ -1751,7 +1751,8 @@ button.sk-hit:focus-visible { outline: 2px solid var(--cyan); outline-offset: -4
 .ql-head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
 .ql-head h2 { margin: 2px 0 0; font: 600 22px/1.2 var(--f-ui); color: var(--ink); }
 .ql-intro { margin: -4px 0 4px; font: 400 13px/1.5 var(--f-ui); color: var(--ink-mute); }
-.ql-progress .ql-pips i { width: 22px; height: 6px; border-radius: 3px; background: #281F36; }
+.ql-progress .ql-pips i { width: 22px; height: 6px; border-radius: 3px; }
+.ql-progress .ql-pips i:not(.done, .now) { background: #281F36; } /* a plain background here outranked .done/.now and hid all progress */
 .ql-pips i { border-radius: 2px; }
 .ql-act { gap: 8px; }
 .ql-act.future { opacity: .5; }
