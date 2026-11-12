@@ -19,7 +19,13 @@ import { ModelName } from './ModelBadge';
 /** The menu every visit opens on (handled here, no model). */
 const ADD = 'Add a new floor', HIRE = 'Hire a new agent', LIST = 'List a floor on the Agent Market';
 /** Adding a department: a ready template (opens the hire grid, no model needed) or a custom floor drafted in conversation. */
-const USE_TEMPLATE = 'Show me the templates', CUSTOM = 'Design a custom floor';
+const USE_TEMPLATE = 'Show me the templates', CUSTOM = 'Design a custom floor', OTHER = 'Something else';
+/** Custom floors suggested for the NEAR hackathon tracks, each built on skills Hermes has installed; the agent still drafts it. */
+const CUSTOM_KINDS: Record<string, string> = {
+  'Private AI lab': 'a floor that builds private AI apps on NEAR AI Cloud and OutLayer TEEs and verifies their attestation (skills near-ai-cloud, building-outlayer-apps, outlayer)',
+  'Cross-chain payments': 'a floor that builds invoicing, payroll and merchant payment flows that settle cross-chain through NEAR Intents (skills near-intents, near-api-js)',
+  'DAO council': 'a floor that runs shared funds and rewards on Sputnik DAO: drafts proposals, tracks votes and posts community updates (skills near-cli-rs, near-kit)',
+};
 /** After a floor is built: what the boss can do next. A first job is thought up by the Chief of Staff; the floor is shown here. */
 const FIRST_JOB = 'Give them a first job', SEE_FLOOR = 'Show me the floor';
 /** Free talk with the Hermes agent: the opener, and after a job it proposed was started. */
@@ -81,11 +87,14 @@ function NewDept() {
     const s = useStore.getState();
     if (m === ADD) { say(m, 'A new floor, boss? We can hire a ready team from our templates, or I design a custom one with you. Which will it be?', [USE_TEMPLATE, CUSTOM]); return true; }
     if (m === USE_TEMPLATE) { s.ui$({ newDept: false, modal: 'create' }); return true; }
+    if (m === CUSTOM) { say(m, 'What should it do, boss? Here are three I would build for the hackathon, or tell me your own idea.', [...Object.keys(CUSTOM_KINDS), OTHER]); return true; }
     if (built && m === SEE_FLOOR) { close(); return true; }
     if (started && m === SEE_BOARD) { close(); s.openPanel('board', { composer: false, boardDept: started.dept, boardFilter: 'all', boardQuest: null }); return true; }
     // the boss sees their chip; the Chief of Staff gets what it needs to think of the floor's first job itself
     const message = built && m === FIRST_JOB
       ? `${m}. ${built.name} was just built (${built.crew}); its purpose: ${built.purpose.replace(/\.?\s*$/, '.')} Think of its first job: one concrete task it can do today with its skills and tools, a quick win that shows what it is for. Propose it for "${built.name}" now, even while it is still being built: I start it once the floor is ready.`
+      : CUSTOM_KINDS[m] ? `${CUSTOM}: ${CUSTOM_KINDS[m]}. Draft it from what Hermes has.`
+      : m === OTHER ? CUSTOM
       : m === JOB
       ? `${m}. Pick the floor with the most obvious next step (an idle one first), think of one concrete job it can do now with its skills and tools, and propose it for that floor by its exact name. One job, not a list.`
       : call && !lines.length ? `(You called me about hiring: ${call}) ${m}`

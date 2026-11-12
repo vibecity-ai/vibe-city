@@ -13,7 +13,7 @@ test('every template parses and has a lead plus teammates with distinct titles',
     // without the skills toolset the agents could not load the skills the template names
     for (const ts of ['skills', 'memory', 'todo']) assert.ok(t.inventory.allowedToolsets.includes(ts as never), `${t.id} has ${ts}`);
   }
-  assert.deepEqual(TEMPLATES.map((t) => t.id), ['treasury-ops', 'trading-desk', 'prediction-desk', 'chief-of-staff']);
+  assert.deepEqual(TEMPLATES.map((t) => t.id), ['contract-studio', 'audit-guild', 'thesis-lab', 'treasury-ops', 'trading-desk', 'prediction-desk', 'chief-of-staff']);
 });
 
 test('hiring Treasury Ops creates three agents with their titles and no schedule', async () => {
@@ -39,13 +39,13 @@ test('every template is one per company: a second is refused while the first is 
   const { app } = memApp();
   const hire = (name: string) => app.inject({ method: 'POST', url: '/api/departments', payload: { name, template: 'treasury-ops' } });
   const hired = async () => Object.fromEntries((await app.inject('/api/templates')).json().map((t: any) => [t.id, t.hired]));
-  assert.deepEqual(await hired(), { 'treasury-ops': false, 'trading-desk': false, 'prediction-desk': false });
+  assert.deepEqual(await hired(), { 'contract-studio': false, 'audit-guild': false, 'thesis-lab': false, 'treasury-ops': false, 'trading-desk': false, 'prediction-desk': false });
   const first = await hire('Treasury');
   assert.equal(first.statusCode, 201, first.body);
   const second = await hire('Treasury Two');
   assert.equal(second.statusCode, 409);
   assert.match(second.json().message, /one per company/);
-  assert.deepEqual(await hired(), { 'treasury-ops': true, 'trading-desk': false, 'prediction-desk': false });
+  assert.deepEqual(await hired(), { 'contract-studio': false, 'audit-guild': false, 'thesis-lab': false, 'treasury-ops': true, 'trading-desk': false, 'prediction-desk': false });
   const desk = (name: string) => app.inject({ method: 'POST', url: '/api/departments', payload: { name, template: 'trading-desk' } });
   assert.equal((await desk('Desk')).statusCode, 201, 'another template is still free');
   assert.equal((await desk('Desk Two')).statusCode, 409, 'and is one per company too');
@@ -68,7 +68,7 @@ test('hiring the Trading Desk creates four agents and one disabled schedule', as
   assert.ok(plain.agents.every((a: any) => !('title' in a)));
   assert.equal((await app.inject({ method: 'POST', url: '/api/departments', payload: { name: 'X', template: 'nope' } })).statusCode, 400);
   const list = (await app.inject('/api/templates')).json();
-  assert.equal(list.length, 3);
+  assert.equal(list.length, 6);
   // without NEAR AI connected, hiring is off: every card points at that quest first
   const saved = process.env.NEAR_AI_API_KEY;
   delete process.env.NEAR_AI_API_KEY;

@@ -121,7 +121,7 @@ function standingScreen(c: IC, u: number, v: number, w: number, h0: number, hh: 
 export function stationStatic(c: IC, templateId: string) {
   const { P, px } = c;
   switch (templateId) {
-    case 'trading-desk': case 'prediction-desk': case 'treasury-ops': {
+    case 'trading-desk': case 'prediction-desk': case 'treasury-ops': case 'thesis-lab': case 'contract-studio': case 'audit-guild': {
       standingScreen(c, 202, 26, 34, 10, 20, '#1A1530');
       box(c, 206, 12, 0, 22, 10, 11, '#3A2448', { top: '#5A3A6A' }); // the desk under it
       break;
@@ -145,7 +145,7 @@ export function stationLive(c: IC, templateId: string, lit: boolean) {
   const { px, L, t } = c;
   const on = lit ? 1 : 0.2;
   switch (templateId) {
-    case 'trading-desk': case 'treasury-ops': {
+    case 'trading-desk': case 'treasury-ops': case 'thesis-lab': {
       const S = face(c, 202, 26, 10, 34, 20);
       quadOn(c, S, 0, 0, 34, 20, '#07121A', 0.9 * on);
       px.text('ETH', (a, b) => S(2 + a, 2 + b), 1, C.gold, on);
@@ -187,6 +187,18 @@ export function stationLive(c: IC, templateId: string, lit: boolean) {
         px.text(`${Math.round(p * 100)}`, (a, b) => S(24 + a * 0.8, 3.2 + r * 5.5 + b * 0.8), 0.8, '#F4EEFF', on);
       }
       if (lit) L.add(...c.P(219, 26, 22), 46, C.violet, 0.3);
+      break;
+    }
+    case 'contract-studio': case 'audit-guild': {
+      // code scrolling up; the audit wall marks some lines red (findings)
+      const audit = templateId === 'audit-guild', S = face(c, 202, 26, 10, 34, 20);
+      quadOn(c, S, 0, 0, 34, 20, '#0A1220', 0.9 * on);
+      px.text(audit ? 'AUDIT' : 'RUST', (a, b) => S(2 + a, 1.5 + b), 1, C.gold, on);
+      for (let r = 0; r < 5; r++) {
+        const k = Math.floor(t * 1.2) + r, bad = audit && hash(k, 31) > 0.75;
+        quadOn(c, S, 2 + hash(k, 32) * 4, 7 + r * 2.5, 8 + hash(k, 33) * 18, 1, bad ? C.red : r % 2 ? C.cyan : C.mint, on);
+      }
+      if (lit) L.add(...c.P(219, 26, 22), 46, audit ? C.red : C.cyan, 0.3);
       break;
     }
   }

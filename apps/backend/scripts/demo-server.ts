@@ -110,6 +110,15 @@ const agentChat = new FakeAgentChat(hermes, (t, history) => {
       return `${floor} is the floor for that, boss. Hit Start job and it is on their board.${meta({ mood: 'focused', replies: ['Brief me', 'Never mind'],
         proposal: { department: floor, title: 'Competitor pricing snapshot', objective: 'Collect the current pricing pages of our three closest competitors and summarise the differences in a one-page brief.' } })}`;
     }
+    // the hackathon custom floors the boss can pick in the dialogue (NewDept's CUSTOM_KINDS)
+    const kind = /near ai cloud/.test(last) ? { name: 'Private AI Lab', purpose: 'Builds private AI apps on NEAR AI Cloud and OutLayer TEEs and verifies their attestation.', skills: ['near-ai-cloud', 'building-outlayer-apps', 'outlayer'], toolsets: ['web', 'terminal', 'file'],
+        agents: [{ name: 'Mira', title: 'Private AI Lead', does: 'Designs what runs inside the enclave and checks the attestation.' }, { name: 'Ravi', title: 'Enclave Engineer', does: 'Builds and deploys the OutLayer app.' }] }
+      : /near intents/.test(last) ? { name: 'Payments Desk', purpose: 'Builds invoicing, payroll and merchant payment flows that settle cross-chain through NEAR Intents.', skills: ['near-intents', 'near-api-js'], toolsets: ['web', 'terminal', 'file'],
+        agents: [{ name: 'Lena', title: 'Payments Lead', does: 'Plans the flow and who gets paid what.' }, { name: 'Omar', title: 'Intents Engineer', does: 'Wires quotes, deposits and settlement through NEAR Intents.' }] }
+      : /sputnik dao/.test(last) ? { name: 'DAO Council', purpose: 'Runs shared funds and rewards on Sputnik DAO: drafts proposals, tracks votes and posts community updates.', skills: ['near-cli-rs', 'near-kit'], toolsets: ['web', 'terminal'],
+        agents: [{ name: 'Ada', title: 'DAO Secretary', does: 'Drafts proposals and tracks the votes.' }, { name: 'Jun', title: 'Community Lead', does: 'Posts updates and rewards contributors.' }] }
+      : null;
+    if (kind) return `${kind.name} it is, boss. Here is my pitch.${meta({ mood: 'happy', replies: ['Make it one agent', 'Never mind'], proposal: null, floor: { ...kind, model: null } })}`;
     if (/floor|department|one agent/.test(last)) {
       const agents = [{ name: 'Iris', title: 'Research Lead', does: 'Plans the watchlist and writes the digest.' }, { name: 'Tomas', title: 'Web Scout', does: 'Checks pricing pages and launches.' }];
       return `A small research floor would earn its keep, boss. Here is my pitch.${meta({ mood: 'happy', replies: ['Make it one agent', 'Never mind'], proposal: null,

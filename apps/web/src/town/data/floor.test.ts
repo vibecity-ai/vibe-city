@@ -16,7 +16,7 @@ test('every template has a station whose tools the template actually gives its f
   }
   assert.equal(stationFor(null), null);
   assert.equal(stationFor('no-such-template'), null);
-  assert.equal(Object.keys(STATIONS).length, 4, 'three templates and the market marketplace board');
+  assert.equal(Object.keys(STATIONS).length, 7, 'six templates and the market marketplace board');
   // the marketplace board stands on the listed floor only; a custom floor otherwise keeps its lounge
   assert.equal(stationKeyOf({ id: 'a', view: { templateId: null } }, ['a', 'c']), 'market');
   assert.equal(stationKeyOf({ id: 'c', view: { templateId: null } }, ['a', 'c']), 'market', 'every listed floor has one');

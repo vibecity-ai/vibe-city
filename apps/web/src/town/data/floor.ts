@@ -64,6 +64,9 @@ export const STATIONS: Record<string, Station> = {
   'trading-desk': { name: 'Market wall', blurb: 'Prices, funding and open positions. Every trade stays inside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'hyperliquid-connector'], marker: '[pnl usd=…]', wallet: true },
   'treasury-ops': { name: 'Swap board', blurb: 'Wallet and Intents balances, and every swap in flight. Nothing moves outside the wallet policy.', toolsets: ['web', 'terminal'], skills: ['agent-custody'], marker: '[pnl usd=…]', wallet: true },
   'prediction-desk': { name: 'Odds board', blurb: 'Markets the desk follows, its estimates and open positions.', toolsets: ['web', 'terminal'], skills: ['agent-custody', 'polymarket-connector'], marker: '[pnl usd=…]', wallet: true },
+  'contract-studio': { name: 'Build wall', blurb: 'The contract and app being built, and the tests that guard them. Testnet only.', toolsets: ['terminal', 'file'], skills: ['near-smart-contracts', 'near-cli-rs'], marker: null, wallet: false },
+  'audit-guild': { name: 'Findings wall', blurb: 'The code under audit and every finding, worst first. Nothing leaves the company.', toolsets: ['terminal', 'file'], skills: ['near-contract-audit'], marker: null, wallet: false },
+  'thesis-lab': { name: 'Data wall', blurb: 'The charts behind the current thesis, each with the call that made it.', toolsets: ['web'], skills: ['defillama', 'coingecko'], marker: null, wallet: false },
   // not a template: the floor listed on the Agent Market (see stationKeyOf)
   market: { name: 'Marketplace board', blurb: 'Jobs buyers hired this floor for on the NEAR AI Agent Market: in progress, delivered, paid.', toolsets: [], skills: ['marketplace-worker'], marker: null, wallet: false },
 };
@@ -71,8 +74,8 @@ export const STATIONS: Record<string, Station> = {
 /** How long the city takes to put up a station that appears while you watch (a floor just listed on the market). */
 export const STATION_BUILD_MS = 2400;
 export const stationFor = (templateId: string | undefined | null): Station | null => (templateId ? STATIONS[templateId] ?? null : null);
-/** Which station a floor has: the marketplace board on the floor listed on the Agent Market (never a template floor: those all
-    spend from the company wallet and can't be listed), else its template's own, else none (the lounge stays). */
+/** Which station a floor has: the marketplace board on the floor listed on the Agent Market (a listed template floor shows it
+    instead of its own; wallet floors cannot be listed), else its template's own, else none (the lounge stays). */
 export const stationKeyOf = (d: { id: string; view: { templateId?: string | null } }, listed: readonly string[]): string | null =>
   listed.includes(d.id) ? 'market' : stationFor(d.view.templateId) ? d.view.templateId! : null;
 /** The floors on the Agent Market (each its own agent). */

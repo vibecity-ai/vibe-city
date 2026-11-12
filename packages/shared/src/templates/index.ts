@@ -4,10 +4,13 @@ import { tradingDesk } from './trading-desk.ts';
 import { treasuryOps } from './treasury-ops.ts';
 import { predictionDesk } from './prediction-desk.ts';
 import { chiefOfStaff } from './chief-of-staff.ts';
+import { contractStudio } from './contract-studio.ts';
+import { auditGuild } from './audit-guild.ts';
+import { thesisLab } from './thesis-lab.ts';
 
 export { TEMPLATE_BASE_TOOLSETS } from './helpers.ts';
 
-export const TEMPLATES: readonly Template[] = [treasuryOps, tradingDesk, predictionDesk, chiefOfStaff];
+export const TEMPLATES: readonly Template[] = [contractStudio, auditGuild, thesisLab, treasuryOps, tradingDesk, predictionDesk, chiefOfStaff];
 /** The hidden template every company's Chief of Staff department is made from. */
 export const CHIEF_OF_STAFF = chiefOfStaff.id;
 export const templateById = (id: string) => TEMPLATES.find((t) => t.id === id) ?? null;
