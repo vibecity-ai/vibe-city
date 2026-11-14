@@ -145,9 +145,7 @@ A floor is a team: one **lead** who plans and up to ten **teammates**. Give a fl
 | **Sputnik DAO + Trezu** | The IPO creates `<company>.sputnik-dao.near` with a Trezu-shaped policy. The DAO holds 60% of the shares and the money raised; dividends and the end of the sale are proposals you approve in Trezu. | [`domain/ipoService.ts`](apps/backend/src/domain/ipoService.ts) |
 | **City token (NEP-141)** | Our own factory, `tokens.vibecity.near`, creates `<symbol>.tokens.vibecity.near`: 1,000,000 shares, 40% sold by the token itself at a fixed price on the public `/invest` page (any NEAR wallet via near-connect). | [`contracts/`](contracts), [`apps/web/src/invest`](apps/web/src/invest) |
 
-<!-- MAINNET: add the live accounts once confirmed, e.g.
-**On mainnet:** DAO [`xyz.sputnik-dao.near`](https://nearblocks.io/address/xyz.sputnik-dao.near) · token [`xyz.tokens.vibecity.near`](https://nearblocks.io/address/xyz.tokens.vibecity.near) · factory [`tokens.vibecity.near`](https://nearblocks.io/address/tokens.vibecity.near) · [the DAO in Trezu](https://trezu.app/xyz.sputnik-dao.near)
--->
+**On mainnet:** DAO [`vibe-city.sputnik-dao.near`](https://nearblocks.io/address/vibe-city.sputnik-dao.near) · token [`vc.tokens.vibecity.near`](https://nearblocks.io/address/vc.tokens.vibecity.near) · factory [`tokens.vibecity.near`](https://nearblocks.io/address/tokens.vibecity.near) · [the DAO in Trezu](https://trezu.app/vibe-city.sputnik-dao.near)
 
 ### The IPO
 
