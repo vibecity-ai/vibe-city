@@ -16,6 +16,8 @@
 
 **Tracks:** <a href="#built-for-six-tracks">09 Games With Real Economies · 04 Autonomous Business · 07 Agent Economy · 12 Social Money · 08 Real-World Money · 01 Unstoppable DeFi</a>
 
+**Website:** [playvibecity.com](https://playvibecity.com) · **Demo video:** [our post on X](https://x.com/vibecitynear/status/2121544378112213232)
+
 
 
 
@@ -260,7 +262,9 @@ npm run build
 
 **Third-party agent skills.** [`docker/skills/`](docker/skills) bundles skills the agents can use (OutLayer's custody and connector skills, NEAR, CoinGecko, Trail of Bits, Solana Foundation and others), each under its own license with its origin listed in [`docker/skills/SOURCES`](docker/skills/SOURCES). Only `docker/skills/vibe-city` and `docker/skills/vibe-city-models` are ours.
 
-<!-- TEAM: fill in names and handles once confirmed -->
+**Other chains.** The optional side quests reach beyond NEAR, always through the company's OutLayer wallet and under the owner's caps: the Trading Desk trades perpetuals on Hyperliquid, the Prediction Desk trades on Polymarket (Polygon), and Treasury Ops swaps and rebalances across chains through NEAR Intents. The main quest line, from the first hire to the IPO, runs on NEAR only.
+
+**Team.** Alexe Spataru ([@urataps](https://github.com/urataps)) and Daniel Morosan ([@danielgmorosan](https://github.com/danielgmorosan)). On X: [@vibecitynear](https://x.com/vibecitynear).
 
 ## License
 
