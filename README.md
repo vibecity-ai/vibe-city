@@ -262,7 +262,7 @@ npm run build
 
 **Other chains.** The optional side quests reach beyond NEAR, always through the company's OutLayer wallet and under the owner's caps: the Trading Desk trades perpetuals on Hyperliquid, the Prediction Desk trades on Polymarket (Polygon), and Treasury Ops swaps and rebalances across chains through NEAR Intents. The main quest line, from the first hire to the IPO, runs on NEAR only.
 
-**Team.** Alexe Spataru ([@urataps](https://github.com/urataps)) and Daniel Morosan ([@danielgmorosan](https://github.com/danielgmorosan)). On X: [@vibecitynear](https://x.com/vibecitynear).
+**Team.** Alexe Spataru (GitHub [@urataps](https://github.com/urataps), X [@urataps](https://x.com/urataps)) and Daniel Morosan (GitHub [@danielgmorosan](https://github.com/danielgmorosan), X [@danielgmorosan](https://x.com/danielgmorosan)). The project on X: [@vibecitynear](https://x.com/vibecitynear).
 
 ## License
 
